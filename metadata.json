@@ -1,0 +1,6 @@
+{
+  "name": "JEE 3D Physics Lab",
+  "description": "Interactive 3D physics visualization, real-time mechanics & electromagnetism simulations, dynamic equation solvers, and practice questions for JEE Main & JEE Advanced.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
