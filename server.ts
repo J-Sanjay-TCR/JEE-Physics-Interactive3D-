@@ -653,6 +653,66 @@ app.post('/api/ai/tts', async (req, res) => {
   }
 });
 
+// 4b. Voice Input Transcriber (Gemini Multimodal Audio to Text)
+app.post('/api/ai/transcribe', async (req, res) => {
+  try {
+    const { audioBase64, mimeType = 'audio/webm' } = req.body;
+    if (!audioBase64 || typeof audioBase64 !== 'string') {
+      return res.status(400).json({ error: 'Audio data is required' });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
+    }
+
+    // Strip data URI prefix if present
+    const cleanBase64 = audioBase64.replace(/^data:[^;]+;base64,/, '');
+    const cleanMime = (mimeType.split(';')[0] || 'audio/webm').trim();
+
+    const ai = getGenAI();
+    const modelsToTry = [PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, TERTIARY_FLASH_MODEL];
+
+    for (const model of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: [
+            {
+              parts: [
+                {
+                  inlineData: {
+                    data: cleanBase64,
+                    mimeType: cleanMime,
+                  },
+                },
+                {
+                  text: 'Transcribe this user speech accurately for a JEE Physics AI doubt tutor. Return ONLY the plain transcribed question or sentence without introductory phrases, timestamps, quotation marks, or formatting.',
+                },
+              ],
+            },
+          ],
+          config: {
+            temperature: 0.1,
+          },
+        });
+
+        const transcript = response.text?.trim() || '';
+        if (transcript) {
+          return res.json({ transcript, modelUsed: model });
+        }
+      } catch (err: any) {
+        console.warn(`[AI Transcribe] Model ${model} transcription attempt notice:`, err?.status || err?.message || 'fallback');
+      }
+    }
+
+    res.status(422).json({ error: 'Could not transcribe speech. Please try speaking again or type your doubt.' });
+  } catch (error: any) {
+    console.error('Error in /api/ai/transcribe:', error);
+    res.status(500).json({ error: error?.message || 'Internal transcription error' });
+  }
+});
+
 /**
  * Utility to convert raw markdown / LaTeX formulas into natural English phrasing for speech synthesis
  */

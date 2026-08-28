@@ -82,10 +82,23 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
   const [voiceTone, setVoiceTone] = useState<'friendly' | 'coach'>('friendly');
   const [voiceSpeed, setVoiceSpeed] = useState<number>(1.03);
 
-  // Voice Recording & Speech Recognition State
+  // Voice Recording & Dual-Engine Speech Recognition State
   const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  const [audioLevel, setAudioLevel] = useState<number>(0);
   const [speechError, setSpeechError] = useState<string | null>(null);
+
   const recognitionRef = useRef<any>(null);
+  const isManuallyStoppedRef = useRef<boolean>(true);
+  const restartTimerRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const accumulatedTranscriptRef = useRef<string>('');
+  const speechSilenceTimerRef = useRef<any>(null);
 
   // Audio Playback & Voice Cache State
   const [playingMessageIndex, setPlayingMessageIndex] = useState<number | null>(null);
@@ -97,6 +110,7 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
 
   // Instant Barge-In State & Feedback
   const [isBargeInActive, setIsBargeInActive] = useState<boolean>(false);
+  const [bargeInReason, setBargeInReason] = useState<string>('Voice Interrupted');
   const bargeInTimerRef = useRef<any>(null);
 
   const refreshCacheStats = () => {
@@ -114,14 +128,17 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
   /**
    * Instant Barge-In Interruption Handler (<0.5ms)
    * Instantly stops audio playback, cancels speech synthesis, halts lookahead queues,
-   * and aborts ongoing streaming requests when user begins speaking or types.
+   * aborts ongoing streaming requests, and resets SpeechRecognition object state when
+   * a user starts speaking over the tutor.
    */
   const handleBargeIn = (reason = 'user_interrupted') => {
     let wasActive = false;
 
     // 1. Immediately kill running StreamAudioPlayer instance
     if (activeStreamPlayerRef.current) {
-      activeStreamPlayerRef.current.stop();
+      try {
+        activeStreamPlayerRef.current.stop();
+      } catch (e) {}
       activeStreamPlayerRef.current = null;
       wasActive = true;
     }
@@ -142,28 +159,527 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
 
     // 4. Abort in-flight streaming fetch if still streaming tokens
     if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+      try {
+        abortControllerRef.current.abort();
+      } catch (e) {}
       abortControllerRef.current = null;
       setLoading(false);
       wasActive = true;
     }
 
-    // 5. Provide responsive visual feedback to user
+    // 5. Reset SpeechRecognition object state if user interrupted while speaking over tutor
+    // This purges any audio bleed / echo from tutor's speaker output and begins listening cleanly
+    if (reason === 'live_voice_interruption' || reason === 'interrupt_button') {
+      if (!isManuallyStoppedRef.current && recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {}
+        accumulatedTranscriptRef.current = '';
+        setQuestion('');
+      }
+    }
+
+    // 6. Provide responsive visual feedback to user
     if (wasActive) {
       setIsBargeInActive(true);
+      const readableReason =
+        reason === 'live_voice_interruption'
+          ? '⚡ Spoken Voice Interruption: Tutor paused to listen!'
+          : reason === 'interrupt_button'
+          ? '⚡ Tutor Interrupted: Ready for your next doubt'
+          : reason === 'typing_input'
+          ? '⚡ Typing Interruption: Audio paused'
+          : '⚡ Tutor Interrupted';
+
+      setBargeInReason(readableReason);
+
       if (bargeInTimerRef.current) clearTimeout(bargeInTimerRef.current);
       bargeInTimerRef.current = setTimeout(() => {
         setIsBargeInActive(false);
-      }, 2400);
+      }, 2600);
     }
   };
 
-  // Clean up audio on close
-  useEffect(() => {
-    if (!isOpen) {
-      handleBargeIn('modal_closed');
+  // Clean up mic streams and audio analysers safely
+  const cleanupMicStreams = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
     }
-  }, [isOpen]);
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    if (speechSilenceTimerRef.current) {
+      clearTimeout(speechSilenceTimerRef.current);
+      speechSilenceTimerRef.current = null;
+    }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {}
+      });
+      micStreamRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      try {
+        audioContextRef.current.close();
+      } catch (e) {}
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    setAudioLevel(0);
+  };
+
+  /**
+   * Helper to detect if speech is a trailing incomplete clause or filler sound
+   */
+  const isIncompleteFragment = (text: string): boolean => {
+    const trimmed = text.trim().toLowerCase();
+    if (!trimmed) return true;
+
+    // Single filler noises
+    const singleFillers = ['uh', 'um', 'ah', 'oh', 'er', 'hmm', 'huh', 'a', 'the', 'so', 'ok', 'okay', 'like'];
+    const words = trimmed.split(/\s+/);
+    if (words.length === 1 && singleFillers.includes(words[0])) {
+      return true;
+    }
+
+    // Trailing open connectors or prepositions where user is mid-thought
+    const trailingConnectors = [
+      'and', 'or', 'but', 'because', 'what if', 'so', 'where', 'if', 'when', 'with',
+      'like', 'calculate', 'derivative of', 'integral of', 'in', 'at', 'to', 'for',
+      'then', 'since', 'which', 'that', 'how to', 'why is', 'such as', 'is', 'are',
+      'the', 'a', 'an', 'of', 'as', 'than', 'into', 'about', 'from', 'between', 'during'
+    ];
+
+    const lastWord = words[words.length - 1];
+    const lastTwoWords = words.slice(-2).join(' ');
+
+    if (trailingConnectors.includes(lastWord) || trailingConnectors.includes(lastTwoWords)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  /**
+   * Computes dynamic debounce delay in ms based on sentence completeness
+   */
+  const getDebounceDelayForSpeech = (text: string): number => {
+    const trimmed = text.trim();
+    if (!trimmed) return 2500;
+
+    const words = trimmed.split(/\s+/);
+
+    // If terminated with punctuation marks (?, ., !), the student has concluded their sentence
+    if (/[?.!]$/.test(trimmed)) {
+      return 1500;
+    }
+
+    // If it's a trailing fragment or very short query (<= 2 words), allow extra pause time
+    if (isIncompleteFragment(trimmed) || words.length <= 2) {
+      return 3000;
+    }
+
+    // Standard complete statement threshold
+    return 2200;
+  };
+
+  /**
+   * Schedules debounced speech finalization to avoid processing partial sentence fragments
+   */
+  const scheduleDebouncedSpeechProcessing = (transcript: string) => {
+    if (isManuallyStoppedRef.current) return;
+
+    if (speechSilenceTimerRef.current) {
+      clearTimeout(speechSilenceTimerRef.current);
+      speechSilenceTimerRef.current = null;
+    }
+
+    const trimmed = transcript.trim();
+    if (!trimmed || trimmed.length < 2) return;
+
+    const delay = getDebounceDelayForSpeech(trimmed);
+
+    speechSilenceTimerRef.current = setTimeout(() => {
+      if (!isManuallyStoppedRef.current && accumulatedTranscriptRef.current.trim().length > 1) {
+        const candidate = accumulatedTranscriptRef.current.trim();
+        // If trailing connector detected after delay, extend once if student might still speak
+        if (isIncompleteFragment(candidate) && candidate.split(/\s+/).length <= 2) {
+          // Give one more brief grace window before stopping or waiting for manual submit
+          return;
+        }
+        stopVoiceRecording(true);
+      }
+    }, delay);
+  };
+
+  /**
+   * Stop voice recording and process speech input with dual-engine fallback
+   */
+  const stopVoiceRecording = async (shouldSend = true) => {
+    isManuallyStoppedRef.current = true;
+    setIsRecording(false);
+
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
+    if (speechSilenceTimerRef.current) {
+      clearTimeout(speechSilenceTimerRef.current);
+      speechSilenceTimerRef.current = null;
+    }
+
+    // 1. Stop SpeechRecognition engine
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
+
+    // 2. Stop MediaRecorder engine and capture audio blobs
+    let recordedAudioBlob: Blob | null = null;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        await new Promise<void>((resolve) => {
+          if (!mediaRecorderRef.current) return resolve();
+          mediaRecorderRef.current.onstop = () => {
+            if (audioChunksRef.current.length > 0) {
+              recordedAudioBlob = new Blob(audioChunksRef.current, {
+                type: mediaRecorderRef.current?.mimeType || 'audio/webm',
+              });
+            }
+            resolve();
+          };
+          mediaRecorderRef.current.stop();
+        });
+      } catch (e) {
+        console.warn('Error stopping MediaRecorder:', e);
+      }
+    }
+    mediaRecorderRef.current = null;
+
+    // Cleanup mic stream
+    cleanupMicStreams();
+
+    if (!shouldSend) return;
+
+    const speechText = accumulatedTranscriptRef.current.trim();
+
+    // Verify speech text has meaningful content (not just a single noise artifact)
+    if (speechText.length > 1) {
+      const words = speechText.split(/\s+/);
+      const isSingleFiller = words.length === 1 && ['uh', 'um', 'ah', 'oh', 'a', 'the'].includes(words[0].toLowerCase());
+      if (!isSingleFiller) {
+        setQuestion(speechText);
+        handleSend(speechText, true);
+        accumulatedTranscriptRef.current = '';
+        return;
+      }
+    }
+
+    // If Web Speech API had no result or failed, fallback to Gemini Multimodal Audio Transcriber
+    if (recordedAudioBlob && (recordedAudioBlob as Blob).size > 500) {
+      setIsTranscribing(true);
+      setSpeechError(null);
+
+      try {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(recordedAudioBlob as Blob);
+        });
+
+        const dataUrl = await base64Promise;
+        const res = await fetch('/api/ai/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audioBase64: dataUrl,
+            mimeType: (recordedAudioBlob as Blob).type || 'audio/webm',
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.transcript && data.transcript.trim()) {
+            const finalTranscript = data.transcript.trim();
+            setQuestion(finalTranscript);
+            handleSend(finalTranscript, true);
+            accumulatedTranscriptRef.current = '';
+            setIsTranscribing(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('Error during fallback audio transcription:', err);
+      } finally {
+        setIsTranscribing(false);
+      }
+    }
+
+    // If no speech was detected
+    if (!speechText) {
+      setSpeechError('No speech detected. Please speak closer to your microphone or type your question.');
+      setTimeout(() => setSpeechError(null), 4000);
+    }
+  };
+
+  /**
+   * Initializes and binds Web Speech API recognition instance with resilient error recovery
+   * and automatic restart loop listeners.
+   */
+  const bindSpeechRecognitionInstance = () => {
+    if (isManuallyStoppedRef.current) return;
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      console.warn('[Web Speech API] SpeechRecognition not natively supported on this browser.');
+      return;
+    }
+
+    try {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {}
+        recognitionRef.current = null;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+        setSpeechError(null);
+      };
+
+      // Native audio and speech onset events for instant barge-in
+      recognition.onaudiostart = () => {
+        if (playingMessageIndex !== null || isGeneratingVoice) {
+          handleBargeIn('live_voice_interruption');
+        }
+      };
+
+      recognition.onspeechstart = () => {
+        if (playingMessageIndex !== null || isGeneratingVoice) {
+          handleBargeIn('live_voice_interruption');
+        }
+      };
+
+      recognition.onsoundstart = () => {
+        if (playingMessageIndex !== null || isGeneratingVoice) {
+          handleBargeIn('live_voice_interruption');
+        }
+      };
+
+      recognition.onresult = (event: any) => {
+        if (playingMessageIndex !== null || isGeneratingVoice) {
+          handleBargeIn('live_voice_interruption');
+        }
+
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = 0; i < event.results.length; i++) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            finalTranscript += res[0].transcript + ' ';
+          } else {
+            interimTranscript += res[0].transcript;
+          }
+        }
+
+        const combined = (finalTranscript + interimTranscript).trim();
+
+        if (combined) {
+          accumulatedTranscriptRef.current = combined;
+          setQuestion(combined);
+
+          // Intelligent debounced processing: wait for user to conclude their thought or sentence
+          scheduleDebouncedSpeechProcessing(combined);
+        }
+      };
+
+      // Error handler with restart loop resilience
+      recognition.onerror = (event: any) => {
+        const err = event.error;
+        console.warn('[Web Speech API] Recognition error encountered:', err);
+
+        if (err === 'not-allowed' || err === 'service-not-allowed') {
+          setSpeechError('Microphone permission blocked. Please allow microphone access in your browser settings.');
+          isManuallyStoppedRef.current = true;
+          setIsRecording(false);
+          cleanupMicStreams();
+        } else if (err === 'audio-capture') {
+          setSpeechError('No microphone detected or audio capture is unavailable.');
+          isManuallyStoppedRef.current = true;
+          setIsRecording(false);
+          cleanupMicStreams();
+        } else if (err === 'no-speech') {
+          // Benign silence event: listener loop will continue in onend
+        } else if (err === 'aborted') {
+          // Triggered during barge-in reset or tab switch: listener loop handles restart if active
+        } else if (err === 'network') {
+          console.warn('[Web Speech API] Network transient issue. Retrying in listener loop...');
+        }
+      };
+
+      // End event listener to restart listener loop seamlessly
+      recognition.onend = () => {
+        if (!isManuallyStoppedRef.current) {
+          if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = setTimeout(() => {
+            if (!isManuallyStoppedRef.current) {
+              try {
+                recognition.start();
+              } catch (restartErr: any) {
+                // If the recognition instance is in an unrecoverable state, re-instantiate cleanly
+                if (restartErr.name !== 'InvalidStateError') {
+                  bindSpeechRecognitionInstance();
+                }
+              }
+            }
+          }, 60);
+        }
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (recErr: any) {
+      console.warn('[Web Speech API] Could not start SpeechRecognition instance:', recErr);
+    }
+  };
+
+  /**
+   * Starts microphone capture, initializes live audio meter, and runs dual speech engines
+   */
+  const startVoiceRecording = async () => {
+    isManuallyStoppedRef.current = false;
+    handleBargeIn('mic_activated');
+    unlockAudio();
+
+    setSpeechError(null);
+    accumulatedTranscriptRef.current = '';
+    audioChunksRef.current = [];
+
+    try {
+      // 1. Explicitly request and bind user microphone stream
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      micStreamRef.current = stream;
+
+      // 2. Setup Web Audio Analyser for Realtime Volume Meter & Live Barge-In VAD
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        const audioCtx = new AudioCtx();
+        audioContextRef.current = audioCtx;
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        analyserRef.current = analyser;
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        let consecutiveVoiceFrames = 0;
+
+        const updateAudioMeter = () => {
+          if (!analyserRef.current) return;
+          analyserRef.current.getByteFrequencyData(dataArray);
+
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const average = sum / dataArray.length;
+          const normalized = Math.min(100, Math.round((average / 128) * 100));
+          setAudioLevel(normalized);
+
+          // Live Voice Activity Detection for Barge-In while AI is speaking
+          if (normalized > 18) {
+            consecutiveVoiceFrames++;
+            if (consecutiveVoiceFrames >= 2) {
+              if (playingMessageIndex !== null || isGeneratingVoice) {
+                handleBargeIn('live_voice_interruption');
+              }
+              // If user is vocalizing and there is pending transcript, refresh debounce to prevent cutoffs
+              if (accumulatedTranscriptRef.current && accumulatedTranscriptRef.current.trim().length > 1) {
+                scheduleDebouncedSpeechProcessing(accumulatedTranscriptRef.current);
+              }
+            }
+          } else {
+            consecutiveVoiceFrames = 0;
+          }
+
+          animFrameRef.current = requestAnimationFrame(updateAudioMeter);
+        };
+        updateAudioMeter();
+      } catch (audioErr) {
+        console.warn('Could not initialize audio visualizer analyser:', audioErr);
+      }
+
+      // 3. Initialize MediaRecorder for high-accuracy fallback recording
+      try {
+        const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? { mimeType: 'audio/webm;codecs=opus' }
+          : MediaRecorder.isTypeSupported('audio/mp4')
+          ? { mimeType: 'audio/mp4' }
+          : undefined;
+
+        const mediaRecorder = new MediaRecorder(stream, options);
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
+        mediaRecorderRef.current = mediaRecorder;
+        mediaRecorder.start(250); // Slice chunks every 250ms
+      } catch (mrErr) {
+        console.warn('MediaRecorder not available or supported:', mrErr);
+      }
+
+      // 4. Initialize Web Speech API Recognition with listener loop
+      bindSpeechRecognitionInstance();
+
+      setIsRecording(true);
+    } catch (err: any) {
+      console.error('Error accessing microphone:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setSpeechError('Microphone permission blocked. Please allow microphone access in your browser settings.');
+      } else {
+        setSpeechError('Could not connect to microphone. Please check your audio device.');
+      }
+      cleanupMicStreams();
+      setIsRecording(false);
+      isManuallyStoppedRef.current = true;
+    }
+  };
+
+  /**
+   * Toggle Voice Recording state
+   */
+  const toggleVoiceRecording = () => {
+    if (isRecording) {
+      stopVoiceRecording(true);
+    } else {
+      startVoiceRecording();
+    }
+  };
 
   // Derivation data for active concept
   const derivation = useMemo(() => {
@@ -188,7 +704,7 @@ ${formulasList}
 - *"Give me a 30-second shortcut to crack numerical questions here."*
 - *"Derive the calculus step-by-step with real-life analogies."*
 
-Hit **Voice Doubt** to talk to me live, or drop your question below!`;
+Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
   }, [currentConcept]);
 
   const [messages, setMessages] = useState<Message[]>([
@@ -208,23 +724,17 @@ Hit **Voice Doubt** to talk to me live, or drop your question below!`;
     ]);
   }, [initialGreeting]);
 
-  // Cleanup audio & body scroll lock on unmount or close
+  // Cleanup audio, recording & body scroll lock on unmount or close
   useEffect(() => {
     if (!isOpen) {
-      stopAllAudio();
-      setPlayingMessageIndex(null);
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {}
-      }
-      setIsRecording(false);
+      handleBargeIn('modal_closed');
+      stopVoiceRecording(false);
+      cleanupMicStreams();
     } else {
       // Prevent background scrolling when AI tutor is open
       const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
 
-      // Auto-focus doubts input box when opened
       const focusTimer = setTimeout(() => {
         inputRef.current?.focus();
       }, 300);
@@ -264,96 +774,6 @@ Hit **Voice Doubt** to talk to me live, or drop your question below!`;
       chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, loading, isOpen, tutorTab]);
-
-  // Voice Recognition Setup with Instant Barge-In
-  const toggleVoiceRecording = async () => {
-    // 1. Instantly silence any active audio or streaming tokens
-    handleBargeIn('mic_activated');
-
-    if (isRecording) {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {}
-      }
-      setIsRecording(false);
-      return;
-    }
-
-    setSpeechError(null);
-
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setSpeechError('Speech Recognition is not supported by your browser. Please use Chrome, Edge, or Safari.');
-      return;
-    }
-
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-      }
-
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => {
-        setIsRecording(true);
-        setSpeechError(null);
-        handleBargeIn('speech_recognition_started');
-      };
-
-      // Native Web Speech VAD triggers: cuts off AI voice the instant user makes sound
-      recognition.onaudiostart = () => {
-        handleBargeIn('user_audio_energy_detected');
-      };
-
-      recognition.onspeechstart = () => {
-        handleBargeIn('user_speech_detected');
-      };
-
-      recognition.onresult = (event: any) => {
-        handleBargeIn('interim_token_streamed');
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        setQuestion(transcript);
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        if (event.error === 'not-allowed') {
-          setSpeechError('Microphone permission denied. Please allow microphone access in your browser.');
-        } else if (event.error !== 'no-speech') {
-          setSpeechError(`Voice input issue (${event.error}). Please try again.`);
-        }
-        setIsRecording(false);
-      };
-
-      recognition.onend = () => {
-        setIsRecording(false);
-        setQuestion((prev) => {
-          if (prev.trim().length > 3) {
-            setTimeout(() => {
-              handleSend(prev, true);
-            }, 300);
-          }
-          return prev;
-        });
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (err: any) {
-      console.error('Error accessing microphone:', err);
-      setSpeechError('Could not access microphone. Please ensure microphone permissions are granted.');
-      setIsRecording(false);
-    }
-  };
 
   // Play voice response for a message with Gemini Ursa Neural Podcast Voice
   const playVoiceResponse = async (text: string, msgIndex: number) => {
@@ -1075,47 +1495,100 @@ Hit **Voice Doubt** to talk to me live, or drop your question below!`;
               </div>
             )}
 
-            {/* Voice Recording Listening Banner */}
-            {isRecording && (
-              <div className="px-4 py-2 bg-gradient-to-r from-red-950/80 to-rose-900/80 border-t border-rose-500/40 flex items-center justify-between gap-2 animate-pulse text-xs text-rose-200">
+            {/* Speech Permission or Network Error Banner */}
+            {speechError && (
+              <div className="px-4 py-2 bg-rose-950/90 border-t border-rose-500/50 flex items-center justify-between gap-2 text-xs text-rose-200">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-                  <Mic className="w-4 h-4 text-rose-400" />
-                  <span className="font-bold">Listening to your physics doubt... Speak now! (Barge-in Active)</span>
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{speechError}</span>
                 </div>
                 <button
-                  onClick={toggleVoiceRecording}
-                  className="px-2.5 py-1 rounded-lg bg-rose-500 text-slate-950 font-bold text-[11px] hover:bg-rose-400 transition"
+                  onClick={() => setSpeechError(null)}
+                  className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/40 text-rose-200 text-[10px] font-bold"
                 >
-                  Stop Recording
+                  Dismiss
                 </button>
               </div>
             )}
 
-            {/* Active Voice Playing & Quick Barge-In Banner */}
-            {playingMessageIndex !== null && !isRecording && (
-              <div className="px-4 py-1.5 bg-gradient-to-r from-amber-950/70 via-indigo-950/70 to-cyan-950/70 border-t border-amber-500/30 flex items-center justify-between gap-2 text-xs text-amber-200">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            {/* AI Transcribing in Progress with Gemini */}
+            {isTranscribing && (
+              <div className="px-4 py-2 bg-gradient-to-r from-cyan-950/90 via-indigo-950/90 to-purple-950/90 border-t border-cyan-500/50 flex items-center justify-center gap-2 text-xs text-cyan-200 animate-pulse">
+                <Zap className="w-4 h-4 text-cyan-400 animate-spin" />
+                <span className="font-bold">Transcribing your voice doubt with Gemini Multimodal Model...</span>
+              </div>
+            )}
+
+            {/* Voice Recording Listening Banner with Realtime Audio Meter */}
+            {isRecording && (
+              <div className="px-4 py-2 bg-gradient-to-r from-emerald-950/90 via-teal-950/90 to-cyan-950/90 border-t border-emerald-500/50 flex items-center justify-between gap-2 text-xs text-emerald-200">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <AudioWaveformVisualizer
+                    isListening={true}
+                    audioLevel={audioLevel}
+                    size="sm"
+                    showLabel={false}
+                    className="py-0.5 px-2 bg-emerald-900/40 border-emerald-500/40"
+                  />
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-bold flex items-center gap-1.5 text-emerald-300">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                      Listening to your doubt...
+                    </span>
+                    <span className="text-[11px] text-zinc-300 truncate">
+                      {accumulatedTranscriptRef.current || 'Speak naturally (JEE queries, derivations, doubts)...'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => stopVoiceRecording(false)}
+                    className="px-2.5 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-zinc-300 font-bold text-[11px] transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => stopVoiceRecording(true)}
+                    className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-[11px] hover:brightness-110 transition shadow-md shadow-emerald-500/20"
+                  >
+                    Done & Send
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Active Voice Playing & Single Clear Barge-In Banner */}
+            {(playingMessageIndex !== null || isGeneratingVoice) && !isRecording && (
+              <div className="px-3.5 sm:px-4 py-2 bg-gradient-to-r from-amber-950/80 via-indigo-950/80 to-cyan-950/80 border-t border-amber-500/40 flex items-center justify-between gap-2 text-xs text-amber-200 shadow-md">
+                <div className="flex items-center gap-2 min-w-0">
                   <AudioWaveformVisualizer
                     isPlaying={true}
                     voiceName="Ursa"
                     size="sm"
                     showLabel={false}
-                    className="py-0 px-1 bg-transparent border-0"
+                    className="py-0.5 px-2 bg-amber-900/40 border-amber-500/40 shrink-0"
                   />
-                  <span className="font-semibold text-zinc-300">
-                    Tutor speaking with <span className="text-amber-300 font-bold">Ursa Voice</span> • Speak or type to interrupt
-                  </span>
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-semibold text-zinc-200 flex items-center gap-1.5 truncate">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                      Tutor speaking • <span className="text-amber-300 font-bold">Ursa Voice</span>
+                    </span>
+                    <span className="text-[10px] text-zinc-400 hidden sm:inline">
+                      Speak, type, or tap Interrupt at any point
+                    </span>
+                  </div>
                 </div>
-                <button
-                  onClick={() => handleBargeIn('interrupt_bar_click')}
-                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-[11px] transition flex items-center gap-1 active:scale-95"
-                  title="Interrupt Tutor Audio (Barge-in)"
-                >
-                  <VolumeX className="w-3.5 h-3.5" />
-                  <span>Interrupt</span>
-                </button>
+                <div className="flex items-center shrink-0">
+                  <button
+                    onClick={() => handleBargeIn('interrupt_button')}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-rose-500/30 text-amber-300 hover:text-rose-200 border border-amber-500/40 hover:border-rose-500/50 font-bold text-xs transition flex items-center gap-1.5 active:scale-95 shadow-sm min-h-[36px] touch-manipulation"
+                    title="Stop tutor speech (Interrupt)"
+                    aria-label="Interrupt Tutor Speech"
+                  >
+                    <VolumeX className="w-4 h-4 text-amber-400" />
+                    <span>Interrupt</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1123,7 +1596,7 @@ Hit **Voice Doubt** to talk to me live, or drop your question below!`;
             {isBargeInActive && (
               <div className="px-4 py-1.5 bg-gradient-to-r from-cyan-950/90 to-indigo-950/90 border-t border-cyan-500/40 flex items-center justify-center gap-2 text-xs text-cyan-200 animate-bounce">
                 <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="font-bold">⚡ Barge-in Triggered: Tutor paused immediately to listen to you!</span>
+                <span className="font-bold">{bargeInReason}</span>
               </div>
             )}
 
@@ -1159,16 +1632,27 @@ Hit **Voice Doubt** to talk to me live, or drop your question below!`;
                 <button
                   type="button"
                   onClick={toggleVoiceRecording}
+                  disabled={isTranscribing}
                   className={`p-2.5 sm:px-3.5 sm:py-2.5 rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 min-h-[44px] min-w-[44px] justify-center touch-manipulation active:scale-95 border ${
                     isRecording
                       ? 'bg-rose-500 text-white border-rose-400 shadow-lg shadow-rose-500/30 animate-pulse'
+                      : isTranscribing
+                      ? 'bg-cyan-900/50 text-cyan-300 border-cyan-500/30'
                       : 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 text-emerald-300 border-emerald-500/40 shadow-xs'
                   }`}
                   title={isRecording ? 'Stop Recording' : 'Ask doubt via Voice (Microphone - Instant Barge-in)'}
                   aria-label="Use Microphone for Voice Doubt"
                 >
-                  {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4 text-emerald-400" />}
-                  <span className="text-xs hidden sm:inline">{isRecording ? 'Listening...' : 'Voice Doubt'}</span>
+                  {isRecording ? (
+                    <MicOff className="w-4 h-4" />
+                  ) : isTranscribing ? (
+                    <Zap className="w-4 h-4 animate-spin text-cyan-400" />
+                  ) : (
+                    <Mic className="w-4 h-4 text-emerald-400" />
+                  )}
+                  <span className="text-xs hidden sm:inline">
+                    {isRecording ? 'Listening...' : isTranscribing ? 'Transcribing...' : 'Voice Doubt'}
+                  </span>
                 </button>
 
                 {/* Text Input with auto-scroll on focus & typing barge-in */}
@@ -1176,7 +1660,11 @@ Hit **Voice Doubt** to talk to me live, or drop your question below!`;
                   <input
                     ref={inputRef}
                     type="text"
-                    placeholder="💬 Tap here to type your physics doubt or question..."
+                    placeholder={
+                      isRecording
+                        ? '🎙️ Listening to your microphone...'
+                        : '💬 Tap here to type your physics doubt or question...'
+                    }
                     value={question}
                     onChange={(e) => {
                       if (playingMessageIndex !== null || loading) {
@@ -1197,7 +1685,7 @@ Hit **Voice Doubt** to talk to me live, or drop your question below!`;
                         handleBargeIn('key_down_typing');
                       }
                     }}
-                    disabled={loading || isRecording}
+                    disabled={loading || isRecording || isTranscribing}
                     className="w-full pl-3.5 pr-9 py-2.5 sm:py-3 bg-[#07080E] border-2 border-cyan-500/40 rounded-xl text-xs sm:text-sm text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-cyan-300 focus:ring-2 focus:ring-cyan-500/40 transition min-h-[46px] font-medium"
                     autoComplete="off"
                   />
@@ -1219,7 +1707,7 @@ Hit **Voice Doubt** to talk to me live, or drop your question below!`;
                 {/* Send Button */}
                 <button
                   onClick={() => handleSend()}
-                  disabled={loading || !question.trim() || isRecording}
+                  disabled={loading || !question.trim() || isRecording || isTranscribing}
                   className="px-3.5 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 disabled:opacity-40 text-slate-950 font-black transition shadow-lg shadow-cyan-600/30 flex items-center gap-1.5 shrink-0 min-h-[46px] touch-manipulation active:scale-95"
                   title="Send Question to AI Tutor"
                 >

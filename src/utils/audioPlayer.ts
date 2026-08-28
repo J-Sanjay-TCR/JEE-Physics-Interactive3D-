@@ -7,6 +7,12 @@ let keepAliveTimer: any = null;
 let cachedVoices: SpeechSynthesisVoice[] = [];
 let selectedVoiceCache: SpeechSynthesisVoice | null = null;
 
+// Cancellation & Session Tracking for Instant Barge-In
+let activeSessionId = 0;
+let activeTtsAbortController: AbortController | null = null;
+let activeFallbackTimer: any = null;
+let activeStreamPlayerInstance: any = null;
+
 // Native Web Audio Decoded Buffer Cache (Memory LRU)
 const MAX_DECODED_CACHE = 80;
 const decodedAudioBufferCache = new Map<string, AudioBuffer>();
@@ -391,6 +397,7 @@ export async function playTutorVoice(
   unlockAudio();
   stopAllAudio();
 
+  const thisSession = ++activeSessionId;
   const spokenText = cleanTextForSpeech(text);
   if (!spokenText.trim()) {
     if (onEnd) onEnd();
@@ -406,6 +413,8 @@ export async function playTutorVoice(
     const ctx = getAudioContext();
     if (ctx.state === 'suspended') await ctx.resume();
 
+    if (thisSession !== activeSessionId) return;
+
     if (onStart) onStart();
     const source = ctx.createBufferSource();
     source.buffer = buffer;
@@ -417,7 +426,7 @@ export async function playTutorVoice(
 
     source.onended = () => {
       if (currentSourceNode === source) currentSourceNode = null;
-      if (onEnd) onEnd();
+      if (thisSession === activeSessionId && onEnd) onEnd();
     };
     source.start(0);
     return;
@@ -427,9 +436,12 @@ export async function playTutorVoice(
   if (voiceBufferCache.has(cacheKey)) {
     const cached = voiceBufferCache.get(cacheKey)!;
     try {
+      if (thisSession !== activeSessionId) return;
       if (onStart) onStart();
       const decoded = await decodePcmBase64(cached.audioBase64, cached.sampleRate);
       decodedAudioBufferCache.set(cacheKey, decoded);
+
+      if (thisSession !== activeSessionId) return;
 
       const ctx = getAudioContext();
       const source = ctx.createBufferSource();
@@ -442,7 +454,7 @@ export async function playTutorVoice(
 
       source.onended = () => {
         if (currentSourceNode === source) currentSourceNode = null;
-        if (onEnd) onEnd();
+        if (thisSession === activeSessionId && onEnd) onEnd();
       };
       source.start(0);
       return;
@@ -455,6 +467,9 @@ export async function playTutorVoice(
   let ttsCompleted = false;
   if (onStart) onStart();
 
+  activeTtsAbortController = new AbortController();
+  const signal = activeTtsAbortController.signal;
+
   const fetchPromise = fetch('/api/ai/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -462,12 +477,20 @@ export async function playTutorVoice(
       text: spokenText.slice(0, 500),
       voice: voiceName === 'Ursa' ? 'Aoede' : voiceName,
     }),
+    signal,
   })
     .then((res) => (res.ok ? res.json() : null))
     .then(async (data) => {
+      if (thisSession !== activeSessionId) return false;
+
       if (data?.audioBase64 && !ttsCompleted) {
         ttsCompleted = true;
-        stopAllAudio();
+        // Stop any browser speech synthesis that might have started
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          try {
+            window.speechSynthesis.cancel();
+          } catch (e) {}
+        }
 
         if (voiceBufferCache.size >= MAX_DECODED_CACHE) {
           const oldest = voiceBufferCache.keys().next().value;
@@ -486,6 +509,8 @@ export async function playTutorVoice(
         const decoded = await decodePcmBase64(data.audioBase64, data.sampleRate || 24000);
         decodedAudioBufferCache.set(cacheKey, decoded);
 
+        if (thisSession !== activeSessionId) return false;
+
         const ctx = getAudioContext();
         const source = ctx.createBufferSource();
         source.buffer = decoded;
@@ -497,7 +522,7 @@ export async function playTutorVoice(
 
         source.onended = () => {
           if (currentSourceNode === source) currentSourceNode = null;
-          if (onEnd) onEnd();
+          if (thisSession === activeSessionId && onEnd) onEnd();
         };
         source.start(0);
         return true;
@@ -506,19 +531,22 @@ export async function playTutorVoice(
     })
     .catch(() => false);
 
-  // Fallback to instant local speech synthesis if network fetch takes > 250ms
-  const timer = setTimeout(() => {
-    if (!ttsCompleted) {
-      speakWithBrowser(spokenText, onEnd, {
+  // Fallback to instant local speech synthesis if network fetch takes > 280ms
+  activeFallbackTimer = setTimeout(() => {
+    if (thisSession === activeSessionId && !ttsCompleted) {
+      speakWithBrowser(spokenText, () => {
+        if (thisSession === activeSessionId && onEnd) onEnd();
+      }, {
         rate: options?.rate ?? 1.04,
         pitch: options?.pitch ?? 1.05,
       });
     }
-  }, 250);
+  }, 280);
 
   fetchPromise.then((success) => {
-    if (success) {
-      clearTimeout(timer);
+    if (success && activeFallbackTimer) {
+      clearTimeout(activeFallbackTimer);
+      activeFallbackTimer = null;
     }
   });
 }
@@ -557,6 +585,7 @@ export class StreamAudioPlayer {
     this.onChunkCallback = options?.onChunk;
     this.onEndCallback = options?.onEnd;
 
+    activeStreamPlayerInstance = this;
     unlockAudio();
   }
 
@@ -813,6 +842,29 @@ export function triggerBargeIn(): void {
  * Stops any playing TTS or browser speech audio immediately
  */
 export function stopAllAudio() {
+  // Invalidate any in-flight playback sessions
+  activeSessionId++;
+
+  if (activeTtsAbortController) {
+    try {
+      activeTtsAbortController.abort();
+    } catch (e) {}
+    activeTtsAbortController = null;
+  }
+
+  if (activeFallbackTimer) {
+    clearTimeout(activeFallbackTimer);
+    activeFallbackTimer = null;
+  }
+
+  if (activeStreamPlayerInstance) {
+    try {
+      activeStreamPlayerInstance.isStopped = true;
+      activeStreamPlayerInstance.queue = [];
+      activeStreamPlayerInstance.buffer = '';
+    } catch (e) {}
+  }
+
   if (currentSourceNode) {
     try {
       currentSourceNode.stop();
@@ -831,6 +883,8 @@ export function stopAllAudio() {
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try {
       window.speechSynthesis.cancel();
+      (window as any).__currentSpeechUtterance = null;
+      (window as any).__currentChunkUtterance = null;
     } catch (e) {
       // Ignore
     }
