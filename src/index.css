@@ -1,6 +1,18 @@
 @import "tailwindcss";
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+    /* Optimize scroll rendering for modern browsers */
+    overscroll-behavior-y: none;
+    scrollbar-width: thin;
+  }
+  
+  body {
+    -webkit-overflow-scrolling: touch; /* Momentum scrolling on iOS */
+    overflow-y: overlay; /* Allows scrollbars to overlay content gracefully on supported browsers */
+  }
+
   * {
     transition-property: background-color, border-color, color, fill, stroke, box-shadow;
     transition-duration: 200ms;
@@ -16,14 +28,21 @@
 
   html.cyberpunk {
     color-scheme: dark;
+    scrollbar-color: #00f0ff #030712;
+  }
+  
+  html.dark:not(.cyberpunk) {
+    color-scheme: dark;
+    scrollbar-color: #27272F #0E0E11;
   }
 
   html.dark {
     color-scheme: dark;
   }
-
+  
   html.light {
     color-scheme: light;
+    scrollbar-color: #cbd5e1 #f1f5f9;
   }
 
   /* Cyberpunk Synapse Theme Body & Roots */
@@ -77,47 +96,45 @@ html.cyberpunk .cyber-card:hover {
 }
 
 /* Custom Cyberpunk Synapse Scrollbars */
-html.cyberpunk ::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-clip: padding-box;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
 html.cyberpunk ::-webkit-scrollbar-track {
   background: #030712;
 }
 html.cyberpunk ::-webkit-scrollbar-thumb {
   background: linear-gradient(to bottom, #00f0ff, #00ff9d);
-  border-radius: 9999px;
   box-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
 }
 html.cyberpunk ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(to bottom, #00f0ff, #d946ef);
 }
 
-html.dark:not(.cyberpunk) ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
 html.dark:not(.cyberpunk) ::-webkit-scrollbar-track {
   background: #0E0E11;
 }
 html.dark:not(.cyberpunk) ::-webkit-scrollbar-thumb {
   background: #27272F;
-  border-radius: 9999px;
 }
 html.dark:not(.cyberpunk) ::-webkit-scrollbar-thumb:hover {
   background: #3F3F4E;
 }
 
-html.light ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
 html.light ::-webkit-scrollbar-track {
   background: #f1f5f9;
 }
 html.light ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border-radius: 9999px;
 }
 html.light ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
@@ -132,40 +149,55 @@ html.light ::-webkit-scrollbar-thumb:hover {
   scrollbar-width: none;
 }
 
+.custom-scrollbar {
+  /* Optimize scroll performance */
+  will-change: scroll-position;
+  -webkit-overflow-scrolling: touch;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 5px;
+  height: 5px;
+  transition: all 0.3s ease;
 }
+
+/* Base custom scrollbar thumbs */
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-clip: padding-box;
+}
+
+/* Cyberpunk Synapse */
 html.cyberpunk .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(3, 7, 18, 0.8);
+  background: rgba(3, 7, 18, 0.3);
 }
 html.cyberpunk .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(0, 240, 255, 0.35);
-  border-radius: 9999px;
+  background: rgba(0, 240, 255, 0.25);
 }
 html.cyberpunk .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 255, 157, 0.6);
+  background: rgba(0, 255, 157, 0.8);
 }
 
+/* Dark Theme */
 html.dark:not(.cyberpunk) .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(10, 10, 15, 0.6);
+  background: rgba(10, 10, 15, 0.2);
 }
 html.dark:not(.cyberpunk) .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
 }
 html.dark:not(.cyberpunk) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(6, 182, 212, 0.4);
+  background: rgba(6, 182, 212, 0.5);
 }
 
+/* Light Theme */
 html.light .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(241, 245, 249, 0.8);
+  background: rgba(241, 245, 249, 0.3);
 }
 html.light .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.5);
-  border-radius: 9999px;
+  background: rgba(148, 163, 184, 0.3);
 }
 html.light .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(6, 182, 212, 0.6);
+  background: rgba(6, 182, 212, 0.7);
 }
 
 .math-font {

@@ -23,6 +23,7 @@ import {
   ChevronDown,
   Flame,
   Radio,
+  Keyboard,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -37,6 +38,7 @@ interface HeaderProps {
   onOpenSyllabusDirectory?: () => void;
   onOpenAiTutor?: () => void;
   onOpenTutorial?: () => void;
+  onOpenShortcuts?: () => void;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
   currentView?: 'home' | 'lab';
@@ -55,6 +57,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSyllabusDirectory,
   onOpenAiTutor,
   onOpenTutorial,
+  onOpenShortcuts,
   onToggleSidebar,
   isSidebarOpen,
   currentView = 'home',
@@ -311,6 +314,25 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <HelpCircle className="w-3.5 h-3.5 text-indigo-400" />
             <span className="hidden md:inline">Tutorial</span>
+          </button>
+        )}
+
+        {onOpenShortcuts && (
+          <button
+            onClick={onOpenShortcuts}
+            className={`hidden md:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
+              isCyberpunk
+                ? 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-400/40 shadow-[0_0_10px_rgba(0,240,255,0.2)]'
+                : isDark
+                ? 'bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 border-white/[0.12]'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+            }`}
+            title="Open Keyboard Shortcuts Cheat Sheet (Press ?)"
+            aria-label="Keyboard Shortcuts"
+          >
+            <Keyboard className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden lg:inline">Shortcuts</span>
+            <kbd className="hidden xl:inline px-1 py-0.2 rounded text-[10px] font-mono font-bold bg-black/20 border border-current/20">?</kbd>
           </button>
         )}
 

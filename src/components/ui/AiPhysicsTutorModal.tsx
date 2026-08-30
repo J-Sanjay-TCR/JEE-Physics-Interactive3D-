@@ -686,14 +686,14 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
     return getConceptDerivation(currentConcept.id);
   }, [currentConcept.id]);
 
-  // Initial welcome greeting - NotebookLM Female Podcast Host Persona
+  // Initial welcome greeting - Casual English Tutor Persona
   const initialGreeting = useMemo(() => {
     const formulasList = currentConcept.formulas
       .slice(0, 2)
       .map((f) => `$$\\mathbf{${f.name}:} \\quad ${f.latex}$$`)
       .join('\n\n');
 
-    return `Oh wow, hey there! Welcome to the Deep Dive on **${currentConcept.title}**! Let's unpack the physics together so you get 100% crystal-clear clarity.
+    return `Oh wow, hey there! Welcome to the deep dive on **${currentConcept.title}**! Let's unpack the physics together so you get 100% crystal-clear clarity.
 
 ### 📐 Master Formula:
 ${formulasList}

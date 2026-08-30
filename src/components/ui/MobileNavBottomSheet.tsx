@@ -81,6 +81,7 @@ interface MobileNavBottomSheetProps {
   onOpenAiTutor: () => void;
   onOpenTutorial: () => void;
   onEnterFocusMode: () => void;
+  onOpenShortcuts?: () => void;
 }
 
 const CATEGORY_ICON_MAP: Record<CategoryId, React.ReactNode> = {
@@ -126,6 +127,7 @@ export const MobileNavBottomSheet: React.FC<MobileNavBottomSheetProps> = ({
   onOpenAiTutor,
   onOpenTutorial,
   onEnterFocusMode,
+  onOpenShortcuts,
 }) => {
   const { isDark, isCyberpunk, theme, cycleTheme } = useTheme();
 

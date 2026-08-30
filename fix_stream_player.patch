@@ -1,0 +1,101 @@
+--- src/utils/audioPlayer.ts
++++ src/utils/audioPlayer.ts
+@@ -706,47 +706,62 @@
+   }
+ 
+   private speakSingleChunk(text: string, onDone: () => void): void {
+     if (this.isStopped) {
+       onDone();
+       return;
+     }
+ 
+-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+-      onDone();
+-      return;
+-    }
+-
+-    try {
+-      window.speechSynthesis.resume();
+-
+-      const utterance = new SpeechSynthesisUtterance(text);
+-      utterance.rate = this.rate;
+-      utterance.pitch = this.pitch;
+-      utterance.volume = 1.0;
+-
+-      if (!selectedVoiceCache) {
+-        loadVoices();
+-      }
+-      if (selectedVoiceCache) {
+-        utterance.voice = selectedVoiceCache;
+-      }
+-
+-      let done = false;
+-      const finish = () => {
+-        if (!done) {
+-          done = true;
+-          (window as any).__currentChunkUtterance = null;
+-          onDone();
+-        }
+-      };
+-
+-      utterance.onend = finish;
+-      utterance.onerror = () => {
+-        finish();
+-      };
+-
+-      (window as any).__currentChunkUtterance = utterance;
+-      window.speechSynthesis.speak(utterance);
+-    } catch (err) {
+-      console.error('Exception in speakSingleChunk:', err);
++    const voiceName = this.voice === 'Ursa' ? 'Aoede' : this.voice;
++
++    fetch('/api/ai/tts', {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({ text, voice: voiceName })
++    })
++    .then((res) => res.ok ? res.json() : null)
++    .then(async (data) => {
++      if (this.isStopped) return onDone();
++      
++      if (data?.audioBase64) {
++        try {
++          const decoded = await decodePcmBase64(data.audioBase64, data.sampleRate || 24000);
++          if (this.isStopped) return onDone();
++          
++          const ctx = getAudioContext();
++          if (ctx.state === 'suspended') await ctx.resume();
++          const source = ctx.createBufferSource();
++          source.buffer = decoded;
++          const gain = ctx.createGain();
++          gain.gain.value = 1.25;
++          source.connect(gain);
++          gain.connect(ctx.destination);
++          
++          source.onended = () => onDone();
++          source.start(0);
++        } catch (e) {
++          this.speakBrowserFallback(text, onDone);
++        }
++      } else {
++        this.speakBrowserFallback(text, onDone);
++      }
++    })
++    .catch(() => this.speakBrowserFallback(text, onDone));
++  }
++
++  private speakBrowserFallback(text: string, onDone: () => void): void {
++    if (this.isStopped || typeof window === 'undefined' || !('speechSynthesis' in window)) return onDone();
++    try {
++      const utterance = new SpeechSynthesisUtterance(text);
++      utterance.rate = this.rate; utterance.pitch = this.pitch;
++      if (!selectedVoiceCache) loadVoices();
++      if (selectedVoiceCache) utterance.voice = selectedVoiceCache;
++      utterance.onend = () => { (window as any).__currentChunkUtterance = null; onDone(); };
++      utterance.onerror = () => { (window as any).__currentChunkUtterance = null; onDone(); };
++      (window as any).__currentChunkUtterance = utterance;
++      window.speechSynthesis.speak(utterance);
++    } catch (e) {
+       onDone();
+     }
+   }

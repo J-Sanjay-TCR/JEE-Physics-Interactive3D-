@@ -43,23 +43,18 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
  */
 function selectBestFemalePodcastVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice {
   const priorityList = [
+    'Google US English', // Often the default Chrome female voice
     'Google US English Female',
-    'Google US English',
-    'Microsoft Jenny Online (Natural)',
+    'en-US-Neural2-F', // GCP High quality female
+    'en-US-Standard-C',
+    'en-US-Standard-E',
+    'en-US-Standard-F',
+    'Samantha', // macOS native high quality female
+    'Microsoft Jenny Online (Natural)', // Edge Chromium
     'Microsoft Aria Online (Natural)',
-    'Microsoft Michelle Online (Natural)',
-    'Microsoft Ana Online (Natural)',
-    'Samantha (Enhanced)',
-    'Samantha',
     'Victoria',
     'Karen',
-    'Tessa',
-    'Zira',
     'Google UK English Female',
-    'en-US-Neural2-F',
-    'en-US-Standard-C',
-    'Natural',
-    'Neural',
   ];
 
   for (const name of priorityList) {
@@ -69,10 +64,15 @@ function selectBestFemalePodcastVoice(voices: SpeechSynthesisVoice[]): SpeechSyn
     if (match) return match;
   }
 
+  // Exact fallback if they are missing the name but have a generic en-US female voice
   const femaleVoice = voices.find(
-    (v) => v.lang.startsWith('en') && /female|woman|jenny|aria|samantha|victoria|karen/i.test(v.name)
+    (v) => v.lang === 'en-US' && /female|woman|jenny|aria|samantha/i.test(v.name)
   );
   if (femaleVoice) return femaleVoice;
+
+  // Next best en-US voice
+  const usVoice = voices.find((v) => v.lang === 'en-US');
+  if (usVoice) return usVoice;
 
   const englishVoice = voices.find((v) => v.lang.startsWith('en'));
   if (englishVoice) return englishVoice;
@@ -397,158 +397,22 @@ export async function playTutorVoice(
   unlockAudio();
   stopAllAudio();
 
-  const thisSession = ++activeSessionId;
   const spokenText = cleanTextForSpeech(text);
   if (!spokenText.trim()) {
     if (onEnd) onEnd();
     return;
   }
 
-  const voiceName = options?.voice || 'Ursa';
-  const cacheKey = `${voiceName}_${spokenText.slice(0, 160)}`;
-
-  // 1. Check Decoded Audio Buffer Cache (<0.5ms instant playback)
-  if (decodedAudioBufferCache.has(cacheKey)) {
-    const buffer = decodedAudioBufferCache.get(cacheKey)!;
-    const ctx = getAudioContext();
-    if (ctx.state === 'suspended') await ctx.resume();
-
-    if (thisSession !== activeSessionId) return;
-
-    if (onStart) onStart();
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    const gain = ctx.createGain();
-    gain.gain.value = 1.25;
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    currentSourceNode = source;
-
-    source.onended = () => {
-      if (currentSourceNode === source) currentSourceNode = null;
-      if (thisSession === activeSessionId && onEnd) onEnd();
-    };
-    source.start(0);
-    return;
-  }
-
-  // 2. Check Raw Base64 Voice Cache
-  if (voiceBufferCache.has(cacheKey)) {
-    const cached = voiceBufferCache.get(cacheKey)!;
-    try {
-      if (thisSession !== activeSessionId) return;
-      if (onStart) onStart();
-      const decoded = await decodePcmBase64(cached.audioBase64, cached.sampleRate);
-      decodedAudioBufferCache.set(cacheKey, decoded);
-
-      if (thisSession !== activeSessionId) return;
-
-      const ctx = getAudioContext();
-      const source = ctx.createBufferSource();
-      source.buffer = decoded;
-      const gain = ctx.createGain();
-      gain.gain.value = 1.25;
-      source.connect(gain);
-      gain.connect(ctx.destination);
-      currentSourceNode = source;
-
-      source.onended = () => {
-        if (currentSourceNode === source) currentSourceNode = null;
-        if (thisSession === activeSessionId && onEnd) onEnd();
-      };
-      source.start(0);
-      return;
-    } catch (e) {
-      voiceBufferCache.delete(cacheKey);
-    }
-  }
-
-  // 3. Trigger immediate low-latency TTS fetch while starting instant speech
-  let ttsCompleted = false;
-  if (onStart) onStart();
-
-  activeTtsAbortController = new AbortController();
-  const signal = activeTtsAbortController.signal;
-
-  const fetchPromise = fetch('/api/ai/tts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text: spokenText.slice(0, 500),
-      voice: voiceName === 'Ursa' ? 'Aoede' : voiceName,
-    }),
-    signal,
-  })
-    .then((res) => (res.ok ? res.json() : null))
-    .then(async (data) => {
-      if (thisSession !== activeSessionId) return false;
-
-      if (data?.audioBase64 && !ttsCompleted) {
-        ttsCompleted = true;
-        // Stop any browser speech synthesis that might have started
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          try {
-            window.speechSynthesis.cancel();
-          } catch (e) {}
-        }
-
-        if (voiceBufferCache.size >= MAX_DECODED_CACHE) {
-          const oldest = voiceBufferCache.keys().next().value;
-          if (oldest) {
-            voiceBufferCache.delete(oldest);
-            decodedAudioBufferCache.delete(oldest);
-          }
-        }
-
-        voiceBufferCache.set(cacheKey, {
-          audioBase64: data.audioBase64,
-          sampleRate: data.sampleRate || 24000,
-          timestamp: Date.now(),
-        });
-
-        const decoded = await decodePcmBase64(data.audioBase64, data.sampleRate || 24000);
-        decodedAudioBufferCache.set(cacheKey, decoded);
-
-        if (thisSession !== activeSessionId) return false;
-
-        const ctx = getAudioContext();
-        const source = ctx.createBufferSource();
-        source.buffer = decoded;
-        const gain = ctx.createGain();
-        gain.gain.value = 1.25;
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        currentSourceNode = source;
-
-        source.onended = () => {
-          if (currentSourceNode === source) currentSourceNode = null;
-          if (thisSession === activeSessionId && onEnd) onEnd();
-        };
-        source.start(0);
-        return true;
-      }
-      return false;
-    })
-    .catch(() => false);
-
-  // Fallback to instant local speech synthesis if network fetch takes > 280ms
-  activeFallbackTimer = setTimeout(() => {
-    if (thisSession === activeSessionId && !ttsCompleted) {
-      speakWithBrowser(spokenText, () => {
-        if (thisSession === activeSessionId && onEnd) onEnd();
-      }, {
-        rate: options?.rate ?? 1.04,
-        pitch: options?.pitch ?? 1.05,
-      });
-    }
-  }, 280);
-
-  fetchPromise.then((success) => {
-    if (success && activeFallbackTimer) {
-      clearTimeout(activeFallbackTimer);
-      activeFallbackTimer = null;
-    }
+  const player = new StreamAudioPlayer({
+    voice: options?.voice,
+    rate: options?.rate,
+    pitch: options?.pitch,
+    onStart,
+    onEnd
   });
+
+  player.feed(spokenText);
+  player.flush();
 }
 
 /**
@@ -558,7 +422,7 @@ export async function playTutorVoice(
  */
 export class StreamAudioPlayer {
   private buffer = '';
-  private queue: string[] = [];
+  private queue: { text: string, audioPromise: Promise<AudioBuffer | null> }[] = [];
   private isSpeakingChunk = false;
   private isFlushed = false;
   private isStopped = false;
@@ -569,6 +433,7 @@ export class StreamAudioPlayer {
   private onStartCallback?: () => void;
   private onChunkCallback?: (chunkIndex: number, text: string) => void;
   private onEndCallback?: () => void;
+  private abortController: AbortController | null = null;
 
   constructor(options?: {
     voice?: string;
@@ -584,15 +449,12 @@ export class StreamAudioPlayer {
     this.onStartCallback = options?.onStart;
     this.onChunkCallback = options?.onChunk;
     this.onEndCallback = options?.onEnd;
+    this.abortController = new AbortController();
 
     activeStreamPlayerInstance = this;
     unlockAudio();
   }
 
-  /**
-   * Feeds streamed text tokens in real-time.
-   * Splits on earliest punctuation (<50ms) to begin immediate voice delivery!
-   */
   public feed(chunk: string): void {
     if (this.isStopped) return;
     this.buffer += chunk;
@@ -602,26 +464,20 @@ export class StreamAudioPlayer {
       const isFirst = (this.currentChunkIndex === 0 && this.queue.length === 0 && !this.isSpeakingChunk);
 
       if (isFirst) {
-        // Ultra-low-latency trigger on first punctuation or 20 characters
         const match = this.buffer.search(/(\. |\! |\? |\n+|\: |\; |\, )/);
         if (match !== -1 && match >= 4) {
           splitPos = match + 1;
         } else if (this.buffer.length >= 24) {
           const lastSpace = this.buffer.lastIndexOf(' ');
-          if (lastSpace > 10) {
-            splitPos = lastSpace + 1;
-          }
+          if (lastSpace > 10) splitPos = lastSpace + 1;
         }
       } else {
-        // Subsequent natural sentence boundaries
         const match = this.buffer.search(/(\. |\! |\? |\n+)/);
         if (match !== -1) {
           splitPos = match + 1;
         } else if (this.buffer.length >= 50) {
           const clauseMatch = this.buffer.search(/(\: |\; |\, )/);
-          if (clauseMatch !== -1) {
-            splitPos = clauseMatch + 1;
-          }
+          if (clauseMatch !== -1) splitPos = clauseMatch + 1;
         }
       }
 
@@ -631,8 +487,7 @@ export class StreamAudioPlayer {
 
         const cleaned = cleanTextForSpeech(sentence);
         if (cleaned.length > 0) {
-          this.queue.push(cleaned);
-          this.processQueue();
+          this.enqueueChunk(cleaned);
         }
       } else {
         break;
@@ -647,7 +502,7 @@ export class StreamAudioPlayer {
     if (this.buffer.trim().length > 0) {
       const cleaned = cleanTextForSpeech(this.buffer.trim());
       if (cleaned.length > 0) {
-        this.queue.push(cleaned);
+        this.enqueueChunk(cleaned);
       }
       this.buffer = '';
     }
@@ -660,10 +515,34 @@ export class StreamAudioPlayer {
     this.isSpeakingChunk = false;
     this.queue = [];
     this.buffer = '';
+    if (this.abortController) {
+      try { this.abortController.abort(); } catch(e) {}
+    }
     stopAllAudio();
   }
+  
+  private enqueueChunk(text: string) {
+    const voiceName = this.voice === 'Ursa' ? 'Aoede' : this.voice;
+    const promise = fetch('/api/ai/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voice: voiceName }),
+      signal: this.abortController?.signal
+    })
+    .then(res => res.ok ? res.json() : null)
+    .then(async data => {
+      if (data?.audioBase64) {
+         return await decodePcmBase64(data.audioBase64, data.sampleRate || 24000);
+      }
+      return null;
+    })
+    .catch(() => null);
+    
+    this.queue.push({ text, audioPromise: promise });
+    this.processQueue();
+  }
 
-  private processQueue(): void {
+  private async processQueue(): Promise<void> {
     if (this.isSpeakingChunk || this.isStopped) return;
 
     if (this.queue.length === 0) {
@@ -675,68 +554,75 @@ export class StreamAudioPlayer {
     }
 
     this.isSpeakingChunk = true;
-    const currentText = this.queue.shift()!;
+    const item = this.queue.shift()!;
     const chunkIdx = this.currentChunkIndex++;
+
+
+    const buffer = await item.audioPromise;
+    if (this.isStopped) return;
 
     if (chunkIdx === 0 && this.onStartCallback) {
       this.onStartCallback();
     }
     if (this.onChunkCallback) {
-      this.onChunkCallback(chunkIdx, currentText);
+      this.onChunkCallback(chunkIdx, item.text);
     }
-
-    this.speakSingleChunk(currentText, () => {
-      this.isSpeakingChunk = false;
-      if (!this.isStopped) {
-        this.processQueue();
+    if (this.isStopped) return;
+    
+    if (buffer) {
+      try {
+        const ctx = getAudioContext();
+        if (ctx.state === 'suspended') await ctx.resume();
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        const gain = ctx.createGain();
+        gain.gain.value = 1.25;
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        
+        currentSourceNode = source;
+        source.onended = () => {
+          if (currentSourceNode === source) currentSourceNode = null;
+          this.isSpeakingChunk = false;
+          if (!this.isStopped) this.processQueue();
+        };
+        source.start(0);
+      } catch (e) {
+        this.speakBrowserFallback(item.text, () => {
+          this.isSpeakingChunk = false;
+          if (!this.isStopped) this.processQueue();
+        });
       }
-    });
+    } else {
+      this.speakBrowserFallback(item.text, () => {
+        this.isSpeakingChunk = false;
+        if (!this.isStopped) this.processQueue();
+      });
+    }
   }
 
-  private speakSingleChunk(text: string, onDone: () => void): void {
-    if (this.isStopped) {
+  private speakBrowserFallback(text: string, onDone: () => void): void {
+    if (this.isStopped || typeof window === 'undefined' || !('speechSynthesis' in window)) {
       onDone();
       return;
     }
-
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      onDone();
-      return;
-    }
-
     try {
       window.speechSynthesis.resume();
-
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = this.rate;
       utterance.pitch = this.pitch;
       utterance.volume = 1.0;
-
-      if (!selectedVoiceCache) {
-        loadVoices();
-      }
-      if (selectedVoiceCache) {
-        utterance.voice = selectedVoiceCache;
-      }
-
+      if (!selectedVoiceCache) loadVoices();
+      if (selectedVoiceCache) utterance.voice = selectedVoiceCache;
       let done = false;
       const finish = () => {
-        if (!done) {
-          done = true;
-          (window as any).__currentChunkUtterance = null;
-          onDone();
-        }
+        if (!done) { done = true; (window as any).__currentChunkUtterance = null; onDone(); }
       };
-
       utterance.onend = finish;
-      utterance.onerror = () => {
-        finish();
-      };
-
+      utterance.onerror = finish;
       (window as any).__currentChunkUtterance = utterance;
       window.speechSynthesis.speak(utterance);
     } catch (err) {
-      console.error('Exception in speakSingleChunk:', err);
       onDone();
     }
   }

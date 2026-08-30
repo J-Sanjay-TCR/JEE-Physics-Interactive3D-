@@ -21,6 +21,7 @@ import {
   Eye,
   Info,
   Maximize2,
+  Keyboard,
 } from 'lucide-react';
 import { Latex } from './Latex';
 import { LiveGraphPanel } from './LiveGraphPanel';
@@ -49,6 +50,7 @@ interface FocusModeOverlayProps {
   onToggleGrid: () => void;
   onToggleAxes: () => void;
   onApplyPreset: (preset: Record<string, number>) => void;
+  onOpenShortcuts?: () => void;
   isDark?: boolean;
 }
 
@@ -75,11 +77,15 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
   onToggleGrid,
   onToggleAxes,
   onApplyPreset,
+  onOpenShortcuts,
   isDark = true,
 }) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [drawerTab, setDrawerTab] = useState<'params' | 'graphs' | 'equations'>('params');
   const [showTelemetryBar, setShowTelemetryBar] = useState(true);
+
+  // Speed levels available in simulation
+  const SPEEDS = [0.25, 0.5, 1.0, 1.5, 2.0];
 
   // Global hotkeys for immersive lab experience
   useEffect(() => {
@@ -88,20 +94,53 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
         return;
       }
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        return;
+      }
 
       if (e.key === 'Escape') {
         e.preventDefault();
         onExitFocusMode();
+      } else if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        onOpenShortcuts?.();
       } else if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
         onExitFocusMode();
-      } else if (e.key === ' ') {
+      } else if (e.key === ' ' || e.key === 'p' || e.key === 'P') {
         e.preventDefault();
         onTogglePlay();
       } else if (e.key === 'r' || e.key === 'R') {
         e.preventDefault();
         onReset();
-      } else if (e.key === 'p' || e.key === 'P') {
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        const currentIndex = SPEEDS.findIndex((s) => Math.abs(s - speed) < 0.05);
+        if (e.shiftKey) {
+          // Slow down (cycle backwards)
+          const nextIndex = currentIndex <= 0 ? SPEEDS.length - 1 : currentIndex - 1;
+          onChangeSpeed(SPEEDS[nextIndex]);
+        } else {
+          // Speed up (cycle forwards)
+          const nextIndex = currentIndex === -1 || currentIndex >= SPEEDS.length - 1 ? 0 : currentIndex + 1;
+          onChangeSpeed(SPEEDS[nextIndex]);
+        }
+      } else if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault();
+        onToggleVectors();
+      } else if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        onToggleLabels();
+      } else if (e.key === 'o' || e.key === 'O') {
+        e.preventDefault();
+        onToggleTrajectory();
+      } else if (e.key === 'g' || e.key === 'G') {
+        e.preventDefault();
+        onToggleGrid();
+      } else if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        onToggleAxes();
+      } else if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
         setIsDrawerOpen((prev) => !prev);
       }
@@ -109,7 +148,19 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onExitFocusMode, onTogglePlay, onReset]);
+  }, [
+    onExitFocusMode,
+    onTogglePlay,
+    onReset,
+    speed,
+    onChangeSpeed,
+    onToggleVectors,
+    onToggleLabels,
+    onToggleTrajectory,
+    onToggleGrid,
+    onToggleAxes,
+    onOpenShortcuts,
+  ]);
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-3 sm:p-5 overflow-hidden z-20 select-none">
@@ -209,10 +260,22 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
 
           <div className="h-5 w-px bg-white/[0.12] mx-0.5" />
 
+          {/* Shortcuts Cheat Sheet */}
+          {onOpenShortcuts && (
+            <button
+              onClick={onOpenShortcuts}
+              title="Keyboard Shortcuts (?)"
+              className="p-2 rounded-xl text-xs text-zinc-300 hover:text-white hover:bg-white/10 transition border border-transparent hover:border-white/15"
+              aria-label="Keyboard Shortcuts"
+            >
+              <Keyboard className="w-3.5 h-3.5" />
+            </button>
+          )}
+
           {/* Drawer Toggle */}
           <button
             onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-            title={isDrawerOpen ? "Hide Overlay Drawer (P)" : "Open Controls & Graphs Overlay (P)"}
+            title={isDrawerOpen ? "Hide Overlay Drawer (D)" : "Open Controls & Graphs Overlay (D)"}
             className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
               isDrawerOpen
                 ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/30'

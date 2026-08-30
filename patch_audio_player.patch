@@ -1,0 +1,31 @@
+--- src/utils/audioPlayer.ts
++++ src/utils/audioPlayer.ts
+@@ -714,10 +714,14 @@
+ 
+     const voiceName = this.voice === 'Ursa' ? 'Aoede' : this.voice;
+ 
++    activeTtsAbortController = new AbortController();
++    const signal = activeTtsAbortController.signal;
++
+     fetch('/api/ai/tts', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+-      body: JSON.stringify({ text, voice: voiceName })
++      body: JSON.stringify({ text, voice: voiceName }),
++      signal
+     })
+     .then((res) => res.ok ? res.json() : null)
+     .then(async (data) => {
+@@ -737,8 +741,13 @@
+           source.connect(gain);
+           gain.connect(ctx.destination);
+           
+-          source.onended = () => onDone();
++          currentSourceNode = source;
++          source.onended = () => {
++            if (currentSourceNode === source) currentSourceNode = null;
++            onDone();
++          };
+           source.start(0);
+         } catch (e) {
+           this.speakBrowserFallback(text, onDone);

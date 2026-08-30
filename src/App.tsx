@@ -20,8 +20,10 @@ import { ChapterFormulaPdfModal } from './components/ui/ChapterFormulaPdfModal';
 import { JeeSyllabusDirectoryModal } from './components/ui/JeeSyllabusDirectoryModal';
 import { AiPhysicsTutorModal } from './components/ui/AiPhysicsTutorModal';
 import { UserTutorialModal } from './components/ui/UserTutorialModal';
+import { KeyboardShortcutsModal } from './components/ui/KeyboardShortcutsModal';
 import { FocusModeOverlay } from './components/ui/FocusModeOverlay';
 import { GlobalErrorBoundary } from './components/ui/GlobalErrorBoundary';
+import { CursorEffect } from './components/ui/CursorEffect';
 import {
   Menu,
   X,
@@ -82,6 +84,7 @@ export default function App() {
   const [pdfChapterId, setPdfChapterId] = useState<string | undefined>(undefined);
   const [isSyllabusDirectoryOpen, setIsSyllabusDirectoryOpen] = useState(false);
   const [isAiTutorOpen, setIsAiTutorOpen] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(() => {
     try {
       return localStorage.getItem('jee_physics_tutorial_seen') !== 'true';
@@ -107,25 +110,230 @@ export default function App() {
     }
   }, [currentConcept.id, currentView]);
 
-  // Focus Mode Global Shortcut (F to toggle in Lab mode, Escape to exit)
+  // Global Keyboard Shortcuts (Press ? for Cheat Sheet, F for Focus, P for Play/Pause, S for Speed, etc.)
   useEffect(() => {
     const handleGlobalKey = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+      // Ignore if user is currently typing in an input, textarea, select, or contenteditable
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
+          target.isContentEditable ||
+          target.getAttribute('role') === 'textbox')
+      ) {
         return;
       }
-      if (e.key === 'f' || e.key === 'F') {
-        if (currentView === 'lab') {
+
+      // Escape to close active modal or exit Focus Mode
+      if (e.key === 'Escape') {
+        if (isShortcutsOpen) {
           e.preventDefault();
-          setIsFocusMode((prev) => !prev);
+          setIsShortcutsOpen(false);
+          return;
         }
-      } else if (e.key === 'Escape' && isFocusMode) {
+        if (isAiTutorOpen) {
+          e.preventDefault();
+          setIsAiTutorOpen(false);
+          return;
+        }
+        if (isPdfModalOpen) {
+          e.preventDefault();
+          setIsPdfModalOpen(false);
+          return;
+        }
+        if (isFormulaHubOpen) {
+          e.preventDefault();
+          setIsFormulaHubOpen(false);
+          return;
+        }
+        if (isSyllabusDirectoryOpen) {
+          e.preventDefault();
+          setIsSyllabusDirectoryOpen(false);
+          return;
+        }
+        if (isTutorialOpen) {
+          e.preventDefault();
+          setIsTutorialOpen(false);
+          return;
+        }
+        if (isFocusMode) {
+          e.preventDefault();
+          setIsFocusMode(false);
+          return;
+        }
+        return;
+      }
+
+      // '?' or Shift + '/' to toggle Keyboard Shortcuts Cheat Sheet
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
         e.preventDefault();
-        setIsFocusMode(false);
+        setIsShortcutsOpen((prev) => !prev);
+        return;
+      }
+
+      // Avoid triggering single-key shortcuts when holding Ctrl / Cmd / Alt
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        return;
+      }
+
+      // 'F' or 'f' to toggle Focus Mode
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        if (currentView !== 'lab') {
+          setCurrentView('lab');
+        }
+        setIsFocusMode((prev) => !prev);
+        return;
+      }
+
+      // 'P' or 'p' or 'Space' for Play / Pause
+      if (e.key === 'p' || e.key === 'P' || e.key === ' ') {
+        e.preventDefault();
+        setIsPlaying((prev) => !prev);
+        return;
+      }
+
+      // 'S' or 's' for Speed up / slow down simulation
+      if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        const SPEEDS = [0.25, 0.5, 1.0, 1.5, 2.0];
+        const currentIndex = SPEEDS.findIndex((s) => Math.abs(s - speed) < 0.05);
+        if (e.shiftKey) {
+          // Slow down (cycle backwards)
+          const nextIndex = currentIndex <= 0 ? SPEEDS.length - 1 : currentIndex - 1;
+          setSpeed(SPEEDS[nextIndex]);
+        } else {
+          // Speed up (cycle forwards)
+          const nextIndex = currentIndex === -1 || currentIndex >= SPEEDS.length - 1 ? 0 : currentIndex + 1;
+          setSpeed(SPEEDS[nextIndex]);
+        }
+        return;
+      }
+
+      // 'R' or 'r' for Reset simulation time
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        setSimTime(0);
+        return;
+      }
+
+      // '[' and ']' for Concept navigation
+      if (e.key === '[' || e.key === ']') {
+        e.preventDefault();
+        const currentIndex = ALL_CONCEPTS.findIndex((c) => c.id === currentConcept.id);
+        if (currentIndex !== -1) {
+          const nextIndex =
+            e.key === '['
+              ? (currentIndex - 1 + ALL_CONCEPTS.length) % ALL_CONCEPTS.length
+              : (currentIndex + 1) % ALL_CONCEPTS.length;
+          handleSelectConcept(ALL_CONCEPTS[nextIndex]);
+        }
+        return;
+      }
+
+      // 3D Canvas visual toggles
+      if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault();
+        setShowVectors((prev) => !prev);
+        return;
+      }
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        setShowLabels((prev) => !prev);
+        return;
+      }
+      if (e.key === 'o' || e.key === 'O') {
+        e.preventDefault();
+        setShowTrajectory((prev) => !prev);
+        return;
+      }
+      if (e.key === 'g' || e.key === 'G') {
+        e.preventDefault();
+        setShowGrid((prev) => !prev);
+        return;
+      }
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        setShowAxes((prev) => !prev);
+        return;
+      }
+
+      // 'T' or 't' for AI Tutor
+      if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        setIsAiTutorOpen((prev) => !prev);
+        return;
+      }
+
+      // 'U' or 'u' for Formula Hub
+      if (e.key === 'u' || e.key === 'U') {
+        e.preventDefault();
+        setIsFormulaHubOpen((prev) => !prev);
+        return;
+      }
+
+      // 'D' or 'd' for PDF Sheets Modal
+      if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        handleOpenPdfModal();
+        return;
+      }
+
+      // 'M' or 'm' for Cycle Theme
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        cycleTheme();
+        return;
+      }
+
+      // 'H' or 'h' for Home Overview
+      if (e.key === 'h' || e.key === 'H') {
+        e.preventDefault();
+        setCurrentView('home');
+        return;
+      }
+
+      // 'B' or 'b' for Toggle Sidebar
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        setIsSidebarOpen((prev) => !prev);
+        return;
+      }
+
+      // '1' to '6' for Lab Sub-tabs
+      const tabMap: Record<string, 'controls' | 'coaching' | 'equations' | 'graphs' | 'jee' | 'questions'> = {
+        '1': 'controls',
+        '2': 'coaching',
+        '3': 'equations',
+        '4': 'graphs',
+        '5': 'jee',
+        '6': 'questions',
+      };
+      if (tabMap[e.key]) {
+        e.preventDefault();
+        if (currentView !== 'lab') {
+          setCurrentView('lab');
+        }
+        setActiveTab(tabMap[e.key]);
+        return;
       }
     };
+
     window.addEventListener('keydown', handleGlobalKey);
     return () => window.removeEventListener('keydown', handleGlobalKey);
-  }, [currentView, isFocusMode]);
+  }, [
+    isShortcutsOpen,
+    isAiTutorOpen,
+    isPdfModalOpen,
+    isFormulaHubOpen,
+    isSyllabusDirectoryOpen,
+    isTutorialOpen,
+    isFocusMode,
+    currentView,
+    speed,
+    currentConcept.id,
+    cycleTheme,
+  ]);
 
   // Persistence (Favorites & Completed concepts)
   const [favorites, setFavorites] = useState<string[]>(() => {
@@ -248,6 +456,7 @@ export default function App() {
         onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
         onOpenAiTutor={() => setIsAiTutorOpen(true)}
         onOpenTutorial={() => setIsTutorialOpen(true)}
+        onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         isSidebarOpen={isSidebarOpen}
         currentView={currentView}
@@ -683,6 +892,7 @@ export default function App() {
                 setParamValues((prev) => ({ ...prev, ...preset }));
                 setSimTime(0);
               }}
+              onOpenShortcuts={() => setIsShortcutsOpen(true)}
               isDark={isDark}
             />
           </div>
@@ -723,6 +933,12 @@ export default function App() {
         onClose={() => setIsAiTutorOpen(false)}
         currentConcept={currentConcept}
         currentParams={paramValues}
+      />
+
+      {/* Global Keyboard Shortcuts Cheat Sheet Modal */}
+      <KeyboardShortcutsModal
+        isOpen={isShortcutsOpen}
+        onClose={() => setIsShortcutsOpen(false)}
       />
 
       {/* Interactive 3D Physics Lab User Tutorial Modal */}
@@ -770,7 +986,11 @@ export default function App() {
         onOpenAiTutor={() => setIsAiTutorOpen(true)}
         onOpenTutorial={() => setIsTutorialOpen(true)}
         onEnterFocusMode={() => setIsFocusMode(true)}
+        onOpenShortcuts={() => setIsShortcutsOpen(true)}
       />
+
+      {/* Global PC Cursor & Ambient Spotlight Effect */}
+      <CursorEffect />
     </div>
   );
 }
