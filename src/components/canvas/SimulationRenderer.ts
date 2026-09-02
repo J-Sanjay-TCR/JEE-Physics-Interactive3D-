@@ -1565,7 +1565,7 @@ export class SimulationRenderer {
       const acrylicMat = new THREE.MeshPhysicalMaterial({
         color: 0xe0f2fe,
         transmission: 0.9,
-        opacity: 0.45,
+        opacity: 0.25,
         transparent: true,
         roughness: 0.1,
         ior: 1.49,
@@ -2665,103 +2665,94 @@ export class SimulationRenderer {
           // RingGeometry is in XY plane with arc opening along +X axis (forward towards slits)
           primaryWaveGroup.add(arcMesh);
 
-          // 3D cylindrical wave sheet segment for depth in 3D orbit
-          const zDepthLevels = [-0.6, -0.3, 0.3, 0.6];
-          zDepthLevels.forEach((zLvl) => {
-            const zArc = new THREE.Mesh(
-              arcGeo,
-              new THREE.MeshBasicMaterial({
-                color: spectral.threeColor,
-                transparent: true,
-                opacity: opacity * 0.35,
-                side: THREE.DoubleSide,
-              })
-            );
-            zArc.position.set(s0_pos.x, s0_pos.y, zLvl);
-            primaryWaveGroup.add(zArc);
-          });
+
         }
       }
     }
 
-    // 6. Render Secondary Huygens Wavelets & Interfering Wavefronts from S1 and S2
+    // 6. Render Realistic Interference Pattern Shader
     const secondaryWaveGroup = this.objectsGroup.getObjectByName('ydse-secondary-waves') as THREE.Group;
     if (secondaryWaveGroup) {
-      while (secondaryWaveGroup.children.length > 0) {
-        this.disposeObject(secondaryWaveGroup.children[0]);
-        secondaryWaveGroup.remove(secondaryWaveGroup.children[0]);
-      }
-
       const propagationDistance = screenX - x_s12;
-      const waveSpeed = 2.4;
-      const waveSpacing = 0.75;
-      const numRings = Math.min(18, Math.floor(propagationDistance / waveSpacing) + 2);
-      const animOffset = (ctx.simTime * waveSpeed) % waveSpacing;
+      let plane = secondaryWaveGroup.getObjectByName('ydse-interference-plane') as THREE.Mesh;
+      
+      if (!plane) {
+        // Initialize once
+        const planeGeo = new THREE.PlaneGeometry(1, 8.0);
+        const shaderMat = new THREE.ShaderMaterial({
+          uniforms: {
+            uTime: { value: 0 },
+            uColor: { value: new THREE.Color(spectral.threeColor) },
+            uS1: { value: new THREE.Vector2(0.0, s1_pos.y) },
+            uS2: { value: new THREE.Vector2(0.0, s2_pos.y) },
+            uK: { value: 20.0 },
+            uWaveSpeed: { value: 15.0 },
+            uPropDist: { value: propagationDistance }
+          },
+          vertexShader: `
+            varying vec2 vUv;
+            varying vec2 vWorldPos;
+            uniform float uPropDist;
+            void main() {
+              vUv = uv;
+              vWorldPos = vec2(uv.x * uPropDist, uv.y * 8.0 - 4.0 + 0.5);
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform float uTime;
+            uniform vec3 uColor;
+            uniform vec2 uS1;
+            uniform vec2 uS2;
+            uniform float uK;
+            uniform float uWaveSpeed;
+            uniform float uPropDist;
+            varying vec2 vUv;
+            varying vec2 vWorldPos;
 
-      for (let i = 0; i < numRings; i++) {
-        const radius = i * waveSpacing + animOffset;
-        if (radius > 0.2 && radius < propagationDistance + 0.6) {
-          const arcSpan = Math.PI * 0.62;
-          const fade = Math.max(0.08, 1 - (radius / (propagationDistance + 1.0)) * 0.85);
+            void main() {
+              float d1 = distance(vWorldPos, uS1);
+              float d2 = distance(vWorldPos, uS2);
+              
+              float phase1 = uK * d1 - uWaveSpeed * uTime;
+              float phase2 = uK * d2 - uWaveSpeed * uTime;
+              
+              float amp1 = cos(phase1) / (sqrt(d1) + 0.1);
+              float amp2 = cos(phase2) / (sqrt(d2) + 0.1);
+              
+              float A = amp1 + amp2;
+              float I = A * A * 0.25;
+              
+              float fadeX = smoothstep(0.0, 0.5, vWorldPos.x) * smoothstep(uPropDist, uPropDist - 0.5, vWorldPos.x);
+              float cone = smoothstep(3.5, 0.0, abs(vWorldPos.y - 0.5) - vWorldPos.x * 0.2);
 
-          // Wave Crest (+A, solid vibrant line in XY plane pointing along +X towards screen)
-          const crestGeo = new THREE.RingGeometry(radius - 0.03, radius + 0.03, 40, 1, -arcSpan / 2, arcSpan);
-          const crestMat = new THREE.MeshBasicMaterial({
-            color: spectral.threeColor,
-            transparent: true,
-            opacity: 0.75 * fade,
-            side: THREE.DoubleSide,
-          });
-
-          // Wave Crest from S1
-          const ring1 = new THREE.Mesh(crestGeo, crestMat);
-          ring1.position.set(s1_pos.x, s1_pos.y, 0);
-          secondaryWaveGroup.add(ring1);
-
-          // Wave Crest from S2
-          const ring2 = new THREE.Mesh(crestGeo, crestMat);
-          ring2.position.set(s2_pos.x, s2_pos.y, 0);
-          secondaryWaveGroup.add(ring2);
-
-          // 3D Spatial Depth Arcs along Z-axis for physical cylindrical wave appearance
-          const zOffsets = [-0.8, -0.4, 0.4, 0.8];
-          zOffsets.forEach((zOff) => {
-            const zMat = new THREE.MeshBasicMaterial({
-              color: spectral.threeColor,
-              transparent: true,
-              opacity: 0.25 * fade,
-              side: THREE.DoubleSide,
-            });
-            const zRing1 = new THREE.Mesh(crestGeo, zMat);
-            zRing1.position.set(s1_pos.x, s1_pos.y, zOff);
-            secondaryWaveGroup.add(zRing1);
-
-            const zRing2 = new THREE.Mesh(crestGeo, zMat);
-            zRing2.position.set(s2_pos.x, s2_pos.y, zOff);
-            secondaryWaveGroup.add(zRing2);
-          });
-
-          // Wave Trough (-A, subtle dashed/dim ring halfway between crests)
-          const troughRadius = radius + waveSpacing * 0.5;
-          if (troughRadius < propagationDistance + 0.5) {
-            const troughGeo = new THREE.RingGeometry(troughRadius - 0.015, troughRadius + 0.015, 40, 1, -arcSpan / 2, arcSpan);
-            const troughMat = new THREE.MeshBasicMaterial({
-              color: 0x94a3b8,
-              transparent: true,
-              opacity: 0.28 * fade,
-              side: THREE.DoubleSide,
-            });
-
-            const tRing1 = new THREE.Mesh(troughGeo, troughMat);
-            tRing1.position.set(s1_pos.x, s1_pos.y, 0);
-            secondaryWaveGroup.add(tRing1);
-
-            const tRing2 = new THREE.Mesh(troughGeo, troughMat);
-            tRing2.position.set(s2_pos.x, s2_pos.y, 0);
-            secondaryWaveGroup.add(tRing2);
-          }
-        }
+              gl_FragColor = vec4(uColor, I * fadeX * cone * 0.8);
+            }
+          `,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide
+        });
+        plane = new THREE.Mesh(planeGeo, shaderMat);
+        plane.name = 'ydse-interference-plane';
+        secondaryWaveGroup.add(plane);
       }
+
+      // Update uniforms and scale every frame instead of recompiling
+      plane.scale.set(propagationDistance, 1, 1);
+      plane.position.set(x_s12 + propagationDistance / 2, 0.5, 0);
+      
+      const mat = plane.material as THREE.ShaderMaterial;
+      mat.uniforms.uTime.value = ctx.simTime * 2.0;
+      mat.uniforms.uColor.value.copy(spectral.threeColor);
+      mat.uniforms.uS1.value.set(0.0, s1_pos.y);
+      mat.uniforms.uS2.value.set(0.0, s2_pos.y);
+      mat.uniforms.uPropDist.value = propagationDistance;
+      // Adjust K based on wavelength to show correct interference spacing visually!
+      // beta = lambda * D / d. Visual spacing is determined by uK. 
+      // Higher uK = more fringes.
+      mat.uniforms.uK.value = Math.max(10.0, Math.min(60.0, (d_3D / 1.0) * 20.0));
     }
 
     // 7. Render Constructive Interference Antinodes (Maxima) & Destructive Nodes (Minima) Loci
@@ -2777,7 +2768,7 @@ export class SimulationRenderer {
       // Central Maxima (0th order, n=0, Δx = 0)
       const centralLinePts = [slitMidpoint, new THREE.Vector3(screenX - 0.16, 0.5, 0)];
       const centralLineGeo = new THREE.BufferGeometry().setFromPoints(centralLinePts);
-      const centralLineMat = new THREE.LineBasicMaterial({ color: spectral.threeColor, transparent: true, opacity: 0.85, linewidth: 2 });
+      const centralLineMat = new THREE.LineBasicMaterial({ color: spectral.threeColor, transparent: true, opacity: 0.4, linewidth: 1 });
       const centralLine = new THREE.Line(centralLineGeo, centralLineMat);
       antinodalGroup.add(centralLine);
 
@@ -2792,7 +2783,7 @@ export class SimulationRenderer {
           dashSize: 0.35,
           gapSize: 0.2,
           transparent: true,
-          opacity: 0.45,
+          opacity: 0.25,
         });
         const line = new THREE.Line(lineGeo, lineMat);
         line.computeLineDistances();
@@ -2810,7 +2801,7 @@ export class SimulationRenderer {
           dashSize: 0.2,
           gapSize: 0.3,
           transparent: true,
-          opacity: 0.3,
+          opacity: 0.15,
         });
         const line = new THREE.Line(lineGeo, lineMat);
         line.computeLineDistances();
@@ -3807,7 +3798,7 @@ export class SimulationRenderer {
     const glassMat = new THREE.MeshPhysicalMaterial({
       color: 0xe0f2fe,
       transmission: 0.92,
-      opacity: 0.3,
+      opacity: 0.15,
       transparent: true,
       roughness: 0.1,
       side: THREE.DoubleSide,
@@ -5483,7 +5474,7 @@ export class SimulationRenderer {
 
     // Contact shadow beneath rolling cylinder (with depth bias to prevent z-fighting with runway)
     const shadowGeo = new THREE.PlaneGeometry(R * 1.8, depth * 0.9);
-    const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.45, depthWrite: false });
+    const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false });
     this.physicsMiddleware.applyDepthBias(shadowMat, -2.0, -4.0);
     const contactShadow = new THREE.Mesh(shadowGeo, shadowMat);
     contactShadow.name = 'roller-contact-shadow';
@@ -6170,7 +6161,7 @@ export class SimulationRenderer {
     const beamMat = new THREE.MeshBasicMaterial({
       color: 0x8b5cf6,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.25,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -6906,7 +6897,7 @@ export class SimulationRenderer {
     const gaussMat = new THREE.MeshPhysicalMaterial({
       color: 0x38bdf8,
       transmission: 0.88,
-      opacity: 0.3,
+      opacity: 0.15,
       transparent: true,
       roughness: 0.1,
       wireframe: false,
@@ -7072,7 +7063,7 @@ export class SimulationRenderer {
   private setupBernoulliFlow(ctx: SimRenderContext) {
     // Water Tank (Cylinder container)
     const tankGeo = new THREE.CylinderGeometry(2.5, 2.5, 6, 32, 1, true);
-    const tankMat = new THREE.MeshPhysicalMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+    const tankMat = new THREE.MeshPhysicalMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.15, side: THREE.DoubleSide });
     const tank = new THREE.Mesh(tankGeo, tankMat);
     tank.name = 'bf-tank';
     tank.position.set(-6, 3, 0);

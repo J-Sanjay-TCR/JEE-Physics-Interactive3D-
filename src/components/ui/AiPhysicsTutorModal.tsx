@@ -62,13 +62,16 @@ interface AiPhysicsTutorModalProps {
   onClose: () => void;
   currentConcept: PhysicsConcept;
   currentParams: Record<string, number>;
+  userName?: string;
 }
 
 export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
+
   isOpen,
   onClose,
   currentConcept,
   currentParams,
+  userName
 }) => {
   const [tutorTab, setTutorTab] = useState<'chat' | 'derivation' | 'shortcuts'>('chat');
   const [question, setQuestion] = useState('');
@@ -690,10 +693,12 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
   const initialGreeting = useMemo(() => {
     const formulasList = currentConcept.formulas
       .slice(0, 2)
-      .map((f) => `$$\\mathbf{${f.name}:} \\quad ${f.latex}$$`)
+      .map((f) => `$\mathbf{${f.name}:} \quad ${f.latex}$`)
       .join('\n\n');
 
-    return `Oh wow, hey there! Welcome to the deep dive on **${currentConcept.title}**! Let's unpack the physics together so you get 100% crystal-clear clarity.
+    const greetingStr = userName ? `Oh wow, hey there ${userName}!` : `Oh wow, hey there!`;
+
+    return `${greetingStr} Welcome to the deep dive on **${currentConcept.title}**! Let's unpack the physics together so you get 100% crystal-clear clarity.
 
 ### 📐 Master Formula:
 ${formulasList}
@@ -883,6 +888,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
           thinkingMode,
           enableWebSearch,
           isVoiceInput: wasVoiceInput,
+          userName: userName,
         }),
       });
 

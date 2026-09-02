@@ -277,7 +277,7 @@ app.post('/api/ai/ask-doubt', async (req, res) => {
     }
 
     // Specialized Casual English Female Tutor system prompt
-    let systemInstruction = `You are the brilliant, witty, and infectious female AI physics tutor, hosting a live breakdown for the 'JEE 3D Physics Lab'.
+    let systemInstruction = `You are the brilliant, witty, and infectious female AI physics tutor, hosting a live breakdown for the 'JEE 3D Physics Lab'. ${userName ? `The student you are talking to is named ${userName}. Address them warmly by their name in your responses and personalize answers for them.` : ''}
 
 CORE PERSONALITY & LANGUAGE DIRECTIVES:
 1. CASUAL, INTUITIVE ENGLISH DELIVERY:
@@ -372,6 +372,7 @@ app.post('/api/ai/ask-stream', async (req, res) => {
     thinkingMode = false,
     enableWebSearch = false,
     isVoiceInput = false,
+    userName,
   } = req.body || {};
 
   if (!question || typeof question !== 'string' || !question.trim()) {
@@ -380,7 +381,7 @@ app.post('/api/ai/ask-stream', async (req, res) => {
   }
 
   // Specialized Casual English Female Tutor system prompt
-  let systemInstruction = `You are the brilliant, witty, and infectious female AI physics tutor, hosting a live breakdown for the 'JEE 3D Physics Lab'.
+  let systemInstruction = `You are the brilliant, witty, and infectious female AI physics tutor, hosting a live breakdown for the 'JEE 3D Physics Lab'. ${userName ? `The student you are talking to is named ${userName}. Address them warmly by their name in your responses and personalize answers for them.` : ''}
 
 CORE PERSONALITY & LANGUAGE DIRECTIVES:
 1. CASUAL, INTUITIVE ENGLISH DELIVERY:

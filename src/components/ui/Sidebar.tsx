@@ -35,6 +35,7 @@ interface SidebarProps {
   completedConcepts: string[];
   isOpen: boolean;
   onToggleOpen: () => void;
+  onOpenAnalytics?: () => void;
 }
 
 const CATEGORY_CONFIG: Record<
@@ -99,6 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   completedConcepts,
   isOpen,
   onToggleOpen,
+  onOpenAnalytics,
 }) => {
   const { isDark, isCyberpunk, toggleTheme } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');

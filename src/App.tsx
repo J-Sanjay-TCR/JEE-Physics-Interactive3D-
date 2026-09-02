@@ -14,6 +14,7 @@ import { Header } from './components/ui/Header';
 import { Sidebar } from './components/ui/Sidebar';
 import { HomePage } from './components/ui/HomePage';
 import { MobileNavBottomSheet } from './components/ui/MobileNavBottomSheet';
+import { OnboardingScreen } from './components/ui/OnboardingScreen';
 import { DraggableAiTutorFab } from './components/ui/DraggableAiTutorFab';
 import { FormulaDirectoryModal } from './components/ui/FormulaDirectoryModal';
 import { ChapterFormulaPdfModal } from './components/ui/ChapterFormulaPdfModal';
@@ -24,6 +25,7 @@ import { KeyboardShortcutsModal } from './components/ui/KeyboardShortcutsModal';
 import { FocusModeOverlay } from './components/ui/FocusModeOverlay';
 import { GlobalErrorBoundary } from './components/ui/GlobalErrorBoundary';
 import { CursorEffect } from './components/ui/CursorEffect';
+import { JeeWeightageAnalyticsModal } from './components/ui/JeeWeightageAnalyticsModal';
 import {
   Menu,
   X,
@@ -47,6 +49,7 @@ import {
 
 export default function App() {
   const { isDark, isCyberpunk, theme, toggleTheme, cycleTheme } = useTheme();
+  const [userName, setUserName] = useState<string>(() => localStorage.getItem('ai_physics_user_name') || '');
   const [currentConcept, setCurrentConcept] = useState<PhysicsConcept>(ALL_CONCEPTS[0]);
   const [currentView, setCurrentView] = useState<'home' | 'lab'>('home');
 
@@ -85,6 +88,7 @@ export default function App() {
   const [isSyllabusDirectoryOpen, setIsSyllabusDirectoryOpen] = useState(false);
   const [isAiTutorOpen, setIsAiTutorOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(() => {
     try {
       return localStorage.getItem('jee_physics_tutorial_seen') !== 'true';
@@ -371,6 +375,7 @@ export default function App() {
     return () => cancelAnimationFrame(animId);
   }, [isPlaying, speed]);
 
+  
   // Concept Change Handler
   const handleSelectConcept = (concept: PhysicsConcept, preset?: Record<string, number>) => {
     setCurrentConcept(concept);
@@ -378,10 +383,40 @@ export default function App() {
     concept.parameters.forEach((p) => {
       newParams[p.id] = p.defaultVal;
     });
+    
     if (preset) {
       Object.assign(newParams, preset);
+      setParamValues(newParams);
+      setShowRestorePrompt(false);
+    } else {
+      // Check for saved session
+      try {
+        const saved = localStorage.getItem(`jee_physics_params_${concept.id}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          let isDifferent = false;
+          // Check if saved is actually different from defaults
+          for (const key in parsed) {
+            if (parsed[key] !== newParams[key]) {
+              isDifferent = true;
+              break;
+            }
+          }
+          if (isDifferent) {
+            setSavedSessionParams(parsed);
+            setShowRestorePrompt(true);
+          } else {
+            setShowRestorePrompt(false);
+          }
+        } else {
+          setShowRestorePrompt(false);
+        }
+      } catch (e) {
+        setShowRestorePrompt(false);
+      }
+      setParamValues(newParams);
     }
-    setParamValues(newParams);
+    
     setSimTime(0);
     setCurrentView('lab');
     if (typeof window !== 'undefined' && window.innerWidth < 1024) {
@@ -393,14 +428,26 @@ export default function App() {
       const updated = [...completedConcepts, concept.id];
       setCompletedConcepts(updated);
       try {
+
         localStorage.setItem('jee_completed_concepts', JSON.stringify(updated));
       } catch {}
     }
   };
 
+  
   const handleParamChange = (id: string, val: number) => {
-    setParamValues((prev) => ({ ...prev, [id]: val }));
+    setParamValues((prev) => {
+      const newParams = { ...prev, [id]: val };
+      // Auto-save to localStorage
+      try {
+        localStorage.setItem(`jee_physics_params_${currentConcept.id}`, JSON.stringify(newParams));
+      } catch (e) {
+        console.warn('Failed to save session params to localStorage');
+      }
+      return newParams;
+    });
   };
+
 
   const handleResetSimulation = () => {
     setSimTime(0);
@@ -443,6 +490,14 @@ export default function App() {
     <div className={`h-screen h-[100dvh] max-h-screen overflow-hidden flex flex-col transition-colors duration-200 ${
       isCyberpunk ? 'bg-[#030712] text-zinc-100' : isDark ? 'bg-[#0A0A0B] text-zinc-100' : 'bg-slate-50 text-slate-900'
     }`}>
+      {!userName && (
+        <OnboardingScreen 
+          onComplete={(name) => {
+            localStorage.setItem('ai_physics_user_name', name);
+            setUserName(name);
+          }}
+        />
+      )}
       {/* Top Navigation Header */}
       <Header
         currentConcept={currentConcept}
@@ -456,6 +511,7 @@ export default function App() {
         onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
         onOpenAiTutor={() => setIsAiTutorOpen(true)}
         onOpenTutorial={() => setIsTutorialOpen(true)}
+        onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         isSidebarOpen={isSidebarOpen}
@@ -473,6 +529,7 @@ export default function App() {
             onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
             onOpenAiTutor={() => setIsAiTutorOpen(true)}
             onOpenTutorial={() => setIsTutorialOpen(true)}
+        onOpenAnalytics={() => setIsAnalyticsOpen(true)}
             completedConcepts={completedConcepts}
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
@@ -508,6 +565,41 @@ export default function App() {
           }`}
           aria-hidden={isAiTutorOpen}
         >
+
+          {showRestorePrompt && savedSessionParams && (
+            <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 p-3 sm:p-4 rounded-xl border mb-2 shrink-0 ${
+              isCyberpunk 
+                ? 'bg-amber-950/40 border-amber-500/30 text-amber-200' 
+                : isDark 
+                ? 'bg-amber-950/30 border-amber-500/20 text-amber-200' 
+                : 'bg-amber-50 border-amber-200 text-amber-800'
+            }`}>
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-4 h-4 shrink-0 animate-pulse" />
+                <span className="text-sm font-medium">Found a saved session for <strong>{currentConcept.title}</strong></span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowRestorePrompt(false)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg opacity-70 hover:opacity-100 transition-opacity"
+                >
+                  Dismiss
+                </button>
+                <button
+                  onClick={() => {
+                    setParamValues(savedSessionParams);
+                    setShowRestorePrompt(false);
+                  }}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors shadow-sm ${
+                    isCyberpunk ? 'bg-amber-500 text-black hover:bg-amber-400' : 'bg-amber-500 text-white hover:bg-amber-600'
+                  }`}
+                >
+                  Restore Values
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Concept Header Banner - Responsive on Mobile & Desktop */}
           <div id="section-top" className={`flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-2xl border transition-colors shadow-sm shrink-0 ${
             isCyberpunk
@@ -815,6 +907,7 @@ export default function App() {
                     <JeeInsightsPanel
                       jeeMain={currentConcept.jeeMain}
                       jeeAdvanced={currentConcept.jeeAdvanced}
+                      conceptTitle={currentConcept.title}
                     />
                   </motion.div>
                 )}
@@ -933,7 +1026,11 @@ export default function App() {
         onClose={() => setIsAiTutorOpen(false)}
         currentConcept={currentConcept}
         currentParams={paramValues}
+        userName={userName}
       />
+
+      {/* JEE Weightage Analytics Modal */}
+      <JeeWeightageAnalyticsModal isOpen={isAnalyticsOpen} onClose={() => setIsAnalyticsOpen(false)} />
 
       {/* Global Keyboard Shortcuts Cheat Sheet Modal */}
       <KeyboardShortcutsModal
@@ -985,6 +1082,7 @@ export default function App() {
         onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
         onOpenAiTutor={() => setIsAiTutorOpen(true)}
         onOpenTutorial={() => setIsTutorialOpen(true)}
+        onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onEnterFocusMode={() => setIsFocusMode(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
       />

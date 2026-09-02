@@ -3,17 +3,21 @@ import { motion, AnimatePresence } from 'motion/react';
 import { JeeMainInsight, JeeAdvancedInsight } from '../../types';
 import { Award, AlertTriangle, Zap, Layers, Flame, CheckCircle2 } from 'lucide-react';
 import { Latex } from './Latex';
+import { TrendAnalysisChart } from './TrendAnalysisChart';
+import { LineChart } from 'lucide-react';
 
 interface JeeInsightsPanelProps {
   jeeMain: JeeMainInsight;
   jeeAdvanced: JeeAdvancedInsight;
+  conceptTitle?: string;
 }
 
 export const JeeInsightsPanel: React.FC<JeeInsightsPanelProps> = ({
   jeeMain,
   jeeAdvanced,
+  conceptTitle = 'Physics Concept',
 }) => {
-  const [activeTab, setActiveTab] = useState<'main' | 'advanced'>('main');
+  const [activeTab, setActiveTab] = useState<'main' | 'advanced' | 'trend'>('main');
 
   return (
     <div className="bg-[#111114]/90 backdrop-blur-md rounded-2xl p-5 border border-white/[0.08] shadow-xl flex flex-col gap-4">
@@ -48,6 +52,17 @@ export const JeeInsightsPanel: React.FC<JeeInsightsPanelProps> = ({
           >
             <Flame className="w-3 h-3 text-pink-300" />
             JEE Advanced
+          </button>
+          <button
+            onClick={() => setActiveTab('trend')}
+            className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+              activeTab === 'trend'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <LineChart className="w-3 h-3 text-emerald-300" />
+            Trend
           </button>
         </div>
       </div>
@@ -208,6 +223,28 @@ export const JeeInsightsPanel: React.FC<JeeInsightsPanelProps> = ({
             )}
           </motion.div>
         )}
+      
+        {/* Content for Trend Analysis */}
+        {activeTab === 'trend' && (
+          <motion.div
+            key="jee-tab-trend"
+            initial={{ opacity: 0, y: 8, scale: 0.995 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.995 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="flex flex-col gap-4"
+          >
+            <div className="flex items-center justify-between bg-emerald-950/30 border border-emerald-800/40 p-3 rounded-xl mb-2">
+              <span className="text-xs text-emerald-200 font-medium">Historical Weightage Trend</span>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                13-Year Data
+              </span>
+            </div>
+            
+            <TrendAnalysisChart conceptTitle={conceptTitle} />
+          </motion.div>
+        )}
+
       </AnimatePresence>
     </div>
   );
