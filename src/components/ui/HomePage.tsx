@@ -113,15 +113,15 @@ export const HomePage: React.FC<HomePageProps> = ({
   });
 
   return (
-    <div className={`flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10 pb-28 lg:pb-10 space-y-8 sm:space-y-10 transition-colors ${
+    <div className={`w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-10 pb-28 lg:pb-10 space-y-8 sm:space-y-10 transition-colors ${
       isCyberpunk
-        ? 'bg-[#030712] text-zinc-100'
-        : isDark ? 'bg-[#070709] text-zinc-100' : 'bg-slate-50 text-slate-900'
+        ? 'text-zinc-100'
+        : isDark ? 'text-zinc-100' : 'text-slate-900'
     }`}>
       {/* Hero Presentation Banner */}
       <section
         id="home-hero-section"
-        className={`relative overflow-hidden rounded-3xl border p-6 sm:p-10 lg:p-12 shadow-2xl transition-colors ${
+        className={`relative overflow-hidden rounded-3xl border p-6 sm:p-10 lg:p-12 shadow-2xl transition-colors scroll-mt-20 ${
         isCyberpunk
           ? 'bg-gradient-to-b from-[#061024] via-[#040916] to-[#030712] border-cyan-500/30 shadow-[0_0_30px_rgba(0,240,255,0.08)]'
           : isDark
@@ -319,7 +319,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       </section>
 
       {/* Featured Flagship 3D Simulations */}
-      <section className="space-y-4">
+      <section id="home-flagship-section" className="space-y-4 scroll-mt-20">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 className={`text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2 ${
@@ -419,7 +419,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       </section>
 
       {/* Physics Syllabus Chapters Roadmap */}
-      <section id="home-chapters-grid" className="space-y-5">
+      <section id="home-chapters-grid" className="space-y-5 scroll-mt-20">
         <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4 ${
           isDark ? 'border-white/[0.08]' : 'border-slate-200'
         }`}>
@@ -472,7 +472,8 @@ export const HomePage: React.FC<HomePageProps> = ({
             return (
               <div
                 key={chapter.id}
-                className={`rounded-2xl border overflow-hidden flex flex-col justify-between transition shadow-lg ${
+                id={`chapter-section-${chapter.id}`}
+                className={`rounded-2xl border overflow-hidden flex flex-col justify-between transition shadow-lg scroll-mt-20 ${
                   isDark
                     ? 'bg-[#0E0E14] border-white/[0.08] hover:border-white/[0.16]'
                     : 'bg-white border-slate-200 hover:border-slate-300 shadow-slate-200'
@@ -502,8 +503,9 @@ export const HomePage: React.FC<HomePageProps> = ({
                     return (
                       <div
                         key={`ch-${chapter.id}-${concept.id}`}
+                        id={`concept-${concept.id}`}
                         onClick={() => onSelectConcept(concept)}
-                        className={`pt-2.5 first:pt-0 group/item cursor-pointer flex items-start justify-between gap-3 -mx-2 px-2 py-2 rounded-xl transition min-h-[44px] ${
+                        className={`pt-2.5 first:pt-0 group/item cursor-pointer flex items-start justify-between gap-3 -mx-2 px-2 py-2 rounded-xl transition min-h-[44px] scroll-mt-20 ${
                           isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'
                         }`}
                       >
@@ -568,7 +570,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       />
 
       {/* About Founder & Architecture Mission Card (Enlarged & Highlighted) */}
-      <section className={`rounded-3xl border-2 p-6 sm:p-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-8 relative overflow-hidden transition-all shadow-2xl ${
+      <section id="home-founder-section" className={`rounded-3xl border-2 p-6 sm:p-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-8 relative overflow-hidden transition-all shadow-2xl scroll-mt-20 ${
         isDark
           ? 'bg-gradient-to-br from-[#101220] via-[#0C0D17] to-[#0A0B12] border-cyan-500/30 shadow-cyan-950/40 ring-1 ring-cyan-500/20'
           : 'bg-gradient-to-br from-cyan-50/90 via-white to-blue-50/80 border-cyan-300 shadow-xl shadow-cyan-100/80 ring-1 ring-cyan-400/30'

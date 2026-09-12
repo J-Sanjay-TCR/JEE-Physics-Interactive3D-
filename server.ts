@@ -26,9 +26,9 @@ function getGenAI(): GoogleGenAI {
 }
 
 // Gemini Models (strictly following official @google/genai guidelines)
-const PRIMARY_FLASH_MODEL = 'gemini-3.7-flash';
-const SECONDARY_FLASH_MODEL = 'gemini-flash-latest';
-const TERTIARY_FLASH_MODEL = 'gemini-3.1-flash-lite';
+const PRIMARY_FLASH_MODEL = 'gemini-2.5-flash';
+const SECONDARY_FLASH_MODEL = 'gemini-2.5-flash-lite';
+const TERTIARY_FLASH_MODEL = 'gemini-flash-latest';
 const ALL_FLASH_MODELS = [PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, TERTIARY_FLASH_MODEL];
 const TTS_MODEL = 'gemini-2.5-flash';
 
@@ -51,16 +51,11 @@ function buildModelConfig(
   config.temperature = options.temperature ?? (options.thinkingMode ? 0.4 : 0.3);
 
   // Thinking level is only supported for Gemini 3 series models
-  if (model === PRIMARY_FLASH_MODEL) {
+  if (model.startsWith('gemini-3')) {
     config.thinkingConfig = {
       thinkingLevel: options.thinkingMode ? ThinkingLevel.HIGH : ThinkingLevel.LOW,
     };
-  } else if (model === TERTIARY_FLASH_MODEL) {
-    config.thinkingConfig = {
-      thinkingLevel: ThinkingLevel.MINIMAL,
-    };
   }
-  // For 'gemini-flash-latest', do NOT attach thinkingConfig
 
   if (options.enableWebSearch) {
     config.tools = [{ googleSearch: {} }];
@@ -814,7 +809,7 @@ STRICT REQUIREMENTS:
     for (const model of modelsToTry) {
       try {
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout on model ${model}`)), 4500)
+          setTimeout(() => reject(new Error(`Timeout on model ${model}`)), 9500)
         );
 
         const responsePromise = ai.models.generateContent({

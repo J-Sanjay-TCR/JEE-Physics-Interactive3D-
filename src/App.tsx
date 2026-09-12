@@ -49,6 +49,7 @@ import {
   ArrowDown,
   RotateCcw,
   Camera,
+  Layers,
 } from 'lucide-react';
 
 export default function App() {
@@ -129,6 +130,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<
     'controls' | 'coaching' | 'equations' | 'graphs' | 'jee' | 'questions'
   >('controls');
+  const [activeSectionId, setActiveSectionId] = useState<string>('home-hero-section');
 
   const mainScrollRef = useRef<HTMLDivElement>(null);
 
@@ -138,6 +140,72 @@ export default function App() {
       mainScrollRef.current.scrollTo({ top: 0, behavior: 'instant' });
     }
   }, [currentConcept.id, currentView]);
+
+  // Active section scroll tracking for Sidebar navigation synchronization
+  useEffect(() => {
+    const container = mainScrollRef.current;
+    if (!container) return;
+
+    let ticking = false;
+    const handleScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const sectionIds =
+            currentView === 'home'
+              ? [
+                  'home-hero-section',
+                  'home-flagship-section',
+                  'home-chapters-grid',
+                  'home-pdf-section',
+                  'home-founder-section',
+                ]
+              : [
+                  'section-top',
+                  'section-3d',
+                  `section-${activeTab}`,
+                  'section-chapter-roadmap',
+                ];
+
+          const containerRect = container.getBoundingClientRect();
+          let current = sectionIds[0];
+
+          for (const id of sectionIds) {
+            const el = document.getElementById(id);
+            if (el) {
+              const rect = el.getBoundingClientRect();
+              if (rect.top - containerRect.top <= 240) {
+                current = id;
+              }
+            }
+          }
+          setActiveSectionId(current);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [currentView, currentConcept.id, activeTab]);
+
+  // Browser Back/Forward history listener
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state) {
+        if (e.state.view) {
+          setCurrentView(e.state.view);
+        }
+        if (e.state.conceptId) {
+          const found = getConceptById(e.state.conceptId);
+          if (found) setCurrentConcept(found);
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Global Keyboard Shortcuts (Press ? for Cheat Sheet, F for Focus, P for Play/Pause, S for Speed, etc.)
   useEffect(() => {
@@ -457,6 +525,7 @@ export default function App() {
     setSimTime(0);
     setIsLoadingScreenOpen(true);
     setCurrentView('lab');
+    window.history.pushState({ view: 'lab', conceptId: concept.id }, '', `#lab-${concept.id}`);
     if (typeof window !== 'undefined' && window.innerWidth < 1024) {
       setIsSidebarOpen(false);
     }
@@ -466,11 +535,15 @@ export default function App() {
       const updated = [...completedConcepts, concept.id];
       setCompletedConcepts(updated);
       try {
-
         localStorage.setItem('jee_completed_concepts', JSON.stringify(updated));
       } catch {}
     }
   };
+
+  const handleSetView = useCallback((view: 'home' | 'lab') => {
+    setCurrentView(view);
+    window.history.pushState({ view, conceptId: currentConcept.id }, '', `#${view}`);
+  }, [currentConcept.id]);
 
   
   const handleParamChange = (id: string, val: number) => {
@@ -595,38 +668,12 @@ export default function App() {
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         isSidebarOpen={isSidebarOpen}
         currentView={currentView}
-        onSetView={(view) => setCurrentView(view)}
+        onSetView={handleSetView}
       />
 
-      {/* Main Studio Body or Home Page */}
-      {currentView === 'home' ? (
-        <>
-          <HomePage
-            onSelectConcept={handleSelectConcept}
-            onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
-            onOpenPdfModal={handleOpenPdfModal}
-            onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
-            onOpenAiTutor={() => setIsAiTutorOpen(true)}
-            onOpenTutorial={handleStartSpotlightTour}
-            onOpenAnalytics={() => setIsAnalyticsOpen(true)}
-            completedConcepts={completedConcepts}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-          />
-          {isSidebarOpen && (
-            <Sidebar
-              currentConcept={currentConcept}
-              onSelectConcept={handleSelectConcept}
-              favorites={favorites}
-              completedConcepts={completedConcepts}
-              isOpen={isSidebarOpen}
-              onToggleOpen={() => setIsSidebarOpen(!isSidebarOpen)}
-            />
-          )}
-        </>
-      ) : (
-        <div className="flex-1 min-h-0 flex overflow-hidden relative">
-        {/* Left Syllabus Hierarchy Sidebar (Desktop) */}
+      {/* Unified Main Application Body Container */}
+      <div className="flex-1 min-h-0 flex overflow-hidden relative">
+        {/* Unified Responsive Sidebar (Desktop docked + Mobile off-canvas drawer) */}
         <Sidebar
           currentConcept={currentConcept}
           onSelectConcept={handleSelectConcept}
@@ -634,16 +681,38 @@ export default function App() {
           completedConcepts={completedConcepts}
           isOpen={isSidebarOpen}
           onToggleOpen={() => setIsSidebarOpen(!isSidebarOpen)}
+          onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+          currentView={currentView}
+          onSetView={handleSetView}
+          activeTab={activeTab}
+          onSetActiveTab={setActiveTab}
+          activeSectionId={activeSectionId}
         />
 
-        {/* Central Content Area */}
+        {/* Unified Global Scroll Container: smooth scrollable for both Home & Lab */}
         <main
+          id="main-scroll-container"
           ref={mainScrollRef}
-          className={`flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 pb-24 lg:pb-6 flex flex-col gap-5 max-w-[1600px] mx-auto w-full transition-all ${
+          className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden scroll-smooth transition-all ${
             isAiTutorOpen ? 'pointer-events-none select-none filter blur-xs opacity-30' : ''
           }`}
           aria-hidden={isAiTutorOpen}
         >
+          {currentView === 'home' ? (
+            <HomePage
+              onSelectConcept={handleSelectConcept}
+              onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
+              onOpenPdfModal={handleOpenPdfModal}
+              onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
+              onOpenAiTutor={() => setIsAiTutorOpen(true)}
+              onOpenTutorial={handleStartSpotlightTour}
+              onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+              completedConcepts={completedConcepts}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          ) : (
+            <div className="p-3 sm:p-5 pb-24 lg:pb-10 flex flex-col gap-5 max-w-[1600px] mx-auto w-full">
 
           {showRestorePrompt && savedSessionParams && (
             <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 p-3 sm:p-4 rounded-xl border mb-2 shrink-0 ${
@@ -1066,9 +1135,85 @@ export default function App() {
               </AnimatePresence>
             </div>
           </div>
-        </main>
-      </div>
+
+          {/* Chapter Roadmap & Sibling Concepts Section */}
+          <section
+            id="section-chapter-roadmap"
+            className={`rounded-2xl border p-4 sm:p-5 space-y-4 scroll-mt-20 transition shadow-sm ${
+              isCyberpunk
+                ? 'bg-[#060D1E]/90 border-cyan-500/30'
+                : isDark
+                ? 'bg-[#0E0E14] border-white/[0.08]'
+                : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 border-inherit">
+              <div>
+                <h3 className={`text-sm sm:text-base font-bold flex items-center gap-2 ${
+                  isDark ? 'text-zinc-100' : 'text-slate-900'
+                }`}>
+                  <Layers className="w-4 h-4 text-cyan-500" />
+                  <span>Chapter Roadmap: Sibling Labs</span>
+                </h3>
+                <p className={`text-xs ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
+                  Explore all interactive 3D simulations in this chapter module.
+                </p>
+              </div>
+              <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full border bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-bold self-start sm:self-auto">
+                {ALL_CONCEPTS.filter((c) => c.chapterId === currentConcept.chapterId).length} Available
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {ALL_CONCEPTS.filter((c) => c.chapterId === currentConcept.chapterId).map((concept) => {
+                const isCurrent = concept.id === currentConcept.id;
+                return (
+                  <button
+                    key={`sibling-${concept.id}`}
+                    onClick={() => {
+                      if (!isCurrent) {
+                        handleSelectConcept(concept);
+                        setTimeout(() => {
+                          document.getElementById('section-top')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 40);
+                      }
+                    }}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between gap-2 min-h-[72px] ${
+                      isCurrent
+                        ? isCyberpunk
+                          ? 'bg-cyan-500/20 border-cyan-400 text-cyan-100 shadow-[0_0_12px_rgba(0,240,255,0.2)]'
+                          : isDark
+                          ? 'bg-cyan-500/15 border-cyan-500 text-cyan-200'
+                          : 'bg-cyan-50 border-cyan-400 text-cyan-950'
+                        : isDark
+                        ? 'bg-[#14141E] hover:bg-[#1C1C28] border-white/[0.06] text-zinc-300'
+                        : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-bold truncate">{concept.title}</span>
+                      {isCurrent ? (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-cyan-500 text-black shrink-0">
+                          Active
+                        </span>
+                      ) : concept.badge ? (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-white/[0.06] text-zinc-400 shrink-0">
+                          {concept.badge}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className={`text-[10.5px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
+                      {concept.subtitle}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </div>
       )}
+    </main>
+  </div>
 
       {/* Focus Mode Full-Screen 3D Laboratory Overlay */}
       {isFocusMode && currentView === 'lab' && (

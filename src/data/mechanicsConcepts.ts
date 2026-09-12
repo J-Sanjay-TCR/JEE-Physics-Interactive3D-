@@ -677,4 +677,176 @@ export const MECHANICS_CONCEPTS: PhysicsConcept[] = [
       ];
     },
   },
+  // 6. CENTER OF MASS & ARTICULATED RAGDOLL SYSTEM OF PARTICLES
+  {
+    id: 'center-of-mass-ragdoll',
+    chapterId: 'com-momentum',
+    category: 'mechanics',
+    topic: 'Center of Mass & System of Particles',
+    title: 'Center of Mass Trajectory & Articulated Ragdoll Dynamics',
+    subtitle: 'System of Particles, Internal Action-Reaction Cancellation & Invariance of COM Parabolic Motion',
+    badge: 'WASM Physics Engine',
+    simulationType: 'center-of-mass-ragdoll',
+    description:
+      'A 10-segment articulated humanoid ragdoll (total mass M = 70.0 kg) launched under deterministic physics simulation. Regardless of how wildly the limbs flail, rotate, or how fierce the internal joint torques are, the Center of Mass follows an unperturbed parabolic trajectory governed solely by external gravity F_ext = M·g. Directly demonstrates the fundamental JEE theorem: internal forces cannot accelerate the Center of Mass of a system.',
+    assumptions: [
+      '10 calibrated anatomical rigid segments (torso, cranium, upper/lower arms, thighs, shins) totaling exactly 70.0 kg',
+      'Articulated spherical and revolute impulse joints with realistic biomechanical angular limits and damping',
+      'All internal muscular torques obey Newton’s Third Law strictly (action = -reaction): Σ F_int ≡ 0 and Σ τ_int ≡ 0',
+      'Deterministic 120Hz fixed-timestep WASM physics integration (Rapier) decoupled from display frame rate',
+    ],
+    cameraPreset: { position: [16, 12, 22], target: [12, 6, 0] },
+    parameters: [
+      { id: 'dropHeight', label: 'Launch Height (h₀)', symbol: 'h_0', unit: 'm', min: 5, max: 25, step: 1, defaultVal: 15, description: 'Initial vertical drop height of the center of mass' },
+      { id: 'v0x', label: 'Horizontal Velocity (v₀ₓ)', symbol: 'v_{0x}', unit: 'm/s', min: 0, max: 20, step: 1, defaultVal: 10, description: 'Initial horizontal launch velocity of the entire system' },
+      { id: 'v0y', label: 'Vertical Velocity (v₀ᵧ)', symbol: 'v_{0y}', unit: 'm/s', min: -5, max: 20, step: 1, defaultVal: 8, description: 'Initial upward (+ve) or downward (-ve) launch velocity' },
+      { id: 'gravityPreset', label: 'Gravity Environment', symbol: 'g', unit: 'm/s²', min: 0, max: 3, step: 1, defaultVal: 1, description: '0: Moon (1.62), 1: Earth (9.81), 2: Jupiter (24.79), 3: Zero-G (0)' },
+      { id: 'freezeJoints', label: 'Joint Rigidity Mode', symbol: 'Mode', unit: '', min: 0, max: 1, step: 1, defaultVal: 0, description: '0: Articulated Flailing Limbs, 1: Frozen Monolithic Rigid Body' },
+      { id: 'flailTorque', label: 'Internal Flail Torque (τ_int)', symbol: '\\tau_{int}', unit: 'N·m', min: 0, max: 100, step: 5, defaultVal: 40, description: 'Internal action-reaction torque amplitude applied between limbs' },
+      { id: 'initialSpin', label: 'Initial Tumble Spin (ω₀)', symbol: '\\omega_0', unit: 'rad/s', min: -8, max: 8, step: 1, defaultVal: 3, description: 'Initial angular tumble rate on launch' },
+    ],
+    formulas: [
+      { name: 'Definition of Center of Mass', latex: '\\vec{r}_{cm} = \\frac{\\sum_{i=1}^{n} m_i \\vec{r}_i}{\\sum_{i=1}^{n} m_i} = \\frac{1}{M_{total}} \\sum_{i=1}^{n} m_i \\vec{r}_i', explanation: 'Mass-weighted average position of all 10 articulated segments in 3D Cartesian coordinates.' },
+      { name: "Newton's Second Law for a System of Particles", latex: '\\sum \\vec{F}_{ext} = M_{total} \\vec{a}_{cm} \\quad \\iff \\quad \\sum \\vec{F}_{int} \\equiv \\mathbf{0}', explanation: 'Internal forces cancel pairwise in equal and opposite pairs by Newton’s 3rd Law, having zero influence on COM motion.' },
+      { name: 'Total System Momentum', latex: '\\vec{P}_{system} = M_{total} \\vec{v}_{cm} = \\sum_{i=1}^{n} m_i \\vec{v}_i', explanation: 'Total linear momentum of the system is identical to that of a single point mass M concentrated at the Center of Mass.' },
+      { name: 'Analytical Parabolic Trajectory of COM', latex: 'x_{cm}(t) = x_0 + v_{0x} t, \\quad y_{cm}(t) = y_0 + v_{0y} t - \\frac{1}{2} g t^2', explanation: 'Exact analytical projectile motion followed identically whether the body is rigid or freely flailing.' },
+      { name: 'Internal Force Cancellation Law', latex: '\\vec{F}_{i \\to j} = -\\vec{F}_{j \\to i} \\implies \\sum_{i=1}^{n} \\sum_{j \\ne i} \\vec{F}_{ij} = \\mathbf{0}', explanation: 'Internal actions and reactions can alter relative limb positions and rotations, but never net external impulse.' },
+    ],
+    jeeMain: {
+      weightage: 'High',
+      commonPatterns: [
+        'Internal Explosions / Fragmentations mid-flight: If a projectile explodes into fragments at the apex, the Center of Mass continues along the original parabolic path until fragments strike the ground.',
+        'Man walking on a friction-less boat: Δx_boat = - (m_man · Δx_man) / (m_man + m_boat) because Center of Mass remains stationary in the absence of horizontal external force.',
+        'Free flailing ragdoll / acrobat: Internal muscle contraction changes the moment of inertia and angular velocity (conservation of angular momentum), but does NOT shift the COM trajectory.',
+      ],
+      keyShortcuts: [
+        'Shift in Center of Mass: Δr_cm = (Σ m_i Δr_i) / M_total. If Σ F_ext = 0, then Δr_cm = 0.',
+        'Relative limb displacement shortcut: x_1 m_1 + x_2 m_2 = 0 in the Center of Mass frame.',
+      ],
+      trapAlerts: [
+        'Trap: Students frequently assume that when limbs swing vigorously, the Center of Mass trajectory oscillates. FALSE! The COM path is perfectly smooth.',
+        'Trap: Forgetting that internal forces can do non-zero WORK (altering total mechanical kinetic energy) even though they exert ZERO net force (preserving linear momentum).',
+      ],
+    },
+    jeeAdvanced: {
+      weightage: 'Critical',
+      deepConcepts: [
+        'Decoupling Motion into COM Translation + Rotation about COM: Total kinetic energy K = (1/2) M v_cm² + (1/2) I_cm ω². Internal forces alter (1/2) I_cm ω² but leave (1/2) M v_cm² invariant.',
+        'Variable Moment of Inertia Tensor: When limbs bend and extend, I_ij(t) varies dynamically, producing precession and tumbling via Euler’s equations of rigid/jointed motion: dL/dt = τ_ext.',
+        'Ground Impact Boundary Singularity: When any limb touches the floor, ground normal reaction N and friction f are EXTERNAL forces, terminating the pure free-flight parabolic regime.',
+      ],
+      multiConceptLinks: [
+        'Rotational Dynamics: Parallel axis theorem I = I_cm + M d² connects moment of inertia of individual limbs to the central torso.',
+        'Impulse-Momentum: During instantaneous ground contact, impulsive normal forces abruptly redirect COM velocity: ∫ N dt = ΔP_y.',
+      ],
+      calculusFormulations: [
+        '\\vec{r}_{cm} = \\frac{\\int \\vec{r} \\, dm}{\\int dm} = \\frac{1}{M} \\int \\rho(\\vec{r}) \\vec{r} \\, dV',
+        '\\frac{d\\vec{P}}{dt} = \\frac{d}{dt}(M \\vec{v}_{cm}) = M \\vec{a}_{cm} = \\vec{F}_{ext}',
+      ],
+      advancedPitfalls: [
+        'Assuming center of mass must lie within the physical boundary of matter (e.g., for an L-shaped articulated limb or hollow ring, COM lies in empty space).',
+        'Confusing zero net external force with conservation of kinetic energy: internal forces do work W_int = ΔK_rel.',
+        'Neglecting the ground contact boundary condition: once a single joint touches the surface, normal force N is external and changes the COM trajectory immediately.',
+      ],
+    },
+    questions: [
+      {
+        id: 'q-ragdoll-1',
+        type: 'mcq',
+        difficulty: 'JEE Main',
+        question:
+          'An acrobat (or articulated ragdoll) of mass 70 kg is in mid-air free projectile flight under uniform gravity. While airborne, the acrobat vigorously flails and contracts arms and legs using internal muscle torque. Which of the following statements is strictly correct regarding the motion of the Center of Mass (COM)?',
+        options: [
+          'The COM path deviates from the parabola due to angular reaction from limb momentum.',
+          'The COM continues precisely along the parabolic trajectory as if all mass were concentrated at that point.',
+          'The horizontal velocity of COM fluctuates sinusoidally due to action-reaction pairs.',
+          'The vertical acceleration of COM exceeds g during rapid limb retraction.',
+        ],
+        correctAnswer: 1,
+        explanation:
+          'By Newton’s Third Law, all internal joint and muscular forces form action-reaction pairs that cancel out vectorially: Σ F_int ≡ 0. The only external force acting on the acrobat during airborne flight is gravity: Σ F_ext = M_total · g (downwards). Therefore, a_cm = g (downwards), and the Center of Mass follows an unperturbed textbook parabolic trajectory regardless of internal flailing.',
+        formulaUsed: '\\vec{F}_{ext} = M \\frac{d^2 \\vec{r}_{cm}}{dt^2}',
+      },
+      {
+        id: 'q-ragdoll-2',
+        type: 'numerical',
+        difficulty: 'JEE Advanced',
+        question:
+          'A projectile of mass M is launched with velocity 20 m/s at an angle of 45° to the horizontal. At the highest point of its trajectory, it explodes internally into two equal fragments of mass M/2. One fragment falls vertically down with zero initial horizontal speed. If g = 10 m/s², find the horizontal distance (in meters) from the launch point where the second fragment lands on the ground.',
+        numericalAnswer: 60,
+        tolerance: 0.5,
+        explanation:
+          'Since explosion is caused entirely by internal forces, the Center of Mass continues its normal projectile flight and lands at the original range: R_cm = u² sin(2θ)/g = (20² × sin 90°)/10 = 40 m. The first fragment has zero horizontal velocity at apex (x = R/2 = 20 m) and falls straight down to land at x1 = 20 m. For the COM to land at x_cm = 40 m: x_cm = (m1 x1 + m2 x2)/(m1 + m2) => 40 = (0.5 × 20 + 0.5 × x2)/1.0 => 40 = 10 + 0.5 x2 => 0.5 x2 = 30 => x2 = 60 m.',
+        formulaUsed: 'x_{cm} = \\frac{m_1 x_1 + m_2 x_2}{m_1 + m_2}',
+      },
+    ],
+    graphConfigs: [
+      {
+        id: 'com-altitude-graph',
+        title: 'Center of Mass Altitude: y_cm(t)',
+        xLabel: 'Time (s)',
+        yLabel: 'Altitude (m)',
+        xUnit: 's',
+        yUnit: 'm',
+        color: '#10b981',
+        type: 'time-series',
+        calc: (p) => {
+          const g = p.gravityPreset === 0 ? 1.62 : p.gravityPreset === 1 ? 9.81 : p.gravityPreset === 2 ? 24.79 : 0.001;
+          const h0 = p.dropHeight || 15;
+          const v0y = p.v0y || 8;
+          const pts = [];
+          for (let t = 0; t <= 4.0; t += 0.05) {
+            const y = Math.max(0, h0 + v0y * t - 0.5 * g * t * t);
+            pts.push({ x: parseFloat(t.toFixed(2)), y: parseFloat(y.toFixed(2)) });
+          }
+          return pts;
+        },
+      },
+      {
+        id: 'forces-balance-graph',
+        title: 'Force Balance: Σ F_ext vs Σ F_int',
+        xLabel: 'Time (s)',
+        yLabel: 'Force (N)',
+        xUnit: 's',
+        yUnit: 'N',
+        color: '#38bdf8',
+        type: 'time-series',
+        calc: (p) => {
+          const g = p.gravityPreset === 0 ? 1.62 : p.gravityPreset === 1 ? 9.81 : p.gravityPreset === 2 ? 24.79 : 0;
+          const F_ext = -70.0 * g;
+          const pts = [];
+          for (let t = 0; t <= 4.0; t += 0.2) {
+            pts.push({ x: parseFloat(t.toFixed(1)), y: parseFloat(F_ext.toFixed(1)) });
+          }
+          return pts;
+        },
+      },
+    ],
+    computeLiveQuantities: (p, simTime) => {
+      const g = p.gravityPreset === 0 ? 1.62 : p.gravityPreset === 1 ? 9.81 : p.gravityPreset === 2 ? 24.79 : 0;
+      const h0 = p.dropHeight || 15;
+      const v0x = p.v0x || 10;
+      const v0y = p.v0y || 8;
+      const t = Math.max(0, simTime);
+
+      const xAnalytic = v0x * t;
+      const yAnalytic = Math.max(0.5, h0 + v0y * t - 0.5 * g * t * t);
+      const vxAnalytic = v0x;
+      const vyAnalytic = v0y - g * t;
+      const speedAnalytic = Math.sqrt(vxAnalytic * vxAnalytic + vyAnalytic * vyAnalytic);
+      const Fext = 70.0 * g;
+      const modeName = p.freezeJoints >= 0.5 ? 'Rigid Monolith' : 'Articulated Flailing';
+
+      return [
+        { label: 'System Total Mass (M)', symbol: 'M_{tot}', unit: 'kg', value: 70.0, formatted: '70.0 kg (10 Segments)', color: '#38bdf8' },
+        { label: 'Rigidity Mode', symbol: 'Mode', unit: '', value: p.freezeJoints, formatted: modeName, color: p.freezeJoints >= 0.5 ? '#eab308' : '#10b981' },
+        { label: 'Theoretical COM Height', symbol: 'y_{cm}^{theo}', unit: 'm', value: yAnalytic, formatted: `${yAnalytic.toFixed(2)} m`, color: '#34d399' },
+        { label: 'Theoretical Horizontal Range', symbol: 'x_{cm}^{theo}', unit: 'm', value: xAnalytic, formatted: `${xAnalytic.toFixed(2)} m`, color: '#60a5fa' },
+        { label: 'COM Instantaneous Velocity', symbol: 'v_{cm}', unit: 'm/s', value: speedAnalytic, formatted: `${speedAnalytic.toFixed(2)} m/s`, color: '#f59e0b' },
+        { label: 'Net External Force (Gravity)', symbol: '\\Sigma F_{ext}', unit: 'N', value: Fext, formatted: `${Fext.toFixed(1)} N (Down)`, color: '#f43f5e' },
+        { label: 'Net Internal Force Sum', symbol: '\\Sigma F_{int}', unit: 'N', value: 0.0, formatted: '0.000 N (Zero Cancellation)', color: '#a855f7' },
+      ];
+    },
+  },
 ];
+

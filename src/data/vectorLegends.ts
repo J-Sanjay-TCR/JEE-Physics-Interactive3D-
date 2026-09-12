@@ -1198,4 +1198,46 @@ export const VECTOR_LEGENDS: Record<SimulationType, VectorLegendItem[]> = {
       },
     },
   ],
+  'center-of-mass-ragdoll': [
+    {
+      id: 'ragdoll-vcm-arrow',
+      name: 'COM Velocity Vector',
+      symbol: 'v_cm',
+      color: '#38bdf8',
+      bgBadge: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+      description: 'Instantaneous net linear velocity of the entire multi-body Center of Mass.',
+      formula: '\\vec{v}_{cm} = \\frac{\\sum m_i \\vec{v}_i}{M_{total}}',
+      getLiveValue: (p, t) => {
+        const v0x = p.v0x || 10;
+        const v0y = p.v0y || 12;
+        const g = p.gravityPreset === 0 ? 1.62 : p.gravityPreset === 1 ? 9.81 : p.gravityPreset === 2 ? 24.79 : 0;
+        const vy = v0y - g * t;
+        const vMag = Math.sqrt(v0x * v0x + vy * vy);
+        return `${vMag.toFixed(2)} m/s`;
+      },
+    },
+    {
+      id: 'ragdoll-fext-arrow',
+      name: 'Net External Force (Gravity)',
+      symbol: 'Σ F_ext',
+      color: '#ef4444',
+      bgBadge: 'bg-red-500/15 text-red-400 border-red-500/30',
+      description: 'Total downward gravitational force acting on the 70.0 kg system.',
+      formula: '\\Sigma \\vec{F}_{ext} = M_{total} \\vec{g}',
+      getLiveValue: (p) => {
+        const g = p.gravityPreset === 0 ? 1.62 : p.gravityPreset === 1 ? 9.81 : p.gravityPreset === 2 ? 24.79 : 0;
+        return `${(70.0 * g).toFixed(1)} N`;
+      },
+    },
+    {
+      id: 'ragdoll-internal-force',
+      name: 'Internal Interaction Pairs',
+      symbol: 'Σ F_int',
+      color: '#10b981',
+      bgBadge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+      description: 'Joint reaction and muscle forces: sum identically to 0 by Newton’s 3rd Law.',
+      formula: '\\Sigma \\vec{F}_{int} \\equiv 0',
+      getLiveValue: () => '0.000 N',
+    },
+  ],
 };

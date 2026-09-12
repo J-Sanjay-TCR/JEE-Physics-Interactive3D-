@@ -52,6 +52,14 @@ export const CHAPTERS: Chapter[] = [
     conceptIds: ['work-energy-collisions'],
   },
   {
+    id: 'com-momentum',
+    name: 'Center of Mass & Linear Momentum',
+    category: 'mechanics',
+    iconName: 'Activity',
+    description: 'System of particles, Center of Mass trajectory, Internal vs External forces & Ragdoll physics simulation.',
+    conceptIds: ['center-of-mass-ragdoll'],
+  },
+  {
     id: 'rotational-motion',
     name: 'Rotational Motion & Rolling',
     category: 'mechanics',

@@ -5,6 +5,7 @@ import {
   defaultPhysicsMiddleware,
   PhysicsBodyTransform,
 } from './physicsEngineMiddleware';
+import { RagdollPhysicsSimulator, RAGDOLL_BONES, RagdollSimParams } from '../../physics/RagdollRig';
 
 export interface SimRenderContext {
   scene: THREE.Scene;
@@ -33,9 +34,36 @@ export class SimulationRenderer {
   private physicsMiddleware: PhysicsEngineMiddleware = defaultPhysicsMiddleware;
   private currentBloomIntensity: 'vibrant' | 'subtle' | 'off' = 'vibrant';
 
+  // Ragdoll Center of Mass Simulation state
+  private ragdollSimulator: RagdollPhysicsSimulator | null = null;
+  private ragdollMeshes: Map<string, THREE.Group | THREE.Mesh> = new Map();
+  private ragdollComBeacon: THREE.Group | null = null;
+  private ragdollAnalyticLine: THREE.Line | null = null;
+  private ragdollSimTrailLine: THREE.Line | null = null;
+  private ragdollTrailDotsGroup: THREE.Group | null = null;
+  private ragdollLimbConnectingLines: THREE.LineSegments | null = null;
+
+  // Dedicated Projectile Motion WASM Ragdoll Simulator & Dynamic Dotted Systems
+  private projectileRagdollSimulator: RagdollPhysicsSimulator | null = null;
+  private projectileRagdollMeshes: Map<string, THREE.Group | THREE.Mesh> = new Map();
+  private projectilePrimaryInstancedDots: THREE.InstancedMesh | null = null;
+  private projectileBounceInstancedDots: THREE.InstancedMesh | null = null;
+  private projectileBeaconGroup: THREE.Group | null = null;
+  private projectileImpactReticle: THREE.Group | null = null;
+
   // Projectile caching
   private lastProjectileParamsStr: string = '';
-  private projectilePath: {t: number, x: number, y: number, vx: number, vy: number, bounce: boolean}[] = [];
+  private projectilePath: {
+    t: number;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    bounce: boolean;
+    forceDragX?: number;
+    forceDragY?: number;
+    impulse?: number;
+  }[] = [];
   private projectileTotalTime: number = 0;
 
   constructor(private scene: THREE.Scene) {
@@ -139,6 +167,9 @@ export class SimulationRenderer {
         break;
       case 'elasticity-viscosity-stokes':
         this.setupElasticityStokes(context);
+        break;
+      case 'center-of-mass-ragdoll':
+        this.setupRagdollCOM(context);
         break;
       default:
         this.setupDefault();
@@ -303,6 +334,9 @@ export class SimulationRenderer {
       case 'elasticity-viscosity-stokes':
         this.updateElasticityStokes(context);
         break;
+      case 'center-of-mass-ragdoll':
+        this.updateRagdollCOM(context);
+        break;
     }
   }
 
@@ -328,6 +362,27 @@ export class SimulationRenderer {
     this.activeTrailLine = null;
     this.trajectoryPoints = [];
     this.particleSystem = null;
+
+    if (this.ragdollSimulator) {
+      this.ragdollSimulator.dispose();
+      this.ragdollSimulator = null;
+    }
+    this.ragdollMeshes.clear();
+    this.ragdollComBeacon = null;
+    this.ragdollAnalyticLine = null;
+    this.ragdollSimTrailLine = null;
+    this.ragdollTrailDotsGroup = null;
+    this.ragdollLimbConnectingLines = null;
+
+    if (this.projectileRagdollSimulator) {
+      this.projectileRagdollSimulator.dispose();
+      this.projectileRagdollSimulator = null;
+    }
+    this.projectileRagdollMeshes.clear();
+    this.projectilePrimaryInstancedDots = null;
+    this.projectileBounceInstancedDots = null;
+    this.projectileBeaconGroup = null;
+    this.projectileImpactReticle = null;
   }
 
   private disposeObject(obj: THREE.Object3D) {
@@ -637,63 +692,71 @@ export class SimulationRenderer {
 
     this.objectsGroup.add(shellGroup);
 
-    // 5. Parabolic Trajectory Elements:
-    // A. Primary Theoretical Flight Parabola (DOTTED LINE)
+    // 5. Smart Science Lab Trajectory Systems:
+    // A. Dynamic Primary Instanced Dotted Flight Path (Smart Science Lab Theme)
+    const primaryDotGeo = new THREE.SphereGeometry(0.085, 12, 12);
+    const primaryDotMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0284c7,
+      emissiveIntensity: 1.6,
+      roughness: 0.15,
+      metalness: 0.8,
+    });
+    this.projectilePrimaryInstancedDots = new THREE.InstancedMesh(primaryDotGeo, primaryDotMat, 200);
+    this.projectilePrimaryInstancedDots.name = 'projectile-primary-instanced-dots';
+    this.projectilePrimaryInstancedDots.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.objectsGroup.add(this.projectilePrimaryInstancedDots);
+
+    // B. Dynamic Secondary Bounce Instanced Dotted Path (Warning Amber/Orange)
+    const bounceDotGeo = new THREE.SphereGeometry(0.075, 12, 12);
+    const bounceDotMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b,
+      emissive: 0xd97706,
+      emissiveIntensity: 1.4,
+      roughness: 0.2,
+      metalness: 0.7,
+    });
+    this.projectileBounceInstancedDots = new THREE.InstancedMesh(bounceDotGeo, bounceDotMat, 120);
+    this.projectileBounceInstancedDots.name = 'projectile-bounce-instanced-dots';
+    this.projectileBounceInstancedDots.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.objectsGroup.add(this.projectileBounceInstancedDots);
+
+    // C. Auxiliary Fine Trajectory Lines for Depth & Backwards-Compatibility
     const trajGeo = new THREE.BufferGeometry();
     const trajMat = new THREE.LineDashedMaterial({
       color: 0x38bdf8,
-      dashSize: 0.45,
-      gapSize: 0.35,
-      linewidth: 2,
+      dashSize: 0.5,
+      gapSize: 0.3,
+      transparent: true,
+      opacity: 0.35,
     });
     this.trajectoryLine = new THREE.Line(trajGeo, trajMat);
     this.trajectoryLine.name = 'trajectory';
     this.objectsGroup.add(this.trajectoryLine);
 
-    // Glowing Parabola Halo (Dotted)
     const trajGlowMat = new THREE.LineDashedMaterial({
       color: 0x0284c7,
-      dashSize: 0.45,
-      gapSize: 0.35,
+      dashSize: 0.5,
+      gapSize: 0.3,
       transparent: true,
-      opacity: 0.45,
-      linewidth: 3,
+      opacity: 0.25,
     });
     this.trajectoryGlowLine = new THREE.Line(new THREE.BufferGeometry(), trajGlowMat);
     this.trajectoryGlowLine.name = 'trajectory-glow';
     this.objectsGroup.add(this.trajectoryGlowLine);
 
-    // Dedicated High-Visibility Dotted Trajectory Beads
-    const trajDotsGroup = new THREE.Group();
-    trajDotsGroup.name = 'projectile-traj-dots-group';
-    const dotSphereGeo = new THREE.SphereGeometry(0.08, 12, 12);
-    const dotSphereMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      emissive: 0x0284c7,
-      emissiveIntensity: 1.2,
-      roughness: 0.2,
-    });
-    for (let d = 0; d < 75; d++) {
-      const dotMesh = new THREE.Mesh(dotSphereGeo, dotSphereMat);
-      dotMesh.name = `traj-dot-${d}`;
-      dotMesh.visible = false;
-      trajDotsGroup.add(dotMesh);
-    }
-    this.objectsGroup.add(trajDotsGroup);
-
-    // B. Secondary Inelastic Bounce Trajectory Line
     const bounceGeo = new THREE.BufferGeometry();
     const bounceMat = new THREE.LineDashedMaterial({
       color: 0xf59e0b,
       dashSize: 0.5,
       gapSize: 0.25,
-      linewidth: 1.5,
+      transparent: true,
+      opacity: 0.35,
     });
     this.bounceTrajLine = new THREE.Line(bounceGeo, bounceMat);
     this.bounceTrajLine.name = 'projectile-bounce-path';
     this.objectsGroup.add(this.bounceTrajLine);
 
-    // C. Dynamic Active Flight Trail (Tracer following projectile live in air)
     const activeTrailGeo = new THREE.BufferGeometry();
     const activeTrailMat = new THREE.LineBasicMaterial({
       color: 0x10b981,
@@ -702,6 +765,50 @@ export class SimulationRenderer {
     this.activeTrailLine = new THREE.Line(activeTrailGeo, activeTrailMat);
     this.activeTrailLine.name = 'projectile-active-trail';
     this.objectsGroup.add(this.activeTrailLine);
+
+    // D. Active Projectile Radar Beacon Group (Smart Science Lab Reticle)
+    this.projectileBeaconGroup = new THREE.Group();
+    this.projectileBeaconGroup.name = 'projectile-beacon-group';
+    const beaconRing1 = new THREE.Mesh(
+      new THREE.RingGeometry(0.32, 0.38, 32),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+    );
+    this.projectileBeaconGroup.add(beaconRing1);
+    const beaconRing2 = new THREE.Mesh(
+      new THREE.RingGeometry(0.48, 0.52, 32),
+      new THREE.MeshBasicMaterial({ color: 0x0284c7, side: THREE.DoubleSide, transparent: true, opacity: 0.55 })
+    );
+    this.projectileBeaconGroup.add(beaconRing2);
+    const beaconCore = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 16, 16),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x38bdf8, emissiveIntensity: 2.2 })
+    );
+    this.projectileBeaconGroup.add(beaconCore);
+    this.objectsGroup.add(this.projectileBeaconGroup);
+
+    // E. Collision Impact Ground Reticle & Dynamic Shockwave
+    this.projectileImpactReticle = new THREE.Group();
+    this.projectileImpactReticle.name = 'projectile-impact-reticle';
+    const impactRingOuter = new THREE.Mesh(
+      new THREE.RingGeometry(1.2, 1.35, 32),
+      new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide, transparent: true, opacity: 0.8 })
+    );
+    impactRingOuter.rotation.x = -Math.PI / 2;
+    this.projectileImpactReticle.add(impactRingOuter);
+    const impactRingInner = new THREE.Mesh(
+      new THREE.RingGeometry(0.5, 0.65, 32),
+      new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+    );
+    impactRingInner.rotation.x = -Math.PI / 2;
+    this.projectileImpactReticle.add(impactRingInner);
+    const shockwaveMesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.1, 0.25, 32),
+      new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
+    );
+    shockwaveMesh.name = 'impact-shockwave-ring';
+    shockwaveMesh.rotation.x = -Math.PI / 2;
+    this.projectileImpactReticle.add(shockwaveMesh);
+    this.objectsGroup.add(this.projectileImpactReticle);
 
     // D. Trajectory Strobe / Time Waypoint Markers Group
     const waypointsGroup = new THREE.Group();
@@ -865,7 +972,13 @@ export class SimulationRenderer {
     launchGroup.add(angleArc);
     this.objectsGroup.add(launchGroup);
 
-    // 8. Anatomically Articulated Crash-Test Dummy Ragdoll (Target downrange)
+    // 8. Anatomically Articulated Crash-Test Dummy Ragdoll (Rapier 3D Physics Engine)
+    this.projectileRagdollSimulator = new RagdollPhysicsSimulator();
+    this.projectileRagdollSimulator.initialize().catch((err) => {
+      console.warn('Projectile Rapier simulator init warning:', err);
+    });
+    this.projectileRagdollMeshes.clear();
+
     const ragdoll = new THREE.Group();
     ragdoll.name = 'target-ragdoll';
 
@@ -898,282 +1011,204 @@ export class SimulationRenderer {
     bullseyeRing2.rotation.x = -Math.PI / 2;
     bullseyeRing2.position.y = 0.21;
     targetStandGroup.add(bullseyeRing2);
-
     ragdoll.add(targetStandGroup);
 
-    const dummyYellowMat = new THREE.MeshStandardMaterial({
-      color: 0xfacc15,
-      metalness: 0.35,
-      roughness: 0.4,
+    // Build the 10 Anatomically Articulated Bones driven directly by Rapier WASM
+    RAGDOLL_BONES.forEach((bone) => {
+      const boneGroup = new THREE.Group();
+      boneGroup.name = `proj-bone-${bone.id}`;
+
+      if (bone.id === 'torso') {
+        // Torso & Pelvis block with crash test badge
+        const torsoMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.72, 0.85, 0.45),
+          new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.35, metalness: 0.4 })
+        );
+        boneGroup.add(torsoMesh);
+        // Crash Test quadrant decal
+        const decal = new THREE.Mesh(
+          new THREE.CircleGeometry(0.18, 32),
+          new THREE.MeshBasicMaterial({ color: 0x09090b })
+        );
+        decal.position.set(0, 0.08, 0.23);
+        boneGroup.add(decal);
+        const decalYellow = new THREE.Mesh(
+          new THREE.RingGeometry(0.08, 0.15, 32, 1, 0, Math.PI / 2),
+          new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide })
+        );
+        decalYellow.position.set(0, 0.08, 0.235);
+        boneGroup.add(decalYellow);
+      } else if (bone.id === 'head') {
+        // Helmet head with dark visor
+        const headMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.25, 24, 24),
+          new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.25, metalness: 0.5 })
+        );
+        boneGroup.add(headMesh);
+        const visorMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.32, 0.14, 0.18),
+          new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.1, metalness: 0.9 })
+        );
+        visorMesh.position.set(0, 0.02, 0.18);
+        boneGroup.add(visorMesh);
+      } else if (bone.id.includes('Arm')) {
+        const armMesh = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.09, 0.35, 8, 16),
+          new THREE.MeshStandardMaterial({
+            color: bone.id.includes('upper') ? 0xfacc15 : 0x1e293b,
+            roughness: 0.4,
+            metalness: 0.4,
+          })
+        );
+        boneGroup.add(armMesh);
+        const jointMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.1, 16, 16),
+          new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.2 })
+        );
+        jointMesh.position.y = 0.2;
+        boneGroup.add(jointMesh);
+      } else {
+        // Legs & Shins
+        const legMesh = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.11, 0.42, 8, 16),
+          new THREE.MeshStandardMaterial({
+            color: bone.id.includes('upper') ? 0x1e293b : 0xfacc15,
+            roughness: 0.4,
+            metalness: 0.4,
+          })
+        );
+        boneGroup.add(legMesh);
+        const kneeMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.12, 16, 16),
+          new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.2 })
+        );
+        kneeMesh.position.y = 0.24;
+        boneGroup.add(kneeMesh);
+      }
+
+      this.projectileRagdollMeshes.set(bone.id, boneGroup);
+      ragdoll.add(boneGroup);
     });
-    const dummyDarkMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      metalness: 0.5,
-      roughness: 0.4,
-    });
-    const dummyAccentMat = new THREE.MeshStandardMaterial({
-      color: 0xef4444,
-      metalness: 0.6,
-      roughness: 0.3,
-    });
-    const jointMat = new THREE.MeshStandardMaterial({
-      color: 0x64748b,
-      metalness: 0.8,
-      roughness: 0.2,
-    });
 
-    // A. Pelvis / Hips (Root Base of Ragdoll skeleton)
-    const pelvisGroup = new THREE.Group();
-    pelvisGroup.name = 'ragdoll-pelvis';
-    pelvisGroup.position.y = 1.45;
-
-    const pelvisGeo = new THREE.BoxGeometry(0.72, 0.4, 0.45);
-    const pelvisMesh = new THREE.Mesh(pelvisGeo, dummyDarkMat);
-    pelvisGroup.add(pelvisMesh);
-
-    // B. Spine & Torso with Crash Test Emblem
-    const torsoGroup = new THREE.Group();
-    torsoGroup.name = 'ragdoll-torso';
-    torsoGroup.position.y = 0.2; // Pivot at waist/lumbar
-
-    const torsoGeo = new THREE.BoxGeometry(0.85, 0.95, 0.52);
-    const torsoMesh = new THREE.Mesh(torsoGeo, dummyYellowMat);
-    torsoMesh.position.y = 0.5;
-    torsoGroup.add(torsoMesh);
-
-    // Crash Test Quadrant Target on Chest
-    const targetGeo = new THREE.CircleGeometry(0.2, 32);
-    const targetMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
-    const targetMesh = new THREE.Mesh(targetGeo, targetMat);
-    targetMesh.position.set(0, 0.55, 0.27);
-    torsoGroup.add(targetMesh);
-
-    // C. Neck & Crash Helmet Head
-    const neckGroup = new THREE.Group();
-    neckGroup.name = 'ragdoll-neck';
-    neckGroup.position.y = 1.0;
-
-    const headGeo = new THREE.SphereGeometry(0.3, 24, 24);
-    const headMesh = new THREE.Mesh(headGeo, dummyAccentMat);
-    headMesh.position.y = 0.32;
-    neckGroup.add(headMesh);
-
-    // Helmet Visor
-    const visorGeo = new THREE.BoxGeometry(0.38, 0.16, 0.2);
-    const visorMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.1, metalness: 0.9 });
-    const visor = new THREE.Mesh(visorGeo, visorMat);
-    visor.position.set(0, 0.32, 0.22);
-    neckGroup.add(visor);
-
-    torsoGroup.add(neckGroup);
-
-    // D. Left & Right Arm Articulations (Shoulder -> Upper Arm -> Elbow -> Forearm -> Hand)
-    const armGeo = new THREE.CylinderGeometry(0.09, 0.08, 0.5, 16);
-    const forearmGeo = new THREE.CylinderGeometry(0.08, 0.07, 0.45, 16);
-    const jointGeo = new THREE.SphereGeometry(0.1, 16, 16);
-    const handGeo = new THREE.BoxGeometry(0.12, 0.14, 0.08);
-
-    // Left Arm Hierarchy
-    const shoulderL = new THREE.Group();
-    shoulderL.name = 'ragdoll-shoulder-l';
-    shoulderL.position.set(0.55, 0.85, 0);
-
-    const shoulderLJoint = new THREE.Mesh(jointGeo, jointMat);
-    shoulderL.add(shoulderLJoint);
-
-    const upperArmL = new THREE.Mesh(armGeo, dummyYellowMat);
-    upperArmL.position.y = -0.28;
-    shoulderL.add(upperArmL);
-
-    const elbowL = new THREE.Group();
-    elbowL.name = 'ragdoll-elbow-l';
-    elbowL.position.y = -0.55;
-
-    const elbowLJoint = new THREE.Mesh(jointGeo, jointMat);
-    elbowL.add(elbowLJoint);
-
-    const forearmL = new THREE.Mesh(forearmGeo, dummyDarkMat);
-    forearmL.position.y = -0.25;
-    elbowL.add(forearmL);
-
-    const handL = new THREE.Mesh(handGeo, dummyAccentMat);
-    handL.position.y = -0.52;
-    elbowL.add(handL);
-
-    shoulderL.add(elbowL);
-    torsoGroup.add(shoulderL);
-
-    // Right Arm Hierarchy
-    const shoulderR = new THREE.Group();
-    shoulderR.name = 'ragdoll-shoulder-r';
-    shoulderR.position.set(-0.55, 0.85, 0);
-
-    const shoulderRJoint = new THREE.Mesh(jointGeo, jointMat);
-    shoulderR.add(shoulderRJoint);
-
-    const upperArmR = new THREE.Mesh(armGeo, dummyYellowMat);
-    upperArmR.position.y = -0.28;
-    shoulderR.add(upperArmR);
-
-    const elbowR = new THREE.Group();
-    elbowR.name = 'ragdoll-elbow-r';
-    elbowR.position.y = -0.55;
-
-    const elbowRJoint = new THREE.Mesh(jointGeo, jointMat);
-    elbowR.add(elbowRJoint);
-
-    const forearmR = new THREE.Mesh(forearmGeo, dummyDarkMat);
-    forearmR.position.y = -0.25;
-    elbowR.add(forearmR);
-
-    const handR = new THREE.Mesh(handGeo, dummyAccentMat);
-    handR.position.y = -0.52;
-    elbowR.add(handR);
-
-    shoulderR.add(elbowR);
-    torsoGroup.add(shoulderR);
-
-    pelvisGroup.add(torsoGroup);
-
-    // E. Left & Right Leg Articulations (Hip -> Thigh -> Knee -> Shin -> Foot)
-    const thighGeo = new THREE.CylinderGeometry(0.12, 0.1, 0.65, 16);
-    const shinGeo = new THREE.CylinderGeometry(0.1, 0.08, 0.6, 16);
-    const footGeo = new THREE.BoxGeometry(0.16, 0.1, 0.32);
-
-    // Left Leg
-    const hipL = new THREE.Group();
-    hipL.name = 'ragdoll-hip-l';
-    hipL.position.set(0.24, -0.15, 0);
-
-    const hipLJoint = new THREE.Mesh(jointGeo, jointMat);
-    hipL.add(hipLJoint);
-
-    const thighL = new THREE.Mesh(thighGeo, dummyDarkMat);
-    thighL.position.y = -0.35;
-    hipL.add(thighL);
-
-    const kneeL = new THREE.Group();
-    kneeL.name = 'ragdoll-knee-l';
-    kneeL.position.y = -0.7;
-
-    const kneeLJoint = new THREE.Mesh(jointGeo, jointMat);
-    kneeL.add(kneeLJoint);
-
-    const shinL = new THREE.Mesh(shinGeo, dummyYellowMat);
-    shinL.position.y = -0.32;
-    kneeL.add(shinL);
-
-    const footL = new THREE.Mesh(footGeo, dummyAccentMat);
-    footL.position.set(0, -0.65, 0.08);
-    kneeL.add(footL);
-
-    hipL.add(kneeL);
-    pelvisGroup.add(hipL);
-
-    // Right Leg
-    const hipR = new THREE.Group();
-    hipR.name = 'ragdoll-hip-r';
-    hipR.position.set(-0.24, -0.15, 0);
-
-    const hipRJoint = new THREE.Mesh(jointGeo, jointMat);
-    hipR.add(hipRJoint);
-
-    const thighR = new THREE.Mesh(thighGeo, dummyDarkMat);
-    thighR.position.y = -0.35;
-    hipR.add(thighR);
-
-    const kneeR = new THREE.Group();
-    kneeR.name = 'ragdoll-knee-r';
-    kneeR.position.y = -0.7;
-
-    const kneeRJoint = new THREE.Mesh(jointGeo, jointMat);
-    kneeR.add(kneeRJoint);
-
-    const shinR = new THREE.Mesh(shinGeo, dummyYellowMat);
-    shinR.position.y = -0.32;
-    kneeR.add(shinR);
-
-    const footR = new THREE.Mesh(footGeo, dummyAccentMat);
-    footR.position.set(0, -0.65, 0.08);
-    kneeR.add(footR);
-
-    hipR.add(kneeR);
-    pelvisGroup.add(hipR);
-
-    ragdoll.add(pelvisGroup);
     this.objectsGroup.add(ragdoll);
 
-    // 9. Velocity Arrow & Acceleration Arrows
+    // 9. Velocity Arrow, Acceleration, Drag & Normal Reaction Arrows
     this.createArrow('vel-arrow', 0x22c55e);
     this.createArrow('acc-arrow', 0xef4444);
     this.createArrow('vx-arrow', 0x06b6d4);
     this.createArrow('vy-arrow', 0xf59e0b);
+    this.createArrow('drag-arrow', 0xd946ef);
+    this.createArrow('normal-impact-arrow', 0xeab308);
   }
 
   private updateProjectile(ctx: SimRenderContext) {
-    const { u, theta, g, h0 = 0, planeAngle = 0 } = ctx.params;
+    const {
+      u = 20,
+      theta = 45,
+      g = 9.8,
+      h0 = 0,
+      planeAngle = 0,
+      dragCoeff = 0,
+      restitution = 0.55,
+      launchMode = 0,
+    } = ctx.params;
     const rad = (theta * Math.PI) / 180;
     const alpha = (planeAngle * Math.PI) / 180;
-    
-    // Rotate terrain to match planeAngle
+
+    // 1. Rotate terrain runway to match planeAngle
     const terrainGroup = this.objectsGroup.getObjectByName('projectile-terrain-group');
     if (terrainGroup) {
-      // Rotate around z-axis, base at x=0
-      terrainGroup.position.set(0, 0, 0); // we will move the ground locally
+      terrainGroup.position.set(0, 0, 0);
       terrainGroup.rotation.z = alpha;
-      
       const ground = terrainGroup.children[0];
       if (ground) {
-        // Shift it so it aligns nicely
-        ground.position.set(25, 0, 0); 
+        ground.position.set(25, 0, 0);
       }
     }
 
-    // Cache trajectory calculation
-    const currentParamsStr = JSON.stringify({ u, theta, g, h0, planeAngle });
+    // 2. Real-Time Dynamic Physics Trajectory Calculation
+    const currentParamsStr = JSON.stringify({ u, theta, g, h0, planeAngle, dragCoeff, restitution });
     if (this.lastProjectileParamsStr !== currentParamsStr) {
       this.lastProjectileParamsStr = currentParamsStr;
       this.projectilePath = [];
-      
-      let t = 0, x = 0, y = h0;
+
+      let t = 0;
+      let x = 0;
+      let y = h0;
       let vx = u * Math.cos(rad);
       let vy = u * Math.sin(rad);
-      const dt = 0.01;
+      const mass = 4.0; // 4.0 kg projectile shell
+      const dt = 0.005; // 200 Hz numerical physics substepping
       let bounces = 0;
       let isBouncing = false;
-      
-      this.projectilePath.push({ t, x, y, vx, vy, bounce: false });
-      
-      while(t < 25 && x < 85 && bounces < 4 && x > -10) {
+
+      const v0 = Math.hypot(vx, vy);
+      const fDrag0X = -dragCoeff * v0 * vx;
+      const fDrag0Y = -dragCoeff * v0 * vy;
+
+      this.projectilePath.push({
+        t,
+        x,
+        y,
+        vx,
+        vy,
+        bounce: false,
+        forceDragX: fDrag0X,
+        forceDragY: fDrag0Y,
+        impulse: 0,
+      });
+
+      while (t < 25 && x < 95 && bounces < 4 && x > -15) {
+        const v = Math.hypot(vx, vy);
+        const fDx = -dragCoeff * v * vx;
+        const fDy = -dragCoeff * v * vy;
+
+        const ax = fDx / mass;
+        const ay = -g + fDy / mass;
+
+        x += vx * dt + 0.5 * ax * dt * dt;
+        y += vy * dt + 0.5 * ay * dt * dt;
+        vx += ax * dt;
+        vy += ay * dt;
         t += dt;
-        x += vx * dt;
-        y += vy * dt - 0.5 * g * dt * dt;
-        vy -= g * dt;
-        
-        // Ground equation
+
+        // Incline terrain surface elevation
         const planeY = x * Math.tan(alpha);
-        
         let bounce = false;
+        let impulseMag = 0;
+
         if (y <= planeY && !isBouncing) {
           y = planeY;
+          // Normal & Tangential velocities relative to plane
           const v_n = -vx * Math.sin(alpha) + vy * Math.cos(alpha);
           const v_p = vx * Math.cos(alpha) + vy * Math.sin(alpha);
-          
-          if (v_n < 0 && Math.abs(v_n) < 0.5) {
+
+          if (v_n < 0 && Math.abs(v_n) < 0.35) {
             isBouncing = true;
           } else if (v_n < 0) {
-            const e = 0.55; // bounce factor
+            const e = Math.min(0.95, Math.max(0.1, restitution));
             const v_n_new = -v_n * e;
-            const v_p_new = v_p * 0.85; // sliding friction
+            const v_p_new = v_p * 0.82; // kinetic friction
             vx = v_p_new * Math.cos(alpha) - v_n_new * Math.sin(alpha);
             vy = v_p_new * Math.sin(alpha) + v_n_new * Math.cos(alpha);
             bounce = true;
             bounces++;
+            impulseMag = mass * (1 + e) * Math.abs(v_n);
           }
         }
-        if (y > planeY + 0.1) isBouncing = false;
-        
-        this.projectilePath.push({ t, x, y, vx, vy, bounce });
+        if (y > planeY + 0.08) isBouncing = false;
+
+        this.projectilePath.push({
+          t,
+          x,
+          y,
+          vx,
+          vy,
+          bounce,
+          forceDragX: fDx,
+          forceDragY: fDy,
+          impulse: impulseMag,
+        });
         if (bounces >= 3) break;
       }
       this.projectileTotalTime = t;
@@ -1182,37 +1217,151 @@ export class SimulationRenderer {
     if (this.projectilePath.length === 0) return;
 
     // First impact analytics
-    let firstImpactIdx = this.projectilePath.findIndex(p => p.bounce);
+    let firstImpactIdx = this.projectilePath.findIndex((p) => p.bounce);
     if (firstImpactIdx === -1) firstImpactIdx = this.projectilePath.length - 1;
     const impactPoint = this.projectilePath[firstImpactIdx];
     const T = impactPoint.t;
     const range = Math.hypot(impactPoint.x, impactPoint.y);
     const v_impact = Math.hypot(impactPoint.vx, impactPoint.vy);
+    const impactImpulse = impactPoint.impulse || 4.0 * (1 + restitution) * v_impact;
 
     // Primary theoretical flight points & bounce points
     const primaryFlightPoints = this.projectilePath.slice(0, firstImpactIdx + 1);
     const bouncePoints = this.projectilePath.slice(firstImpactIdx);
 
-    // Update primary trajectory line geometry (DOTTED)
+    // Apex search before first impact
+    let max_y = -Infinity;
+    let apex_x = 0;
+    let t_apex = 0;
+    for (let i = 0; i <= firstImpactIdx; i++) {
+      if (this.projectilePath[i].y > max_y) {
+        max_y = this.projectilePath[i].y;
+        apex_x = this.projectilePath[i].x;
+        t_apex = this.projectilePath[i].t;
+      }
+    }
+    const vx_apex = u * Math.cos(rad);
+    const rho_apex = Math.max(0.1, (vx_apex * vx_apex) / Math.max(0.1, g));
+
+    // Cycle timing
+    const cycleDuration = this.projectileTotalTime + 1.8;
+    const tInCycle = ctx.simTime % cycleDuration;
+
+    // Interpolate current state
+    let currentState = this.projectilePath[this.projectilePath.length - 1];
+    let isLanded = true;
+    for (let i = 0; i < this.projectilePath.length - 1; i++) {
+      if (tInCycle >= this.projectilePath[i].t && tInCycle <= this.projectilePath[i + 1].t) {
+        const p1 = this.projectilePath[i];
+        const p2 = this.projectilePath[i + 1];
+        const f = (tInCycle - p1.t) / (p2.t - p1.t);
+        currentState = {
+          t: tInCycle,
+          x: p1.x + (p2.x - p1.x) * f,
+          y: p1.y + (p2.y - p1.y) * f,
+          vx: p1.vx + (p2.vx - p1.vx) * f,
+          vy: p1.vy + (p2.vy - p1.vy) * f,
+          bounce: p1.bounce || p2.bounce,
+          forceDragX: (p1.forceDragX ?? 0) + ((p2.forceDragX ?? 0) - (p1.forceDragX ?? 0)) * f,
+          forceDragY: (p1.forceDragY ?? 0) + ((p2.forceDragY ?? 0) - (p1.forceDragY ?? 0)) * f,
+          impulse: p1.impulse,
+        };
+        isLanded = false;
+        break;
+      }
+    }
+
+    // 3. Dynamic Physics-Calculated Dotted Lines (Smart Science Lab Theme)
+    const dummyObj = new THREE.Object3D();
+    const colorCyan = new THREE.Color(0x38bdf8);
+    const colorBrightTraversed = new THREE.Color(0xf0f9ff);
+    const colorApex = new THREE.Color(0x2dd4bf);
+    const colorAmber = new THREE.Color(0xf59e0b);
+
+    // A. Primary Instanced Dotted Trajectory (200 instances)
+    if (this.projectilePrimaryInstancedDots) {
+      this.projectilePrimaryInstancedDots.visible = ctx.showTrajectory;
+      const count = 200;
+      for (let i = 0; i < count; i++) {
+        const frac = i / (count - 1);
+        const idx = Math.min(primaryFlightPoints.length - 1, Math.floor(frac * (primaryFlightPoints.length - 1)));
+        const pt = primaryFlightPoints[idx];
+
+        if (pt) {
+          dummyObj.position.set(pt.x, pt.y, 0);
+
+          // Proximity to current projectile position creates dynamic radar ping wave
+          const distToCur = Math.hypot(pt.x - currentState.x, pt.y - currentState.y);
+          const isNearCur = distToCur < 1.5;
+          const scale = isNearCur ? 1.45 : 1.0;
+          dummyObj.scale.set(scale, scale, scale);
+          dummyObj.updateMatrix();
+          this.projectilePrimaryInstancedDots.setMatrixAt(i, dummyObj.matrix);
+
+          if (pt.t <= tInCycle) {
+            // Traversed active path: high-luminance white-cyan
+            const pulse = isNearCur ? 1.0 : 0.8 + 0.2 * Math.sin(ctx.simTime * 6 - i * 0.1);
+            const col = colorBrightTraversed.clone().multiplyScalar(pulse);
+            this.projectilePrimaryInstancedDots.setColorAt(i, col);
+          } else {
+            // Ahead predictive physics path: crisp cyan, shifting to aquamarine around apex
+            const isApexZone = Math.abs(pt.t - t_apex) < 0.25;
+            const col = isApexZone ? colorApex : colorCyan;
+            this.projectilePrimaryInstancedDots.setColorAt(i, col);
+          }
+        }
+      }
+      this.projectilePrimaryInstancedDots.instanceMatrix.needsUpdate = true;
+      if (this.projectilePrimaryInstancedDots.instanceColor) {
+        this.projectilePrimaryInstancedDots.instanceColor.needsUpdate = true;
+      }
+    }
+
+    // B. Secondary Bounce Instanced Dotted Trajectory (120 instances)
+    if (this.projectileBounceInstancedDots) {
+      this.projectileBounceInstancedDots.visible = ctx.showTrajectory && bouncePoints.length > 1;
+      const countB = 120;
+      for (let j = 0; j < countB; j++) {
+        if (bouncePoints.length > 1) {
+          const frac = j / (countB - 1);
+          const bIdx = Math.min(bouncePoints.length - 1, Math.floor(frac * (bouncePoints.length - 1)));
+          const bPt = bouncePoints[bIdx];
+          if (bPt) {
+            dummyObj.position.set(bPt.x, bPt.y, 0);
+            dummyObj.scale.set(0.85, 0.85, 0.85);
+            dummyObj.updateMatrix();
+            this.projectileBounceInstancedDots.setMatrixAt(j, dummyObj.matrix);
+            this.projectileBounceInstancedDots.setColorAt(j, colorAmber);
+          }
+        } else {
+          dummyObj.position.set(0, -999, 0);
+          dummyObj.scale.set(0.01, 0.01, 0.01);
+          dummyObj.updateMatrix();
+          this.projectileBounceInstancedDots.setMatrixAt(j, dummyObj.matrix);
+        }
+      }
+      this.projectileBounceInstancedDots.instanceMatrix.needsUpdate = true;
+      if (this.projectileBounceInstancedDots.instanceColor) {
+        this.projectileBounceInstancedDots.instanceColor.needsUpdate = true;
+      }
+    }
+
+    // C. Auxiliary Depth Trajectory Lines
     if (this.trajectoryLine) {
-      const pts = primaryFlightPoints.map(p => new THREE.Vector3(p.x, p.y, 0));
+      const pts = primaryFlightPoints.map((p) => new THREE.Vector3(p.x, p.y, 0));
       this.trajectoryLine.geometry.setFromPoints(pts);
       this.trajectoryLine.computeLineDistances();
       this.trajectoryLine.visible = ctx.showTrajectory;
     }
-
-    // Update glowing halo line geometry (DOTTED)
     if (this.trajectoryGlowLine) {
-      const pts = primaryFlightPoints.map(p => new THREE.Vector3(p.x, p.y, 0));
+      const pts = primaryFlightPoints.map((p) => new THREE.Vector3(p.x, p.y, 0));
       this.trajectoryGlowLine.geometry.setFromPoints(pts);
       this.trajectoryGlowLine.computeLineDistances();
       this.trajectoryGlowLine.visible = ctx.showTrajectory;
     }
-
-    // Update secondary bounce trajectory line geometry
     if (this.bounceTrajLine) {
       if (bouncePoints.length > 1) {
-        const pts = bouncePoints.map(p => new THREE.Vector3(p.x, p.y, 0));
+        const pts = bouncePoints.map((p) => new THREE.Vector3(p.x, p.y, 0));
         this.bounceTrajLine.geometry.setFromPoints(pts);
         this.bounceTrajLine.computeLineDistances();
         this.bounceTrajLine.visible = ctx.showTrajectory;
@@ -1221,80 +1370,38 @@ export class SimulationRenderer {
       }
     }
 
-    // Update dedicated dotted trajectory beads along primary flight path
-    const trajDotsGroup = this.objectsGroup.getObjectByName('projectile-traj-dots-group') as THREE.Group;
-    if (trajDotsGroup) {
-      trajDotsGroup.visible = ctx.showTrajectory;
-      if (ctx.showTrajectory) {
-        let accumDist = 0;
-        let dotIdx = 0;
-        const dotSpacing = 0.85;
-        let lastPt = primaryFlightPoints[0];
-        
-        for (let i = 1; i < primaryFlightPoints.length && dotIdx < 75; i++) {
-          const pt = primaryFlightPoints[i];
-          const segDist = Math.hypot(pt.x - lastPt.x, pt.y - lastPt.y);
-          accumDist += segDist;
-          if (accumDist >= dotSpacing) {
-            accumDist = 0;
-            const dot = trajDotsGroup.children[dotIdx] as THREE.Mesh;
-            if (dot) {
-              dot.position.set(pt.x, pt.y, 0);
-              dot.visible = true;
-              dotIdx++;
-            }
-          }
-          lastPt = pt;
-        }
-        for (let j = dotIdx; j < 75; j++) {
-          const dot = trajDotsGroup.children[j] as THREE.Mesh;
-          if (dot) dot.visible = false;
-        }
-      }
-    }
-    
-    // Find apex before first impact
-    let max_y = -Infinity;
-    let apex_x = 0;
-    let t_apex = 0;
-    for(let i = 0; i <= firstImpactIdx; i++) {
-       if (this.projectilePath[i].y > max_y) {
-           max_y = this.projectilePath[i].y;
-           apex_x = this.projectilePath[i].x;
-           t_apex = this.projectilePath[i].t;
-       }
-    }
-
-    // JEE Advanced: Radius of Curvature at apex rho = (u * cos(theta))^2 / g
-    const vx_apex = u * Math.cos(rad);
-    const rho_apex = Math.max(0.1, (vx_apex * vx_apex) / Math.max(0.1, g));
-
-    // Time cycle logic
-    const cycleDuration = this.projectileTotalTime + 1.5;
-    const tInCycle = ctx.simTime % cycleDuration;
-    
-    // Interpolate current state
-    let currentState = this.projectilePath[this.projectilePath.length - 1];
-    let isLanded = true;
-    for (let i = 0; i < this.projectilePath.length - 1; i++) {
-      if (tInCycle >= this.projectilePath[i].t && tInCycle <= this.projectilePath[i+1].t) {
-        const p1 = this.projectilePath[i];
-        const p2 = this.projectilePath[i+1];
-        const f = (tInCycle - p1.t) / (p2.t - p1.t);
-        currentState = {
-          t: tInCycle,
-          x: p1.x + (p2.x - p1.x) * f,
-          y: p1.y + (p2.y - p1.y) * f,
-          vx: p1.vx + (p2.vx - p1.vx) * f,
-          vy: p1.vy + (p2.vy - p1.vy) * f,
-          bounce: p1.bounce || p2.bounce
-        };
-        isLanded = false;
-        break;
+    // D. Active Projectile Radar Beacon Group
+    if (this.projectileBeaconGroup) {
+      this.projectileBeaconGroup.position.set(currentState.x, currentState.y, 0);
+      this.projectileBeaconGroup.visible = ctx.showTrajectory && tInCycle < this.projectileTotalTime + 0.1;
+      const ring1 = this.projectileBeaconGroup.children[0];
+      const ring2 = this.projectileBeaconGroup.children[1];
+      if (ring1) ring1.rotation.z += 0.04;
+      if (ring2) {
+        ring2.rotation.z -= 0.03;
+        ring2.scale.setScalar(1.0 + Math.sin(ctx.simTime * 8) * 0.12);
       }
     }
 
-    // 1. Tower Elevation Base Update
+    // E. Collision Impact Reticle & Shockwave
+    if (this.projectileImpactReticle) {
+      this.projectileImpactReticle.position.set(impactPoint.x, impactPoint.y, 0);
+      this.projectileImpactReticle.rotation.z = alpha;
+      this.projectileImpactReticle.visible = ctx.showTrajectory;
+
+      const shockwave = this.projectileImpactReticle.getObjectByName('impact-shockwave-ring') as THREE.Mesh;
+      if (shockwave) {
+        if (tInCycle >= T) {
+          const dtImp = tInCycle - T;
+          shockwave.scale.setScalar(1.0 + dtImp * 5.0);
+          (shockwave.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1.0 - dtImp * 2.0);
+        } else {
+          (shockwave.material as THREE.MeshBasicMaterial).opacity = 0;
+        }
+      }
+    }
+
+    // 4. Tower Elevation Base Update
     const tower = this.objectsGroup.getObjectByName('projectile-tower-base');
     if (tower) {
       tower.visible = h0 > 0.1;
@@ -1307,7 +1414,7 @@ export class SimulationRenderer {
       }
     }
 
-    // 2. Cannon Elevation & Recoil Animation
+    // 5. Cannon Elevation & Recoil Animation
     const launcher = this.objectsGroup.getObjectByName('cannon-launcher-group');
     const barrel = this.objectsGroup.getObjectByName('cannon-barrel');
     const muzzleFlash = this.objectsGroup.getObjectByName('cannon-muzzle-flash') as THREE.Mesh;
@@ -1335,23 +1442,21 @@ export class SimulationRenderer {
       }
     }
 
-    // 3. Projectile Shell Ballistics & Orientation
+    // 6. Projectile Shell Ballistics & Orientation
     const shellGroup = this.objectsGroup.getObjectByName('projectile-ball');
     if (shellGroup) {
-      shellGroup.position.set(currentState.x, currentState.y, 0);
-      
-      const pitchAngle = Math.atan2(currentState.vy, currentState.vx);
-      
-      // Ragdoll / tumbling effect
-      if (tInCycle > T) {
-        // Tumble after first impact
-        shellGroup.rotation.z += Math.hypot(currentState.vx, currentState.vy) * 0.1;
+      if (launchMode === 1) {
+        shellGroup.visible = false;
       } else {
-        // Aerodynamic alignment before impact
-        shellGroup.rotation.z = pitchAngle - Math.PI / 2;
+        shellGroup.position.set(currentState.x, currentState.y, 0);
+        const pitchAngle = Math.atan2(currentState.vy, currentState.vx);
+        if (tInCycle > T) {
+          shellGroup.rotation.z += Math.hypot(currentState.vx, currentState.vy) * 0.1;
+        } else {
+          shellGroup.rotation.z = pitchAngle - Math.PI / 2;
+        }
+        shellGroup.visible = tInCycle < this.projectileTotalTime + 0.1;
       }
-      
-      shellGroup.visible = tInCycle < this.projectileTotalTime + 0.1;
     }
 
     // Active Dynamic Flight Trail (live tracer from launch to current position)
@@ -1373,7 +1478,7 @@ export class SimulationRenderer {
           this.activeTrailLine.visible = false;
         }
       } else if (ctx.showTrajectory && tInCycle > T) {
-        const pts = primaryFlightPoints.map(p => new THREE.Vector3(p.x, p.y, 0));
+        const pts = primaryFlightPoints.map((p) => new THREE.Vector3(p.x, p.y, 0));
         this.activeTrailLine.geometry.setFromPoints(pts);
         this.activeTrailLine.visible = true;
       } else {
@@ -1381,7 +1486,7 @@ export class SimulationRenderer {
       }
     }
 
-    // 4. Apex Peak Beacon & Curvature Geometry
+    // 7. Apex Peak Beacon & Curvature Geometry
     const apexGroup = this.objectsGroup.getObjectByName('projectile-apex-group');
     if (apexGroup) {
       apexGroup.position.set(apex_x, max_y, 0);
@@ -1401,7 +1506,6 @@ export class SimulationRenderer {
         apexLine.computeLineDistances();
       }
 
-      // Horizontal guideline to y-axis showing H_max elevation level
       const apexHLine = apexGroup.getObjectByName('apex-h-line') as THREE.Line;
       if (apexHLine) {
         apexHLine.geometry.setFromPoints([
@@ -1411,7 +1515,6 @@ export class SimulationRenderer {
         apexHLine.computeLineDistances();
       }
 
-      // Osculating Curvature Circle Arc (JEE Advanced: ρ = u² cos²θ / g)
       const curvatureArc = apexGroup.getObjectByName('apex-curvature-arc') as THREE.Line;
       if (curvatureArc) {
         const arcPts: THREE.Vector3[] = [];
@@ -1435,7 +1538,7 @@ export class SimulationRenderer {
       );
     }
 
-    // 5. Landing Target & Crater Shockwave (at first impact)
+    // 8. Landing Target & Crater Shockwave
     const targetGroup = this.objectsGroup.getObjectByName('projectile-target-group');
     if (targetGroup) {
       targetGroup.position.set(impactPoint.x, impactPoint.y, 0);
@@ -1461,7 +1564,7 @@ export class SimulationRenderer {
 
       this.updateArrowLabel(
         'landing-label',
-        `Impact Crater [T = ${T.toFixed(2)}s, v = ${v_impact.toFixed(1)} m/s]`,
+        `Impact Crater [T = ${T.toFixed(2)}s, v = ${v_impact.toFixed(1)} m/s, J = ${impactImpulse.toFixed(0)} N·s]`,
         '#ef4444',
         new THREE.Vector3(impactPoint.x + 0.6, impactPoint.y - 0.7, 0),
         ctx.showTrajectory && ctx.showLabels
@@ -1505,7 +1608,7 @@ export class SimulationRenderer {
       );
     }
 
-    // Trajectory Strobe / Time Waypoint Markers (Galileo spacing law)
+    // Trajectory Strobe / Time Waypoint Markers
     const waypointsGroup = this.objectsGroup.getObjectByName('projectile-waypoints-group') as THREE.Group;
     if (waypointsGroup) {
       waypointsGroup.visible = ctx.showTrajectory;
@@ -1521,7 +1624,7 @@ export class SimulationRenderer {
             closest = p;
           }
         }
-        const wpMarker = waypointsGroup.getObjectByName(`waypoint-marker-${k-1}`) as THREE.Group;
+        const wpMarker = waypointsGroup.getObjectByName(`waypoint-marker-${k - 1}`) as THREE.Group;
         if (wpMarker && closest) {
           wpMarker.position.set(closest.x, closest.y, 0);
           wpMarker.visible = ctx.showTrajectory;
@@ -1530,7 +1633,7 @@ export class SimulationRenderer {
             const planeYAtWp = closest.x * Math.tan(alpha);
             dropLine.geometry.setFromPoints([
               new THREE.Vector3(0, 0, 0),
-              new THREE.Vector3(0, -(closest.y - planeYAtWp), 0)
+              new THREE.Vector3(0, -(closest.y - planeYAtWp), 0),
             ]);
             dropLine.computeLineDistances();
           }
@@ -1545,72 +1648,119 @@ export class SimulationRenderer {
       }
     }
 
-    // Hide trajectory labels when showTrajectory is false
-    if (!ctx.showTrajectory) {
-      if (this.trajectoryLine) this.trajectoryLine.visible = false;
-      if (this.trajectoryGlowLine) this.trajectoryGlowLine.visible = false;
-      if (this.bounceTrajLine) this.bounceTrajLine.visible = false;
-      if (this.activeTrailLine) this.activeTrailLine.visible = false;
-      if (trajDotsGroup) trajDotsGroup.visible = false;
-      if (apexGroup) apexGroup.visible = false;
-      if (targetGroup) targetGroup.visible = false;
-      if (launchGroup) launchGroup.visible = false;
-      if (rangeDimLine) rangeDimLine.visible = false;
-      if (waypointsGroup) waypointsGroup.visible = false;
-      this.updateArrowLabel('apex-label', '', '#ec4899', new THREE.Vector3(), false);
-      this.updateArrowLabel('landing-label', '', '#ef4444', new THREE.Vector3(), false);
-      this.updateArrowLabel('launch-label', '', '#38bdf8', new THREE.Vector3(), false);
-      this.updateArrowLabel('target-dummy-label', '', '#f59e0b', new THREE.Vector3(), false);
-      for (let k = 1; k <= 5; k++) {
-        this.updateArrowLabel(`wp-${k}`, '', '#38bdf8', new THREE.Vector3(), false);
-      }
-    }
-
-    // 6. Target Dummy Doll at Distance (Positioned downrange at landing point)
+    // 9. Accurate, Realistic & Logical Ragdoll Physics (Rapier 3D Engine)
     const ragdoll = this.objectsGroup.getObjectByName('target-ragdoll');
-    if (ragdoll) {
-      // Position target dummy firmly downrange at the landing point
-      ragdoll.position.set(impactPoint.x, impactPoint.y, 0);
-      ragdoll.rotation.z = alpha;
-      ragdoll.rotation.y = -Math.PI / 2; // Face towards the incoming cannon fire (-X direction)
+    const targetStand = ragdoll?.getObjectByName('target-stand-group');
 
-      const torso = ragdoll.getObjectByName('ragdoll-torso');
-      const shoulderL = ragdoll.getObjectByName('ragdoll-shoulder-l');
-      const shoulderR = ragdoll.getObjectByName('ragdoll-shoulder-r');
-      const hipL = ragdoll.getObjectByName('ragdoll-hip-l');
-      const hipR = ragdoll.getObjectByName('ragdoll-hip-r');
-      const neck = ragdoll.getObjectByName('ragdoll-neck');
+    if (this.projectileRagdollSimulator && this.projectileRagdollSimulator.isReady()) {
+      if (launchMode === 0) {
+        // Mode 0: Artillery Shell on Crash-Test Dummy downrange
+        if (targetStand) {
+          targetStand.position.set(impactPoint.x, impactPoint.y, 0);
+          targetStand.rotation.z = alpha;
+          targetStand.visible = true;
+        }
 
-      if (tInCycle >= T) {
-        // Dynamic impact shockwave reaction: dummy recoils and flails from blast
-        const dtImpact = tInCycle - T;
-        const shock = Math.sin(dtImpact * 20) * Math.max(0, 1 - dtImpact * 1.5);
-        if (torso) torso.rotation.x = -shock * 0.45;
-        if (shoulderL) shoulderL.rotation.z = shock * 0.7;
-        if (shoulderR) shoulderR.rotation.z = -shock * 0.7;
-        if (hipL) hipL.rotation.x = shock * 0.25;
-        if (hipR) hipR.rotation.x = shock * 0.25;
-        if (neck) neck.rotation.x = -shock * 0.5;
+        const mShell = 4.0;
+        const eCoeff = Math.min(0.95, Math.max(0.1, restitution));
+        const impulseX = mShell * (1 + eCoeff) * impactPoint.vx * 0.75;
+        const impulseY = mShell * (1 + eCoeff) * impactPoint.vy * 0.75;
+
+        if (tInCycle < T) {
+          // Standing upright on pedestal awaiting incoming projectile
+          this.projectileRagdollSimulator.stepTo(0, {
+            startX: impactPoint.x,
+            startY: impactPoint.y + 1.85,
+            inclineAngleDeg: planeAngle,
+            customGravity: g,
+            isStandingStance: true,
+            freezeJoints: 0,
+          });
+        } else {
+          // Projectile impact delivered! Multi-body physics impulse flails dummy
+          const dtPostImpact = tInCycle - T;
+          this.projectileRagdollSimulator.stepTo(dtPostImpact, {
+            startX: impactPoint.x,
+            startY: impactPoint.y + 1.85,
+            inclineAngleDeg: planeAngle,
+            customGravity: g,
+            isStandingStance: false,
+            freezeJoints: 0,
+            flailTorque: 25,
+            impactImpulse: {
+              time: 0,
+              force: [impulseX, impulseY, 0],
+              boneId: 'torso',
+            },
+          });
+        }
+
+        // Synchronize all 10 visual bone meshes with Rapier WASM rigid body transforms
+        this.projectileRagdollMeshes.forEach((mesh, boneId) => {
+          const xform = this.projectileRagdollSimulator!.getBodyTransform(boneId);
+          if (xform) {
+            mesh.position.copy(xform.position);
+            mesh.quaternion.copy(xform.rotation);
+            mesh.visible = true;
+          }
+        });
+
+        this.updateArrowLabel(
+          'target-dummy-label',
+          tInCycle < T
+            ? `Target Dummy [Standing at R = ${range.toFixed(1)}m]`
+            : `Dummy Impact Reaction [J = ${impactImpulse.toFixed(0)} N·s]`,
+          '#f59e0b',
+          new THREE.Vector3(impactPoint.x, impactPoint.y + 2.6, 0),
+          ctx.showTrajectory && ctx.showLabels
+        );
       } else {
-        // Standing upright, stable target stance facing incoming fire
-        if (torso) torso.rotation.set(0, 0, 0);
-        if (shoulderL) shoulderL.rotation.set(0, 0, 0.2);
-        if (shoulderR) shoulderR.rotation.set(0, 0, -0.2);
-        if (hipL) hipL.rotation.set(0, 0, 0);
-        if (hipR) hipR.rotation.set(0, 0, 0);
-        if (neck) neck.rotation.set(0, 0, 0);
-      }
+        // Mode 1: "Human Cannonball" - Ragdoll in flight from launch cannon
+        if (targetStand) {
+          targetStand.position.set(impactPoint.x, impactPoint.y, 0);
+          targetStand.rotation.z = alpha;
+          targetStand.visible = true;
+        }
 
-      this.updateArrowLabel(
-        'target-dummy-label',
-        `Target Dummy [R = ${range.toFixed(1)} m]`,
-        '#f59e0b',
-        new THREE.Vector3(impactPoint.x, impactPoint.y + 2.5, 0),
-        ctx.showTrajectory && ctx.showLabels
-      );
+        const v0x = u * Math.cos(rad);
+        const v0y = u * Math.sin(rad);
+
+        this.projectileRagdollSimulator.stepTo(tInCycle, {
+          startX: 0,
+          startY: h0 + 1.2,
+          v0x,
+          v0y,
+          inclineAngleDeg: planeAngle,
+          customGravity: g,
+          isStandingStance: false,
+          initialSpin: 2.0,
+          freezeJoints: 0,
+          flailTorque: 35,
+        });
+
+        // Synchronize all 10 visual bone meshes with Rapier WASM transforms
+        this.projectileRagdollMeshes.forEach((mesh, boneId) => {
+          const xform = this.projectileRagdollSimulator!.getBodyTransform(boneId);
+          if (xform) {
+            mesh.position.copy(xform.position);
+            mesh.quaternion.copy(xform.rotation);
+            mesh.visible = true;
+          }
+        });
+
+        this.updateArrowLabel(
+          'target-dummy-label',
+          tInCycle < T
+            ? `Ragdoll in Flight [v = ${Math.hypot(currentState.vx, currentState.vy).toFixed(1)} m/s]`
+            : `Ragdoll Ground Collision [T = ${T.toFixed(2)}s]`,
+          '#f59e0b',
+          new THREE.Vector3(currentState.x, currentState.y + 1.8, 0),
+          ctx.showTrajectory && ctx.showLabels
+        );
+      }
     }
 
-    // 7. Vectors & Real-Time Physics Labels (Velocity Decomposition & Acceleration)
+    // 10. Vector Arrows & Force Visualizers
     const velArrow = this.vectorGroup.getObjectByName('vel-arrow') as THREE.ArrowHelper;
     if (velArrow) {
       const vVec = new THREE.Vector3(currentState.vx, currentState.vy, 0);
@@ -1621,16 +1771,15 @@ export class SimulationRenderer {
       velArrow.setLength(Math.max(0.1, vLen), 0.4, 0.2);
 
       const velAngleDeg = (Math.atan2(currentState.vy, currentState.vx) * 180) / Math.PI;
-      const vLabelPos = new THREE.Vector3(
-        currentState.x + (currentState.vx / (vMag || 1)) * (vLen + 0.8),
-        currentState.y + (currentState.vy / (vMag || 1)) * (vLen + 0.8),
-        0
-      );
       this.updateArrowLabel(
         'vel-arrow',
         `v = ${vMag.toFixed(1)} m/s (${velAngleDeg.toFixed(0)}°)`,
         '#22c55e',
-        vLabelPos,
+        new THREE.Vector3(
+          currentState.x + (currentState.vx / (vMag || 1)) * (vLen + 0.8),
+          currentState.y + (currentState.vy / (vMag || 1)) * (vLen + 0.8),
+          0
+        ),
         ctx.showLabels && ctx.showVectors
       );
     }
@@ -1641,7 +1790,6 @@ export class SimulationRenderer {
       vxArrow.position.set(currentState.x, currentState.y, 0);
       vxArrow.setDirection(new THREE.Vector3(Math.sign(currentState.vx) || 1, 0, 0));
       vxArrow.setLength(vxLen, 0.3, 0.15);
-
       this.updateArrowLabel(
         'vx-arrow',
         `v_x = ${currentState.vx.toFixed(1)} m/s`,
@@ -1658,7 +1806,6 @@ export class SimulationRenderer {
       vyArrow.position.set(currentState.x, currentState.y, 0);
       vyArrow.setDirection(new THREE.Vector3(0, vySign, 0));
       vyArrow.setLength(vyLen, 0.3, 0.15);
-
       this.updateArrowLabel(
         'vy-arrow',
         `v_y = ${currentState.vy.toFixed(1)} m/s`,
@@ -1674,7 +1821,6 @@ export class SimulationRenderer {
       accArrow.position.set(currentState.x, currentState.y, 0);
       accArrow.setDirection(new THREE.Vector3(0, -1, 0));
       accArrow.setLength(Math.max(0.1, gLen), 0.4, 0.2);
-
       this.updateArrowLabel(
         'acc-arrow',
         `g = ${g.toFixed(1)} m/s²`,
@@ -1682,6 +1828,83 @@ export class SimulationRenderer {
         new THREE.Vector3(currentState.x - 0.5, currentState.y - gLen - 0.8, 0),
         ctx.showLabels && ctx.showVectors
       );
+    }
+
+    // Aerodynamic Drag Force Vector
+    const dragArrow = this.vectorGroup.getObjectByName('drag-arrow') as THREE.ArrowHelper;
+    if (dragArrow) {
+      const fDx = currentState.forceDragX ?? 0;
+      const fDy = currentState.forceDragY ?? 0;
+      const fDMag = Math.hypot(fDx, fDy);
+
+      if (dragCoeff > 0 && fDMag > 0.05) {
+        dragArrow.visible = ctx.showVectors;
+        const dragLen = Math.min(4.5, fDMag * 0.25);
+        dragArrow.position.set(currentState.x, currentState.y, 0);
+        dragArrow.setDirection(new THREE.Vector3(fDx / fDMag, fDy / fDMag, 0));
+        dragArrow.setLength(Math.max(0.1, dragLen), 0.35, 0.18);
+        this.updateArrowLabel(
+          'drag-arrow',
+          `F_drag = ${fDMag.toFixed(1)} N`,
+          '#d946ef',
+          new THREE.Vector3(
+            currentState.x + (fDx / fDMag) * (dragLen + 0.7),
+            currentState.y + (fDy / fDMag) * (dragLen + 0.7),
+            0
+          ),
+          ctx.showLabels && ctx.showVectors
+        );
+      } else {
+        dragArrow.visible = false;
+        this.updateArrowLabel('drag-arrow', '', '#d946ef', new THREE.Vector3(), false);
+      }
+    }
+
+    // Impact Normal Reaction Force Vector
+    const normalArrow = this.vectorGroup.getObjectByName('normal-impact-arrow') as THREE.ArrowHelper;
+    if (normalArrow) {
+      if (tInCycle >= T && tInCycle <= T + 1.2) {
+        normalArrow.visible = ctx.showVectors;
+        const nVec = new THREE.Vector3(-Math.sin(alpha), Math.cos(alpha), 0);
+        const nLen = 2.5;
+        normalArrow.position.set(impactPoint.x, impactPoint.y, 0);
+        normalArrow.setDirection(nVec);
+        normalArrow.setLength(nLen, 0.4, 0.2);
+        this.updateArrowLabel(
+          'normal-impact-arrow',
+          `Reaction N (J = ${impactImpulse.toFixed(0)} N·s)`,
+          '#eab308',
+          new THREE.Vector3(impactPoint.x + nVec.x * (nLen + 0.8), impactPoint.y + nVec.y * (nLen + 0.8), 0),
+          ctx.showLabels && ctx.showVectors
+        );
+      } else {
+        normalArrow.visible = false;
+        this.updateArrowLabel('normal-impact-arrow', '', '#eab308', new THREE.Vector3(), false);
+      }
+    }
+
+    // 11. Hide trajectory visualizers when showTrajectory is disabled
+    if (!ctx.showTrajectory) {
+      if (this.projectilePrimaryInstancedDots) this.projectilePrimaryInstancedDots.visible = false;
+      if (this.projectileBounceInstancedDots) this.projectileBounceInstancedDots.visible = false;
+      if (this.trajectoryLine) this.trajectoryLine.visible = false;
+      if (this.trajectoryGlowLine) this.trajectoryGlowLine.visible = false;
+      if (this.bounceTrajLine) this.bounceTrajLine.visible = false;
+      if (this.activeTrailLine) this.activeTrailLine.visible = false;
+      if (this.projectileBeaconGroup) this.projectileBeaconGroup.visible = false;
+      if (this.projectileImpactReticle) this.projectileImpactReticle.visible = false;
+      if (apexGroup) apexGroup.visible = false;
+      if (targetGroup) targetGroup.visible = false;
+      if (launchGroup) launchGroup.visible = false;
+      if (rangeDimLine) rangeDimLine.visible = false;
+      if (waypointsGroup) waypointsGroup.visible = false;
+      this.updateArrowLabel('apex-label', '', '#ec4899', new THREE.Vector3(), false);
+      this.updateArrowLabel('landing-label', '', '#ef4444', new THREE.Vector3(), false);
+      this.updateArrowLabel('launch-label', '', '#38bdf8', new THREE.Vector3(), false);
+      this.updateArrowLabel('target-dummy-label', '', '#f59e0b', new THREE.Vector3(), false);
+      for (let k = 1; k <= 5; k++) {
+        this.updateArrowLabel(`wp-${k}`, '', '#38bdf8', new THREE.Vector3(), false);
+      }
     }
   }
 
@@ -8952,6 +9175,373 @@ export class SimulationRenderer {
         this.updateArrowLabel('gravity-sphere-arrow', `Weight W = ${weightForce.toFixed(3)} N (v_t = ${vt.toFixed(2)} m/s)`, '#ef4444', new THREE.Vector3(worldPosSphere.x + 1.8, worldPosSphere.y - 0.8, 0));
       }
     }
+  }
+
+  // ----------------------------------------------------
+  // CENTER OF MASS & ARTICULATED RAGDOLL SYSTEM OF PARTICLES
+  // ----------------------------------------------------
+  private setupRagdollCOM(ctx: SimRenderContext) {
+    const isDark = ctx.isDark;
+    const p = ctx.params;
+    const h0 = p.dropHeight || 15;
+    const v0x = p.v0x || 10;
+    const v0y = p.v0y || 8;
+    const g = p.gravityPreset === 0 ? 1.62 : p.gravityPreset === 1 ? 9.81 : p.gravityPreset === 2 ? 24.79 : 0.001;
+
+    // 1. High-Tech Launch Tower & Staging Platform at x = 0, y = h0
+    const towerGroup = new THREE.Group();
+    towerGroup.name = 'ragdoll-launch-tower';
+
+    if (h0 > 2) {
+      const scaffoldGeo = new THREE.CylinderGeometry(0.8, 1.2, h0, 8);
+      const scaffoldMat = new THREE.MeshStandardMaterial({
+        color: isDark ? 0x1e293b : 0x475569,
+        wireframe: true,
+        metalness: 0.8,
+        roughness: 0.4,
+      });
+      const scaffold = new THREE.Mesh(scaffoldGeo, scaffoldMat);
+      scaffold.position.set(-1.5, h0 / 2, 0);
+      towerGroup.add(scaffold);
+
+      const deckGeo = new THREE.BoxGeometry(3.5, 0.4, 2.8);
+      const deckMat = new THREE.MeshStandardMaterial({
+        color: isDark ? 0x334155 : 0x64748b,
+        metalness: 0.8,
+        roughness: 0.3,
+      });
+      const deck = new THREE.Mesh(deckGeo, deckMat);
+      deck.position.set(-0.8, h0 - 0.2, 0);
+      towerGroup.add(deck);
+
+      const railGeo = new THREE.BoxGeometry(0.1, 0.8, 2.8);
+      const railMat = new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.5, roughness: 0.3 });
+      const rail = new THREE.Mesh(railGeo, railMat);
+      rail.position.set(-2.4, h0 + 0.4, 0);
+      towerGroup.add(rail);
+    }
+    this.objectsGroup.add(towerGroup);
+
+    // 2. Heavy-duty Concrete Ground Plane with Metric Scale
+    const groundGrid = new THREE.GridHelper(60, 60, isDark ? 0x06b6d4 : 0x0284c7, isDark ? 0x1e293b : 0xcfd8dc);
+    groundGrid.position.set(20, 0.01, 0);
+    this.objectsGroup.add(groundGrid);
+
+    for (let x = 0; x <= 50; x += 5) {
+      const hashGeo = new THREE.PlaneGeometry(0.12, 1.6);
+      const hashMat = new THREE.MeshBasicMaterial({ color: x % 10 === 0 ? 0x38bdf8 : 0x64748b, side: THREE.DoubleSide });
+      const hash = new THREE.Mesh(hashGeo, hashMat);
+      hash.rotation.x = -Math.PI / 2;
+      hash.position.set(x, 0.02, 0);
+      this.objectsGroup.add(hash);
+    }
+
+    // 3. Initialize WASM Ragdoll Engine
+    this.ragdollSimulator = new RagdollPhysicsSimulator();
+    const ragParams: RagdollSimParams = {
+      dropHeight: p.dropHeight ?? 15,
+      v0x: p.v0x ?? 10,
+      v0y: p.v0y ?? 12,
+      gravityPreset: p.gravityPreset ?? 1,
+      freezeJoints: p.freezeJoints ?? 0,
+      flailTorque: p.flailTorque ?? 40,
+      initialSpin: p.initialSpin ?? 0,
+    };
+    this.ragdollSimulator.initialize().then(() => {
+      this.ragdollSimulator?.reset(ragParams);
+    }).catch((err) => {
+      console.error('Failed to init Rapier Ragdoll Simulator:', err);
+    });
+
+    // 4. Create 3D Visual Meshes for each of the 10 Articulated Bones
+    this.ragdollMeshes.clear();
+
+    const ragdollVisualGroup = new THREE.Group();
+    ragdollVisualGroup.name = 'ragdoll-visual-assembly';
+
+    RAGDOLL_BONES.forEach((bone) => {
+      const boneGroup = new THREE.Group();
+      boneGroup.name = `bone-group-${bone.id}`;
+
+      let geom: THREE.BufferGeometry;
+      if (bone.halfExtents) {
+        geom = new THREE.BoxGeometry(
+          bone.halfExtents[0] * 2,
+          bone.halfExtents[1] * 2,
+          bone.halfExtents[2] * 2
+        );
+      } else if (bone.capsuleRadius && bone.capsuleHalfHeight) {
+        geom = new THREE.CapsuleGeometry(
+          bone.capsuleRadius,
+          bone.capsuleHalfHeight * 2,
+          8,
+          16
+        );
+      } else {
+        geom = new THREE.SphereGeometry(0.2, 16, 16);
+      }
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: bone.color,
+        metalness: 0.6,
+        roughness: 0.35,
+      });
+
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      boneGroup.add(mesh);
+
+      const ringGeo = new THREE.RingGeometry(0.08, 0.12, 16);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, opacity: 0.6, transparent: true });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.z = (bone.halfExtents ? bone.halfExtents[2] : (bone.capsuleRadius || 0.1)) + 0.02;
+      boneGroup.add(ring);
+
+      this.ragdollMeshes.set(bone.id, boneGroup);
+      ragdollVisualGroup.add(boneGroup);
+    });
+
+    this.objectsGroup.add(ragdollVisualGroup);
+
+    // 5. Center of Mass Pulsing Beacon & Reticle
+    const comBeacon = new THREE.Group();
+    comBeacon.name = 'ragdoll-com-beacon';
+
+    const coreGeo = new THREE.SphereGeometry(0.25, 24, 24);
+    const coreMat = new THREE.MeshStandardMaterial({
+      color: 0x10b981,
+      emissive: 0x059669,
+      emissiveIntensity: 2.2,
+      roughness: 0.2,
+    });
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    comBeacon.add(coreMesh);
+
+    const reticleGeo1 = new THREE.RingGeometry(0.38, 0.44, 32);
+    const reticleMat1 = new THREE.MeshBasicMaterial({ color: 0x34d399, side: THREE.DoubleSide, transparent: true, opacity: 0.85 });
+    const reticle1 = new THREE.Mesh(reticleGeo1, reticleMat1);
+    comBeacon.add(reticle1);
+
+    const reticle2 = new THREE.Mesh(reticleGeo1, reticleMat1);
+    reticle2.rotation.y = Math.PI / 2;
+    comBeacon.add(reticle2);
+
+    const reticle3 = new THREE.Mesh(reticleGeo1, reticleMat1);
+    reticle3.rotation.x = Math.PI / 2;
+    comBeacon.add(reticle3);
+
+    const crossAxes = new THREE.AxesHelper(0.6);
+    comBeacon.add(crossAxes);
+
+    comBeacon.position.set(0, h0, 0);
+    this.ragdollComBeacon = comBeacon;
+    this.objectsGroup.add(comBeacon);
+
+    // 6. Center of Mass Trajectory Trails:
+    // A. Theoretical Analytical Parabolic Path (CYAN DOTTED LINE)
+    const analyticTrajGeo = new THREE.BufferGeometry();
+    const analyticTrajMat = new THREE.LineDashedMaterial({
+      color: 0x38bdf8,
+      dashSize: 0.5,
+      gapSize: 0.3,
+      linewidth: 2,
+    });
+    this.ragdollAnalyticLine = new THREE.Line(analyticTrajGeo, analyticTrajMat);
+    this.ragdollAnalyticLine.name = 'ragdoll-analytic-line';
+    this.objectsGroup.add(this.ragdollAnalyticLine);
+
+    const analyticPoints: THREE.Vector3[] = [];
+    for (let t = 0; t <= 4.0; t += 0.05) {
+      const x = v0x * t;
+      const y = h0 + v0y * t - 0.5 * g * t * t;
+      if (y < 0.2 && t > 0.2) {
+        analyticPoints.push(new THREE.Vector3(x, 0.2, 0));
+        break;
+      }
+      analyticPoints.push(new THREE.Vector3(x, Math.max(0.2, y), 0));
+    }
+    this.ragdollAnalyticLine.geometry.setFromPoints(analyticPoints);
+    this.ragdollAnalyticLine.computeLineDistances();
+
+    // B. Real-time Simulated COM Trail (EMERALD DOTTED LINE)
+    const simTrailGeo = new THREE.BufferGeometry();
+    const simTrailMat = new THREE.LineDashedMaterial({
+      color: 0x10b981,
+      dashSize: 0.35,
+      gapSize: 0.2,
+      linewidth: 3,
+    });
+    this.ragdollSimTrailLine = new THREE.Line(simTrailGeo, simTrailMat);
+    this.ragdollSimTrailLine.name = 'ragdoll-sim-trail-line';
+    this.objectsGroup.add(this.ragdollSimTrailLine);
+
+    // C. Dotted Beads along COM Trajectory
+    const trailDotsGroup = new THREE.Group();
+    trailDotsGroup.name = 'ragdoll-trail-dots-group';
+    const beadGeo = new THREE.SphereGeometry(0.09, 12, 12);
+    const beadMat = new THREE.MeshStandardMaterial({
+      color: 0x10b981,
+      emissive: 0x059669,
+      emissiveIntensity: 1.5,
+      roughness: 0.2,
+    });
+    for (let i = 0; i < 80; i++) {
+      const bead = new THREE.Mesh(beadGeo, beadMat);
+      bead.visible = false;
+      trailDotsGroup.add(bead);
+    }
+    this.ragdollTrailDotsGroup = trailDotsGroup;
+    this.objectsGroup.add(trailDotsGroup);
+
+    // 7. Mass-Weighted Radii Rays from COM to each bone (LineSegments)
+    const limbLinesGeo = new THREE.BufferGeometry();
+    const limbLinesMat = new THREE.LineBasicMaterial({
+      color: 0x94a3b8,
+      transparent: true,
+      opacity: 0.4,
+    });
+    this.ragdollLimbConnectingLines = new THREE.LineSegments(limbLinesGeo, limbLinesMat);
+    this.objectsGroup.add(this.ragdollLimbConnectingLines);
+
+    // 8. Vector Helpers in this.vectorGroup
+    const gravityArrow = new THREE.ArrowHelper(
+      new THREE.Vector3(0, -1, 0),
+      new THREE.Vector3(0, h0, 0),
+      2.5,
+      0xef4444,
+      0.5,
+      0.25
+    );
+    gravityArrow.name = 'ragdoll-fext-arrow';
+    this.vectorGroup.add(gravityArrow);
+
+    const vcmArrow = new THREE.ArrowHelper(
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(0, h0, 0),
+      2.0,
+      0x38bdf8,
+      0.45,
+      0.22
+    );
+    vcmArrow.name = 'ragdoll-vcm-arrow';
+    this.vectorGroup.add(vcmArrow);
+  }
+
+  private updateRagdollCOM(ctx: SimRenderContext) {
+    if (!this.ragdollSimulator) return;
+
+    const ragParams: RagdollSimParams = {
+      dropHeight: ctx.params.dropHeight ?? 15,
+      v0x: ctx.params.v0x ?? 10,
+      v0y: ctx.params.v0y ?? 12,
+      gravityPreset: ctx.params.gravityPreset ?? 1,
+      freezeJoints: ctx.params.freezeJoints ?? 0,
+      flailTorque: ctx.params.flailTorque ?? 40,
+      initialSpin: ctx.params.initialSpin ?? 0,
+    };
+    this.ragdollSimulator.stepTo(ctx.simTime, ragParams);
+
+    const diag = this.ragdollSimulator.getCOMState();
+    const simCOM = diag.simCOM;
+
+    // 1. Update each bone's transform
+    RAGDOLL_BONES.forEach((bone) => {
+      const transform = this.ragdollSimulator!.getBodyTransform(bone.id);
+      const meshGroup = this.ragdollMeshes.get(bone.id);
+      if (transform && meshGroup) {
+        meshGroup.position.copy(transform.position);
+        meshGroup.quaternion.copy(transform.rotation);
+      }
+    });
+
+    // 2. Update COM Beacon
+    if (this.ragdollComBeacon) {
+      this.ragdollComBeacon.position.copy(simCOM);
+      if (this.ragdollComBeacon.children.length > 2) {
+        this.ragdollComBeacon.children[1].rotation.z += 0.02;
+        this.ragdollComBeacon.children[2].rotation.x += 0.02;
+      }
+    }
+
+    // 3. Update Simulated COM Trail (Dotted)
+    if (this.ragdollSimTrailLine && diag.trajectoryPoints.length > 1) {
+      this.ragdollSimTrailLine.geometry.setFromPoints(diag.trajectoryPoints);
+      this.ragdollSimTrailLine.computeLineDistances();
+      this.ragdollSimTrailLine.visible = ctx.showTrajectory;
+    }
+
+    // 4. Update Dotted Trail Beads
+    if (this.ragdollTrailDotsGroup) {
+      this.ragdollTrailDotsGroup.visible = ctx.showTrajectory;
+      const pts = diag.trajectoryPoints;
+      const totalDots = this.ragdollTrailDotsGroup.children.length;
+      for (let i = 0; i < totalDots; i++) {
+        const dot = this.ragdollTrailDotsGroup.children[i] as THREE.Mesh;
+        if (i < pts.length && i % 2 === 0) {
+          dot.position.copy(pts[i]);
+          dot.visible = ctx.showTrajectory;
+        } else {
+          dot.visible = false;
+        }
+      }
+    }
+
+    // 5. Update Limb-to-COM connecting rays
+    if (this.ragdollLimbConnectingLines && diag.segments.length > 0) {
+      const linePositions: number[] = [];
+      diag.segments.forEach((seg) => {
+        linePositions.push(simCOM.x, simCOM.y, simCOM.z);
+        linePositions.push(seg.position.x, seg.position.y, seg.position.z);
+      });
+      this.ragdollLimbConnectingLines.geometry.setAttribute(
+        'position',
+        new THREE.Float32BufferAttribute(linePositions, 3)
+      );
+    }
+
+    // 6. Update Vector Arrows & HUD Labels
+    const fextArrow = this.vectorGroup.getObjectByName('ragdoll-fext-arrow') as THREE.ArrowHelper;
+    if (fextArrow) {
+      fextArrow.position.copy(simCOM);
+      const g = ctx.params.gravityPreset === 0 ? 1.62 : ctx.params.gravityPreset === 1 ? 9.81 : ctx.params.gravityPreset === 2 ? 24.79 : 0;
+      const fLen = Math.min(4.0, Math.max(0.5, (g / 9.81) * 2.2));
+      fextArrow.setDirection(new THREE.Vector3(0, -1, 0));
+      fextArrow.setLength(fLen, 0.4, 0.2);
+      this.updateArrowLabel(
+        'ragdoll-fext-arrow',
+        `Σ F_ext = ${(70.0 * g).toFixed(1)} N (Down)`,
+        '#ef4444',
+        new THREE.Vector3(simCOM.x + 0.6, simCOM.y - 1.2, simCOM.z),
+        ctx.showVectors
+      );
+    }
+
+    const vcmArrow = this.vectorGroup.getObjectByName('ragdoll-vcm-arrow') as THREE.ArrowHelper;
+    if (vcmArrow) {
+      vcmArrow.position.copy(simCOM);
+      const vMag = diag.simVelocity.length();
+      const vDir = vMag > 0.05 ? diag.simVelocity.clone().normalize() : new THREE.Vector3(1, 0, 0);
+      const vLen = Math.min(4.5, Math.max(0.4, vMag * 0.22));
+      vcmArrow.setDirection(vDir);
+      vcmArrow.setLength(vLen, 0.4, 0.2);
+      this.updateArrowLabel(
+        'ragdoll-vcm-arrow',
+        `v_cm = ${vMag.toFixed(2)} m/s`,
+        '#38bdf8',
+        new THREE.Vector3(simCOM.x + vDir.x * vLen + 0.4, simCOM.y + vDir.y * vLen + 0.3, simCOM.z),
+        ctx.showVectors
+      );
+    }
+
+    const errMm = (diag.errorMeters * 1000).toFixed(1);
+    this.updateArrowLabel(
+      'ragdoll-com-status',
+      `C.O.M. [x: ${simCOM.x.toFixed(2)}m, y: ${simCOM.y.toFixed(2)}m] | Err: ${errMm} mm | Σ F_int ≡ 0 N`,
+      '#10b981',
+      new THREE.Vector3(simCOM.x, simCOM.y + 0.8, simCOM.z),
+      ctx.showLabels
+    );
   }
 
   private setupDefault() {

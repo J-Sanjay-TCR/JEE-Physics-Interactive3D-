@@ -111,7 +111,7 @@ export const ChapterPdfSection: React.FC<ChapterPdfSectionProps> = ({
   };
 
   return (
-    <section className="space-y-6">
+    <section id="home-pdf-section" className="space-y-6 scroll-mt-20">
       {/* Download Confirmation Toast */}
       {downloadToast && (
         <div className="p-3.5 rounded-2xl bg-emerald-950/90 border border-emerald-500/40 text-emerald-200 text-xs flex items-center justify-between gap-3 shadow-xl animate-fade-in">

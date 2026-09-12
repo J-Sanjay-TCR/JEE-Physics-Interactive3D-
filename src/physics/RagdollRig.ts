@@ -118,13 +118,21 @@ export const RAGDOLL_BONES: BoneSegmentConfig[] = [
 ];
 
 export interface RagdollSimParams {
-  dropHeight: number; // e.g. 15m
-  v0x: number; // e.g. 10 m/s
-  v0y: number; // e.g. 12 m/s
-  gravityPreset: number; // 0: Moon (1.62), 1: Earth (9.81), 2: Jupiter (24.79), 3: Zero-G (0)
-  freezeJoints: number; // 1: Frozen rigid lump, 0: Free flailing joints
-  flailTorque: number; // 0 to 100 N*m
-  initialSpin: number; // -10 to 10 rad/s
+  dropHeight?: number; // e.g. 15m
+  v0x?: number; // e.g. 10 m/s
+  v0y?: number; // e.g. 12 m/s
+  gravityPreset?: number; // 0: Moon (1.62), 1: Earth (9.81), 2: Jupiter (24.79), 3: Zero-G (0)
+  freezeJoints?: number; // 1: Frozen rigid lump, 0: Free flailing joints
+  flailTorque?: number; // 0 to 100 N*m
+  initialSpin?: number; // -10 to 10 rad/s
+  // Extended realistic parameters for ballistics & crash-test dynamics
+  customGravity?: number; // direct gravity in m/s²
+  startX?: number; // custom world launch or stand X
+  startY?: number; // custom world launch or stand Y
+  startZ?: number; // custom world launch or stand Z
+  inclineAngleDeg?: number; // terrain slope angle in degrees
+  isStandingStance?: boolean; // standing poised on ground/pedestal until impacted
+  impactImpulse?: { time: number; force: [number, number, number]; boneId?: string };
 }
 
 export interface RagdollCOMState {
@@ -172,9 +180,14 @@ export class RagdollPhysicsSimulator {
   private initialCOM: THREE.Vector3 = new THREE.Vector3();
   private initialV0: THREE.Vector3 = new THREE.Vector3();
   private currentGravity: number = 9.81;
+  private impulseApplied: boolean = false;
 
   public async initialize(): Promise<void> {
     this.rapierInstance = await initRapier();
+  }
+
+  public isReady(): boolean {
+    return this.rapierInstance !== null;
   }
 
   public reset(params: RagdollSimParams) {
@@ -195,11 +208,14 @@ export class RagdollPhysicsSimulator {
     this.comTrajectory = [];
     this.analyticTrajectory = [];
     this.simulatedTime = 0;
+    this.impulseApplied = false;
     this.currentParams = { ...params };
 
     // Determine gravity
     let g = 9.81;
-    if (params.gravityPreset === 0) g = 1.62; // Moon
+    if (params.customGravity !== undefined) {
+      g = Math.max(0.1, params.customGravity);
+    } else if (params.gravityPreset === 0) g = 1.62; // Moon
     else if (params.gravityPreset === 1) g = 9.81; // Earth
     else if (params.gravityPreset === 2) g = 24.79; // Jupiter
     else if (params.gravityPreset === 3) g = 0.0; // Zero-G
@@ -209,23 +225,36 @@ export class RagdollPhysicsSimulator {
     this.world = new this.rapierInstance.World(gravityVec);
     this.world.timestep = this.fixedDt;
 
-    // Ground plane at y = 0
-    const groundDesc = this.rapierInstance.ColliderDesc.cuboid(60.0, 0.5, 30.0)
-      .setTranslation(25.0, -0.5, 0.0)
-      .setRestitution(0.25)
-      .setFriction(0.6);
+    // Ground plane collider (supports flat or inclined plane)
+    const inclineDeg = params.inclineAngleDeg ?? 0;
+    const slopeRad = (inclineDeg * Math.PI) / 180;
+    const groundDesc = this.rapierInstance.ColliderDesc.cuboid(80.0, 0.5, 30.0)
+      .setTranslation(30.0 * Math.cos(slopeRad), 30.0 * Math.sin(slopeRad) - 0.5, 0.0)
+      .setRotation({ x: 0, y: 0, z: Math.sin(slopeRad / 2), w: Math.cos(slopeRad / 2) })
+      .setRestitution(0.35)
+      .setFriction(0.65);
     this.groundCollider = this.world.createCollider(groundDesc);
 
-    const startX = 0;
-    const startY = Math.max(2.5, params.dropHeight);
-    const startZ = 0;
+    const isStanding = params.isStandingStance ?? false;
+    const startX = params.startX ?? 0;
+    const startY = params.startY !== undefined ? params.startY : Math.max(2.5, params.dropHeight ?? 4.5);
+    const startZ = params.startZ ?? 0;
 
-    const v0x = params.v0x;
-    const v0y = params.v0y;
+    // Optional target stand pedestal if standing
+    if (isStanding) {
+      const standDesc = this.rapierInstance.ColliderDesc.cylinder(0.2, 1.6)
+        .setTranslation(startX, Math.max(0.1, startY - 1.8), startZ)
+        .setRestitution(0.3)
+        .setFriction(0.7);
+      this.world.createCollider(standDesc);
+    }
+
+    const v0x = isStanding ? 0 : (params.v0x ?? 0);
+    const v0y = isStanding ? 0 : (params.v0y ?? 0);
     const v0z = 0;
     this.initialV0.set(v0x, v0y, v0z);
 
-    const isFrozen = params.freezeJoints >= 0.5;
+    const isFrozen = (params.freezeJoints ?? 0) >= 0.5;
 
     // Create 10 Rigid Bodies
     RAGDOLL_BONES.forEach((bone) => {
@@ -238,7 +267,7 @@ export class RagdollPhysicsSimulator {
       const rbDesc = this.rapierInstance.RigidBodyDesc.dynamic()
         .setTranslation(posX, posY, posZ)
         .setLinvel(v0x, v0y, v0z)
-        .setAngvel(new this.rapierInstance.Vector3(0, 0, params.initialSpin))
+        .setAngvel(new this.rapierInstance.Vector3(0, 0, isStanding ? 0 : (params.initialSpin ?? 0)))
         .setLinearDamping(0.04)
         .setAngularDamping(0.12);
 
@@ -402,7 +431,7 @@ export class RagdollPhysicsSimulator {
     if (!this.rapierInstance) return;
 
     // Check if configuration parameters changed
-    const key = `${params.dropHeight}_${params.v0x}_${params.v0y}_${params.gravityPreset}_${params.freezeJoints}_${params.initialSpin}`;
+    const key = `${params.dropHeight}_${params.v0x}_${params.v0y}_${params.gravityPreset}_${params.freezeJoints}_${params.initialSpin}_${params.customGravity}_${params.startX}_${params.startY}_${params.inclineAngleDeg}_${params.isStandingStance}`;
     if (key !== this.paramsKey || !this.world) {
       this.paramsKey = key;
       this.reset(params);
@@ -420,6 +449,20 @@ export class RagdollPhysicsSimulator {
     let stepsCount = 0;
 
     while (this.simulatedTime + this.fixedDt <= targetTime && stepsCount < maxStepsPerFrame) {
+      // Apply physical impact impulse if collision time has arrived
+      if (params.impactImpulse && this.simulatedTime >= params.impactImpulse.time && !this.impulseApplied) {
+        const targetBody = this.bodies.get(params.impactImpulse.boneId || 'torso');
+        if (targetBody) {
+          const f = params.impactImpulse.force;
+          targetBody.applyImpulse(new this.rapierInstance.Vector3(f[0], f[1], f[2]), true);
+          const headBody = this.bodies.get('head');
+          if (headBody) {
+            headBody.applyImpulse(new this.rapierInstance.Vector3(f[0] * 0.35, f[1] * 0.35, 0), true);
+          }
+          this.impulseApplied = true;
+        }
+      }
+
       // Apply internal flailing impulses if unfrozen and flailTorque > 0
       if (params.freezeJoints < 0.5 && params.flailTorque > 0) {
         this.applyInternalFlailForces(params.flailTorque, this.simulatedTime);
@@ -443,6 +486,18 @@ export class RagdollPhysicsSimulator {
         }
       }
     }
+  }
+
+  public applyImpulseToBone(boneId: string, impulseX: number, impulseY: number, impulseZ: number): void {
+    if (!this.rapierInstance) return;
+    const body = this.bodies.get(boneId);
+    if (body) {
+      body.applyImpulse(new this.rapierInstance.Vector3(impulseX, impulseY, impulseZ), true);
+    }
+  }
+
+  public getSimulatedTime(): number {
+    return this.simulatedTime;
   }
 
   // Internal action-reaction muscle pairs: Sum of internal forces = 0.000 N
