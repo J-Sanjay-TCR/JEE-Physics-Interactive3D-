@@ -21,11 +21,13 @@ import { ChapterFormulaPdfModal } from './components/ui/ChapterFormulaPdfModal';
 import { JeeSyllabusDirectoryModal } from './components/ui/JeeSyllabusDirectoryModal';
 import { AiPhysicsTutorModal } from './components/ui/AiPhysicsTutorModal';
 import { UserTutorialModal } from './components/ui/UserTutorialModal';
+import { SpotlightTutorialOverlay, startTutorial } from './components/ui/SpotlightTutorialOverlay';
 import { KeyboardShortcutsModal } from './components/ui/KeyboardShortcutsModal';
 import { FocusModeOverlay } from './components/ui/FocusModeOverlay';
 import { GlobalErrorBoundary } from './components/ui/GlobalErrorBoundary';
 import { CursorEffect } from './components/ui/CursorEffect';
 import { JeeWeightageAnalyticsModal } from './components/ui/JeeWeightageAnalyticsModal';
+import { GlobalPhysicsLoader } from './components/ui/GlobalPhysicsLoader';
 import {
   Menu,
   X,
@@ -45,13 +47,19 @@ import {
   Maximize2,
   ArrowUp,
   ArrowDown,
+  RotateCcw,
+  Camera,
 } from 'lucide-react';
 
 export default function App() {
   const { isDark, isCyberpunk, theme, toggleTheme, cycleTheme } = useTheme();
   const [userName, setUserName] = useState<string>(() => localStorage.getItem('ai_physics_user_name') || '');
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isLoadingScreenOpen, setIsLoadingScreenOpen] = useState(false);
   const [currentConcept, setCurrentConcept] = useState<PhysicsConcept>(ALL_CONCEPTS[0]);
   const [currentView, setCurrentView] = useState<'home' | 'lab'>('home');
+  const [showRestorePrompt, setShowRestorePrompt] = useState(false);
+  const [savedSessionParams, setSavedSessionParams] = useState<Record<string, number> | null>(null);
 
   // Parameters map for active simulation
   const [paramValues, setParamValues] = useState<Record<string, number>>(() => {
@@ -73,6 +81,23 @@ export default function App() {
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [showAxes, setShowAxes] = useState(true);
+  const [isARMode, setIsARMode] = useState(false);
+  const [bloomIntensity, setBloomIntensity] = useState<'vibrant' | 'subtle' | 'off'>(() => {
+    try {
+      const saved = localStorage.getItem('jee_cyberpunk_bloom');
+      if (saved === 'vibrant' || saved === 'subtle' || saved === 'off') return saved;
+      return 'vibrant';
+    } catch {
+      return 'vibrant';
+    }
+  });
+
+  const handleBloomChange = (val: 'vibrant' | 'subtle' | 'off') => {
+    setBloomIntensity(val);
+    try {
+      localStorage.setItem('jee_cyberpunk_bloom', val);
+    } catch {}
+  };
 
   // Navigation state
   const [isFocusMode, setIsFocusMode] = useState(false);
@@ -160,6 +185,11 @@ export default function App() {
           setIsTutorialOpen(false);
           return;
         }
+        if (isARMode) {
+          e.preventDefault();
+          setIsARMode(false);
+          return;
+        }
         if (isFocusMode) {
           e.preventDefault();
           setIsFocusMode(false);
@@ -177,6 +207,13 @@ export default function App() {
 
       // Avoid triggering single-key shortcuts when holding Ctrl / Cmd / Alt
       if (e.ctrlKey || e.metaKey || e.altKey) {
+        return;
+      }
+
+      // 'A' or 'a' to toggle AR Mode (Camera Physical Environment Overlay)
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        setIsARMode((prev) => !prev);
         return;
       }
 
@@ -418,6 +455,7 @@ export default function App() {
     }
     
     setSimTime(0);
+    setIsLoadingScreenOpen(true);
     setCurrentView('lab');
     if (typeof window !== 'undefined' && window.innerWidth < 1024) {
       setIsSidebarOpen(false);
@@ -483,6 +521,34 @@ export default function App() {
     } catch {}
   };
 
+  // Handle loader complete safely
+  const handleLoaderComplete = useCallback(() => {
+    setIsInitialLoading(false);
+    setIsLoadingScreenOpen(false);
+  }, []);
+
+  // Expose switch to lab view on window for interactive tours
+  useEffect(() => {
+    (window as any).__switchToLabView = () => {
+      setCurrentView('lab');
+    };
+    return () => {
+      delete (window as any).__switchToLabView;
+    };
+  }, []);
+
+  // Guided Spotlight Tour Launcher
+  const handleStartSpotlightTour = useCallback(() => {
+    if (currentView !== 'lab') {
+      setCurrentView('lab');
+      setTimeout(() => {
+        startTutorial();
+      }, 160);
+    } else {
+      startTutorial();
+    }
+  }, [currentView]);
+
   // Compute Real-time Quantities
   const liveQuantities = currentConcept.computeLiveQuantities(paramValues, simTime);
 
@@ -490,7 +556,18 @@ export default function App() {
     <div className={`h-screen h-[100dvh] max-h-screen overflow-hidden flex flex-col transition-colors duration-200 ${
       isCyberpunk ? 'bg-[#030712] text-zinc-100' : isDark ? 'bg-[#0A0A0B] text-zinc-100' : 'bg-slate-50 text-slate-900'
     }`}>
-      {!userName && (
+      {/* Global Physics Laboratory Loading Screen */}
+      <AnimatePresence>
+        {(isInitialLoading || isLoadingScreenOpen) && (
+          <GlobalPhysicsLoader
+            onComplete={handleLoaderComplete}
+            conceptTitle={currentConcept.title}
+            isInitial={isInitialLoading}
+          />
+        )}
+      </AnimatePresence>
+
+      {!isInitialLoading && !userName && (
         <OnboardingScreen 
           onComplete={(name) => {
             localStorage.setItem('ai_physics_user_name', name);
@@ -511,8 +588,10 @@ export default function App() {
         onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
         onOpenAiTutor={() => setIsAiTutorOpen(true)}
         onOpenTutorial={() => setIsTutorialOpen(true)}
+        onOpenSpotlightTour={handleStartSpotlightTour}
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         isSidebarOpen={isSidebarOpen}
         currentView={currentView}
@@ -528,8 +607,8 @@ export default function App() {
             onOpenPdfModal={handleOpenPdfModal}
             onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
             onOpenAiTutor={() => setIsAiTutorOpen(true)}
-            onOpenTutorial={() => setIsTutorialOpen(true)}
-        onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+            onOpenTutorial={handleStartSpotlightTour}
+            onOpenAnalytics={() => setIsAnalyticsOpen(true)}
             completedConcepts={completedConcepts}
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
@@ -661,25 +740,67 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Mobile-only Focus Mode Button */}
-              <button
-                onClick={() => setIsFocusMode(true)}
-                className={`lg:hidden px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 ${
-                  isCyberpunk
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-[0_0_8px_rgba(0,240,255,0.2)]'
-                    : isDark
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                    : 'bg-cyan-100 text-cyan-900 border border-cyan-300'
-                }`}
-                title="Focus Mode"
-              >
-                <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="text-[11px]">Focus</span>
-              </button>
+              {/* Mobile-only Focus Mode & AR View Buttons */}
+              <div className="lg:hidden flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => setIsARMode(!isARMode)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                    isARMode
+                      ? 'bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.5)]'
+                      : isCyberpunk
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 shadow-[0_0_8px_rgba(16,185,129,0.2)]'
+                      : isDark
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                  }`}
+                  title="Toggle AR View (Camera Overlay)"
+                >
+                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-[11px]">{isARMode ? 'Exit AR' : 'AR'}</span>
+                </button>
+
+                <button
+                  onClick={() => setIsFocusMode(true)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                    isCyberpunk
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                      : isDark
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      : 'bg-cyan-100 text-cyan-900 border border-cyan-300'
+                  }`}
+                  title="Focus Mode"
+                >
+                  <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="text-[11px]">Focus</span>
+                </button>
+              </div>
             </div>
 
             {/* Quick Action Navigation Tabs for Secondary Panels */}
             <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full lg:w-auto">
+              {/* Desktop AR View Trigger Button */}
+              <button
+                onClick={() => setIsARMode(!isARMode)}
+                className={`hidden lg:flex px-3 py-2 rounded-xl text-xs font-bold transition items-center gap-1.5 shadow-xs active:scale-95 shrink-0 ${
+                  isARMode
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)] border border-emerald-400 font-bold'
+                    : isCyberpunk
+                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-400/40 font-mono shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                    : isDark
+                    ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                }`}
+                title={isARMode ? "Exit AR Mode (Return to 3D Stage)" : "AR View: Project 3D Simulation into physical room via device camera"}
+              >
+                <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{isARMode ? 'Exit AR' : 'AR View'}</span>
+                <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold ${
+                  isARMode ? 'bg-black/30 text-white animate-pulse' : 'bg-emerald-500/20 text-emerald-300'
+                }`}>
+                  {isARMode ? 'LIVE' : '3D AR'}
+                </span>
+              </button>
+
               {/* Desktop Focus Mode Trigger Button */}
               <button
                 onClick={() => setIsFocusMode(true)}
@@ -697,7 +818,9 @@ export default function App() {
                 <span className="px-1 py-0.2 rounded bg-cyan-500/20 text-[10px] font-mono">F</span>
               </button>
 
-              <div className={`flex items-center gap-1 p-1 rounded-xl border overflow-x-auto whitespace-nowrap scrollbar-none w-full lg:w-auto ${
+              <div
+                id="lab-tab-switcher"
+                className={`flex items-center gap-1 p-1 rounded-xl border overflow-x-auto whitespace-nowrap scrollbar-none w-full lg:w-auto ${
                 isCyberpunk ? 'bg-[#060B18] border-cyan-500/25' : isDark ? 'bg-[#0A0A0E] border-white/[0.08]' : 'bg-slate-100 border-slate-200'
               }`}>
                 <button
@@ -782,6 +905,7 @@ export default function App() {
               <GlobalErrorBoundary onReset={handleFullSimulationRecovery}>
                 <ThreePhysicsCanvas
                   simulationType={currentConcept.simulationType}
+                  conceptTitle={currentConcept.title}
                   params={paramValues}
                   simTime={simTime}
                   showVectors={showVectors}
@@ -798,6 +922,12 @@ export default function App() {
                   isDark={isDark}
                   isFocusMode={isFocusMode}
                   onToggleFocusMode={() => setIsFocusMode(true)}
+                  isARMode={isARMode}
+                  onToggleAR={() => setIsARMode(!isARMode)}
+                  bloomIntensity={bloomIntensity}
+                  onChangeBloom={handleBloomChange}
+                  onDisableTrajectory={() => setShowTrajectory(false)}
+                  onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
                 />
               </GlobalErrorBoundary>
             </div>
@@ -826,6 +956,10 @@ export default function App() {
                       liveQuantities={liveQuantities}
                       specialCases={currentConcept.specialCases}
                       simulationType={currentConcept.simulationType}
+                      isARMode={isARMode}
+                      onToggleAR={() => setIsARMode(!isARMode)}
+                      bloomIntensity={bloomIntensity}
+                      onChangeBloom={handleBloomChange}
                       onApplySpecialCase={(preset) => {
                         setParamValues((prev) => ({ ...prev, ...preset }));
                         setSimTime(0);
@@ -908,6 +1042,7 @@ export default function App() {
                       jeeMain={currentConcept.jeeMain}
                       jeeAdvanced={currentConcept.jeeAdvanced}
                       conceptTitle={currentConcept.title}
+                      onOpenGlobalAnalytics={() => setIsAnalyticsOpen(true)}
                     />
                   </motion.div>
                 )}
@@ -941,6 +1076,7 @@ export default function App() {
           <div className="relative w-full h-full">
             <ThreePhysicsCanvas
               simulationType={currentConcept.simulationType}
+              conceptTitle={currentConcept.title}
               params={paramValues}
               simTime={simTime}
               showVectors={showVectors}
@@ -957,6 +1093,12 @@ export default function App() {
               isDark={isDark}
               isFocusMode={true}
               onToggleFocusMode={() => setIsFocusMode(false)}
+              isARMode={isARMode}
+              onToggleAR={() => setIsARMode(!isARMode)}
+              bloomIntensity={bloomIntensity}
+              onChangeBloom={handleBloomChange}
+              onDisableTrajectory={() => setShowTrajectory(false)}
+              onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
             />
 
             <FocusModeOverlay
@@ -981,6 +1123,8 @@ export default function App() {
               onToggleTrajectory={() => setShowTrajectory(!showTrajectory)}
               onToggleGrid={() => setShowGrid(!showGrid)}
               onToggleAxes={() => setShowAxes(!showAxes)}
+              isARMode={isARMode}
+              onToggleAR={() => setIsARMode(!isARMode)}
               onApplyPreset={(preset) => {
                 setParamValues((prev) => ({ ...prev, ...preset }));
                 setSimTime(0);
@@ -1047,7 +1191,17 @@ export default function App() {
         }}
         onOpenAiTutor={() => setIsAiTutorOpen(true)}
         onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
+        onOpenPdfModal={() => handleOpenPdfModal()}
+        onOpenSpotlightTour={handleStartSpotlightTour}
+        onOpenQuestionArena={() => {
+          setIsTutorialOpen(false);
+          setCurrentView('home');
+          setActiveTab('questions');
+        }}
       />
+
+      {/* Animated Onboarding & Spotlight Walkthrough Overlay */}
+      <SpotlightTutorialOverlay />
 
       {/* Touch-Friendly Context-Aware Mobile Bottom-Sheet Menu & Navigation Bar */}
       <MobileNavBottomSheet
@@ -1085,6 +1239,8 @@ export default function App() {
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onEnterFocusMode={() => setIsFocusMode(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        bloomIntensity={bloomIntensity}
+        onChangeBloom={handleBloomChange}
       />
 
       {/* Global PC Cursor & Ambient Spotlight Effect */}

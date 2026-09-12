@@ -4,14 +4,41 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>JEE 3D Physics Lab | Interactive Physics for JEE Main & Advanced</title>
-    <meta name="description" content="Explore real-time 3D physics models, vector analysis, dynamic graphs, and JEE Main & Advanced concept solvers." />
+    <meta name="description" content="Interactive 3D physics visualization, real-time mechanics & electromagnetism simulations, dynamic equation solvers, and practice questions for JEE Main & JEE Advanced." />
+    <meta property="og:title" content="JEE 3D Physics Lab | Interactive Physics for JEE Main & Advanced" />
+    <meta property="og:description" content="Interactive 3D physics visualization, real-time mechanics & electromagnetism simulations, dynamic equation solvers, and practice questions for JEE Main & JEE Advanced." />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
   </head>
   <body class="bg-slate-950 text-slate-100 font-['Plus_Jakarta_Sans',sans-serif] antialiased selection:bg-cyan-500/30 selection:text-cyan-200 overflow-x-hidden">
-    <div id="root"></div>
+    <div id="root">
+      <!-- Instant Zero-Delay Physics Preloader -->
+      <div id="app-preloader" style="position:fixed;inset:0;background:#050711;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;z-index:99999;">
+        <style>
+          @keyframes preloader-orbit-1 { 0% { transform: rotateX(70deg) rotateZ(0deg); } 100% { transform: rotateX(70deg) rotateZ(360deg); } }
+          @keyframes preloader-orbit-2 { 0% { transform: rotate(60deg) rotateX(70deg) rotateZ(0deg); } 100% { transform: rotate(60deg) rotateX(70deg) rotateZ(-360deg); } }
+          @keyframes preloader-orbit-3 { 0% { transform: rotate(120deg) rotateX(70deg) rotateZ(0deg); } 100% { transform: rotate(120deg) rotateX(70deg) rotateZ(360deg); } }
+          @keyframes preloader-pulse { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.15); opacity: 1; filter: drop-shadow(0 0 16px #00f0ff); } }
+          .preloader-atom { position: relative; width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px; }
+          .preloader-nucleus { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #00f0ff, #10b981); box-shadow: 0 0 16px rgba(0,240,255,0.6); animation: preloader-pulse 2s infinite ease-in-out; }
+          .preloader-ring { position: absolute; width: 90px; height: 90px; border-radius: 50%; border: 1.5px dashed rgba(0,240,255,0.5); pointer-events: none; }
+          .preloader-ring-1 { animation: preloader-orbit-1 4s linear infinite; }
+          .preloader-ring-2 { border-color: rgba(16,185,129,0.5); animation: preloader-orbit-2 3.5s linear infinite; }
+          .preloader-ring-3 { border-color: rgba(96,165,250,0.4); animation: preloader-orbit-3 5s linear infinite; }
+        </style>
+        <div class="preloader-atom">
+          <div class="preloader-nucleus"></div>
+          <div class="preloader-ring preloader-ring-1"></div>
+          <div class="preloader-ring preloader-ring-2"></div>
+          <div class="preloader-ring preloader-ring-3"></div>
+        </div>
+        <div style="font-size:12px;font-family:monospace;letter-spacing:0.15em;text-transform:uppercase;color:#00f0ff;margin-bottom:6px;font-weight:700;">JEE 3D Physics Lab</div>
+        <div style="font-size:16px;font-weight:700;color:#f8fafc;letter-spacing:-0.01em;">Calibrating 3D Quantum Engine...</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px;">Setting up WebGL shaders & numerical solvers</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -10,12 +10,14 @@ interface JeeInsightsPanelProps {
   jeeMain: JeeMainInsight;
   jeeAdvanced: JeeAdvancedInsight;
   conceptTitle?: string;
+  onOpenGlobalAnalytics?: () => void;
 }
 
 export const JeeInsightsPanel: React.FC<JeeInsightsPanelProps> = ({
   jeeMain,
   jeeAdvanced,
   conceptTitle = 'Physics Concept',
+  onOpenGlobalAnalytics,
 }) => {
   const [activeTab, setActiveTab] = useState<'main' | 'advanced' | 'trend'>('main');
 
@@ -242,6 +244,16 @@ export const JeeInsightsPanel: React.FC<JeeInsightsPanelProps> = ({
             </div>
             
             <TrendAnalysisChart conceptTitle={conceptTitle} />
+
+            {onOpenGlobalAnalytics && (
+              <button
+                onClick={onOpenGlobalAnalytics}
+                className="mt-2 w-full py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-950/40 to-blue-950/40 hover:from-cyan-900/60 hover:to-blue-900/60 border border-cyan-500/30 text-cyan-300 text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm"
+              >
+                <span>Open Full Syllabus Weightage & Score Hub</span>
+                <span className="text-cyan-400">→</span>
+              </button>
+            )}
           </motion.div>
         )}
 

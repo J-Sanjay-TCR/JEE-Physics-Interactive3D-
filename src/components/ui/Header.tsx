@@ -24,6 +24,7 @@ import {
   Flame,
   Radio,
   Keyboard,
+  TrendingUp,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -38,7 +39,10 @@ interface HeaderProps {
   onOpenSyllabusDirectory?: () => void;
   onOpenAiTutor?: () => void;
   onOpenTutorial?: () => void;
+  onOpenSpotlightTour?: () => void;
   onOpenShortcuts?: () => void;
+  onOpenAnalytics?: () => void;
+  onOpenLoadingScreen?: () => void;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
   currentView?: 'home' | 'lab';
@@ -57,7 +61,10 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSyllabusDirectory,
   onOpenAiTutor,
   onOpenTutorial,
+  onOpenSpotlightTour,
   onOpenShortcuts,
+  onOpenAnalytics,
+  onOpenLoadingScreen,
   onToggleSidebar,
   isSidebarOpen,
   currentView = 'home',
@@ -105,7 +112,9 @@ export const Header: React.FC<HeaderProps> = ({
   }, [isMobileSearchModalOpen]);
 
   return (
-    <header className={`sticky top-0 z-40 backdrop-blur-xl border-b transition-colors px-4 lg:px-6 py-2.5 flex items-center justify-between gap-3 sm:gap-4 ${
+    <header
+      id="header-navbar"
+      className={`sticky top-0 z-40 backdrop-blur-xl border-b transition-colors px-4 lg:px-6 py-2.5 flex items-center justify-between gap-3 sm:gap-4 ${
       isCyberpunk
         ? 'bg-[#030712]/92 border-cyan-500/20 text-zinc-100 shadow-[0_4px_25px_rgba(0,240,255,0.06)]'
         : isDark 
@@ -300,8 +309,26 @@ export const Header: React.FC<HeaderProps> = ({
           <Search className="w-4 h-4 text-cyan-400" />
         </button>
 
+        {onOpenAnalytics && (
+          <button
+            onClick={onOpenAnalytics}
+            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
+              isCyberpunk
+                ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-400/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                : isDark
+                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+            }`}
+            title="Open JEE Physics Weightage & Score Intelligence Hub"
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden md:inline">Analytics</span>
+          </button>
+        )}
+
         {onOpenTutorial && (
           <button
+            id="header-tutorial-btn"
             onClick={onOpenTutorial}
             className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
               isCyberpunk
@@ -314,6 +341,24 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <HelpCircle className="w-3.5 h-3.5 text-indigo-400" />
             <span className="hidden md:inline">Tutorial</span>
+          </button>
+        )}
+
+        {onOpenSpotlightTour && (
+          <button
+            id="header-spotlight-tour-btn"
+            onClick={onOpenSpotlightTour}
+            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
+              isCyberpunk
+                ? 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border-cyan-400/50 shadow-[0_0_12px_rgba(0,240,255,0.25)]'
+                : isDark
+                ? 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-500/40'
+                : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border-cyan-200'
+            }`}
+            title="Start Interactive Spotlight Tour"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+            <span className="hidden md:inline">Guided Tour</span>
           </button>
         )}
 
@@ -372,6 +417,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {onOpenFormulaHub && (
           <button
+            id="header-formula-btn"
             onClick={onOpenFormulaHub}
             className={`hidden md:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
               isCyberpunk
@@ -402,6 +448,24 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Star className={`w-4 h-4 ${isCurrentFavorite ? 'fill-current text-amber-400' : ''}`} />
+          </button>
+        )}
+
+        {onOpenLoadingScreen && (
+          <button
+            onClick={onOpenLoadingScreen}
+            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
+              isCyberpunk
+                ? 'bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 border-cyan-500/30'
+                : isDark
+                ? 'bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 border-white/[0.12]'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+            }`}
+            title="Open 3D Physics Laboratory Calibration & Loading Screen"
+            aria-label="Calibrate Laboratory"
+          >
+            <Atom className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden xl:inline">Calibrate Lab</span>
           </button>
         )}
 

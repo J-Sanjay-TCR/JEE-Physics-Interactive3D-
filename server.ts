@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI, Modality, ThinkingLevel } from '@google/genai';
+import fs from 'fs';
+import { GoogleGenAI, Modality, ThinkingLevel, Type } from '@google/genai';
 
 const app = express();
 const PORT = 3000;
@@ -30,7 +30,7 @@ const PRIMARY_FLASH_MODEL = 'gemini-3.7-flash';
 const SECONDARY_FLASH_MODEL = 'gemini-flash-latest';
 const TERTIARY_FLASH_MODEL = 'gemini-3.1-flash-lite';
 const ALL_FLASH_MODELS = [PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, TERTIARY_FLASH_MODEL];
-const TTS_MODEL = 'gemini-3.1-flash-tts-preview';
+const TTS_MODEL = 'gemini-2.5-flash';
 
 /**
  * Helper to construct compliant model configurations per model specification
@@ -248,10 +248,11 @@ $$F_{\\text{net}} = m \\cdot a, \\quad W = \\int \\vec{F} \\cdot d\\vec{r}, \\qu
 > **Podcast Pro-Tip:** Keep numbers in clean fractions until your very last step so rounding errors don't steal valuable JEE marks!`;
 }
 
-// 1. Health check
-app.get('/api/health', (req, res) => {
+// 1. Health check & Cloud Run readiness probes
+app.get(['/healthz', '/ping', '/api/health'], (req, res) => {
   res.json({
     status: 'ok',
+    service: 'jee-3d-physics-lab',
     primaryModel: PRIMARY_FLASH_MODEL,
     secondaryModel: SECONDARY_FLASH_MODEL,
     tertiaryModel: TERTIARY_FLASH_MODEL,
@@ -270,6 +271,7 @@ app.post('/api/ai/ask-doubt', async (req, res) => {
       thinkingMode = false,
       enableWebSearch = false,
       isVoiceInput = false,
+      userName = '',
     } = req.body;
 
     if (!question || typeof question !== 'string' || !question.trim()) {
@@ -552,36 +554,364 @@ Concept: ${conceptTitle || ''}`;
   }
 });
 
-// 4. Voice Response Generator (Gemini Neural TTS API with Ursa / Aoede Female Podcast Voice)
+/**
+ * Procedural Physics Problem Generator
+ * Generates mathematically rigorous JEE practice questions from real simulation parameters
+ * Used when offline, during network latency, or if API quotas are saturated.
+ */
+function generateProceduralQuestion(
+  conceptTitle: string = 'JEE Physics',
+  currentParams: Record<string, number> = {},
+  difficulty: 'Easy' | 'JEE Main' | 'JEE Advanced' = 'JEE Main'
+): any {
+  const titleLower = (conceptTitle || '').toLowerCase();
+  const id = `ai-gen-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  // 1. Projectile Motion
+  if (titleLower.includes('projectile') || (currentParams.velocity !== undefined && currentParams.angle !== undefined)) {
+    const v0 = Number(currentParams.velocity ?? currentParams.v ?? 20);
+    const theta = Number(currentParams.angle ?? currentParams.theta ?? 45);
+    const g = Number(currentParams.gravity ?? 9.8);
+    const rad = (theta * Math.PI) / 180;
+    const sinT = Math.sin(rad);
+    const sin2T = Math.sin(2 * rad);
+
+    const isRange = Math.random() > 0.5;
+    if (isRange) {
+      const R = (v0 * v0 * sin2T) / g;
+      const R_val = parseFloat(R.toFixed(1));
+      const trap1 = parseFloat(((v0 * v0 * sinT * sinT) / (2 * g)).toFixed(1));
+      const trap2 = parseFloat((R * 0.5).toFixed(1));
+      const trap3 = parseFloat((R * 1.5).toFixed(1));
+      const options = [
+        `$${R_val}\\,\\text{m}$`,
+        `$${trap1}\\,\\text{m}$`,
+        `$${trap2}\\,\\text{m}$`,
+        `$${trap3}\\,\\text{m}$`,
+      ];
+      return {
+        id,
+        type: 'mcq',
+        difficulty,
+        question: `A particle is projected from horizontal ground with the active simulation launch speed $v_0 = ${v0}\\,\\text{m/s}$ at an elevation angle of $\\theta = ${theta}^\\circ$ under gravity $g = ${g}\\,\\text{m/s}^2$. What is the total horizontal range $R$ of the trajectory?`,
+        options,
+        correctAnswer: 0,
+        numericalAnswer: R_val,
+        tolerance: 0.2,
+        explanation: `The horizontal range is determined by combining the horizontal velocity component $v_{0x} = v_0\\cos\\theta$ with the total time of flight $T = \\frac{2v_0\\sin\\theta}{g}$:\n\n$$R = v_{0x} \\cdot T = (v_0\\cos\\theta)\\left(\\frac{2v_0\\sin\\theta}{g}\\right) = \\frac{v_0^2\\sin(2\\theta)}{g}$$\n\nSubstituting our active parameter values ($v_0 = ${v0}\\,\\text{m/s}$, $\\theta = ${theta}^\\circ$, $g = ${g}\\,\\text{m/s}^2$):\n\n$$R = \\frac{(${v0})^2 \\cdot \\sin(${2 * theta}^\\circ)}{${g}} = ${R_val}\\,\\text{m}$$`,
+        formulaUsed: 'R = \\frac{v_0^2 \\sin(2\\theta)}{g}',
+        isDynamic: true,
+        source: 'AI Physics Tutor (Procedural Engine)',
+        paramSnapshot: currentParams,
+      };
+    } else {
+      const H = (v0 * v0 * sinT * sinT) / (2 * g);
+      const H_val = parseFloat(H.toFixed(1));
+      const trap1 = parseFloat(((v0 * v0 * sin2T) / g).toFixed(1));
+      const trap2 = parseFloat((H * 2).toFixed(1));
+      const trap3 = parseFloat((H * 0.5).toFixed(1));
+      const options = [
+        `$${trap1}\\,\\text{m}$`,
+        `$${H_val}\\,\\text{m}$`,
+        `$${trap2}\\,\\text{m}$`,
+        `$${trap3}\\,\\text{m}$`,
+      ];
+      return {
+        id,
+        type: 'mcq',
+        difficulty,
+        question: `For the current apparatus parameters ($v_0 = ${v0}\\,\\text{m/s}$, $\\theta = ${theta}^\\circ$, $g = ${g}\\,\\text{m/s}^2$), what is the maximum vertical apex height $H_{\\max}$ attained above the launch plane?`,
+        options,
+        correctAnswer: 1,
+        numericalAnswer: H_val,
+        tolerance: 0.2,
+        explanation: `At the highest apex point of the projectile trajectory, the vertical velocity component vanishes ($v_y = 0$).\n\nUsing the kinematic relation $v_y^2 = (v_0\\sin\\theta)^2 - 2gH_{\\max}$:\n\n$$H_{\\max} = \\frac{v_0^2 \\sin^2\\theta}{2g}$$\n\nSubstituting values: $H_{\\max} = \\frac{(${v0})^2 \\cdot \\sin^2(${theta}^\\circ)}{2 \\times ${g}} = ${H_val}\\,\\text{m}$.`,
+        formulaUsed: 'H_{\\max} = \\frac{v_0^2 \\sin^2\\theta}{2g}',
+        isDynamic: true,
+        source: 'AI Physics Tutor (Procedural Engine)',
+        paramSnapshot: currentParams,
+      };
+    }
+  }
+
+  // 2. Inclined Plane & Friction
+  if (titleLower.includes('incline') || titleLower.includes('friction') || currentParams.friction !== undefined || currentParams.angle !== undefined) {
+    const theta = Number(currentParams.angle ?? 30);
+    const mu = Number(currentParams.friction ?? currentParams.mu ?? 0.25);
+    const m = Number(currentParams.mass ?? currentParams.m ?? 2);
+    const g = 9.8;
+    const rad = (theta * Math.PI) / 180;
+    const sinT = Math.sin(rad);
+    const cosT = Math.cos(rad);
+
+    const aRaw = g * (sinT - mu * cosT);
+    const a = aRaw > 0 ? parseFloat(aRaw.toFixed(2)) : 0;
+    const trap1 = parseFloat((g * sinT).toFixed(2));
+    const trap2 = parseFloat((g * (sinT + mu * cosT)).toFixed(2));
+    const trap3 = parseFloat((mu * g * cosT).toFixed(2));
+
+    const options = [
+      `$${a}\\,\\text{m/s}^2$`,
+      `$${trap1}\\,\\text{m/s}^2$`,
+      `$${trap2}\\,\\text{m/s}^2$`,
+      `$${trap3}\\,\\text{m/s}^2$`,
+    ];
+
+    return {
+      id,
+      type: 'mcq',
+      difficulty,
+      question: `A block of mass $m = ${m}\\,\\text{kg}$ is released on an incline of angle $\\theta = ${theta}^\\circ$ with kinetic friction coefficient $\\mu_k = ${mu}$. With $g = 9.8\\,\\text{m/s}^2$, find the net downward acceleration $a$ along the incline.`,
+      options,
+      correctAnswer: 0,
+      numericalAnswer: a,
+      tolerance: 0.1,
+      explanation: `Resolving forces parallel and perpendicular to the inclined surface:\n\n1. Normal reaction: $N = mg\\cos\\theta$\n2. Kinetic friction opposing motion: $f_k = \\mu_k N = \\mu_k mg\\cos\\theta$\n3. Downward driving component: $F_g = mg\\sin\\theta$\n\nApplying Newton's Second Law:\n\n$$m \\cdot a = mg\\sin\\theta - \\mu_k mg\\cos\\theta \\implies a = g(\\sin\\theta - \\mu_k\\cos\\theta)$$\n\nSubstituting: $a = 9.8 \\cdot (\\sin(${theta}^\\circ) - ${mu}\\cos(${theta}^\\circ)) = ${a}\\,\\text{m/s}^2$.`,
+      formulaUsed: 'a = g(\\sin\\theta - \\mu_k\\cos\\theta)',
+      isDynamic: true,
+      source: 'AI Physics Tutor (Procedural Engine)',
+      paramSnapshot: currentParams,
+    };
+  }
+
+  // 3. Simple Harmonic Motion / Pendulum / Spring
+  if (titleLower.includes('shm') || titleLower.includes('pendulum') || titleLower.includes('spring') || titleLower.includes('oscillation')) {
+    const L = Number(currentParams.length ?? currentParams.L ?? 1.0);
+    const m = Number(currentParams.mass ?? currentParams.m ?? 1.0);
+    const k = Number(currentParams.springConstant ?? currentParams.k ?? 40);
+    const g = 9.8;
+
+    if (titleLower.includes('spring')) {
+      const omega = Math.sqrt(k / m);
+      const T = (2 * Math.PI) / omega;
+      const T_val = parseFloat(T.toFixed(2));
+      const trap1 = parseFloat(((2 * Math.PI) * Math.sqrt(m / (2 * k))).toFixed(2));
+      const trap2 = parseFloat((1 / T_val).toFixed(2));
+      const trap3 = parseFloat((2 * Math.PI * Math.sqrt(k / m)).toFixed(2));
+
+      return {
+        id,
+        type: 'mcq',
+        difficulty,
+        question: `A block of mass $m = ${m}\\,\\text{kg}$ is attached to a spring of force constant $k = ${k}\\,\\text{N/m}$ performing horizontal SHM. What is the time period $T$ of oscillation?`,
+        options: [
+          `$${trap2}\\,\\text{s}$`,
+          `$${T_val}\\,\\text{s}$`,
+          `$${trap1}\\,\\text{s}$`,
+          `$${trap3}\\,\\text{s}$`,
+        ],
+        correctAnswer: 1,
+        numericalAnswer: T_val,
+        tolerance: 0.05,
+        explanation: `The equation of motion for a mass-spring system is $m\\frac{d^2x}{dt^2} + kx = 0$, giving angular frequency $\\omega = \\sqrt{\\frac{k}{m}}$.\n\nThe fundamental time period of oscillation is:\n\n$$T = \\frac{2\\pi}{\\omega} = 2\\pi \\sqrt{\\frac{m}{k}}$$\n\nSubstituting active values ($m = ${m}\\,\\text{kg}, k = ${k}\\,\\text{N/m}$):\n\n$$T = 2\\pi \\sqrt{\\frac{${m}}{${k}}} = ${T_val}\\,\\text{s}$$`,
+        formulaUsed: 'T = 2\\pi \\sqrt{\\frac{m}{k}}',
+        isDynamic: true,
+        source: 'AI Physics Tutor (Procedural Engine)',
+        paramSnapshot: currentParams,
+      };
+    } else {
+      const T = 2 * Math.PI * Math.sqrt(L / g);
+      const T_val = parseFloat(T.toFixed(2));
+      const trap1 = parseFloat((2 * Math.PI * Math.sqrt(g / L)).toFixed(2));
+      const trap2 = parseFloat((Math.PI * Math.sqrt(L / g)).toFixed(2));
+      const trap3 = parseFloat((2 * Math.PI * Math.sqrt((2 * L) / g)).toFixed(2));
+
+      return {
+        id,
+        type: 'mcq',
+        difficulty,
+        question: `A simple pendulum of effective length $L = ${L}\\,\\text{m}$ undergoes small-amplitude oscillations under local gravity $g = ${g}\\,\\text{m/s}^2$. Calculate its periodic time $T$.`,
+        options: [
+          `$${T_val}\\,\\text{s}$`,
+          `$${trap1}\\,\\text{s}$`,
+          `$${trap2}\\,\\text{s}$`,
+          `$${trap3}\\,\\text{s}$`,
+        ],
+        correctAnswer: 0,
+        numericalAnswer: T_val,
+        tolerance: 0.05,
+        explanation: `For small angular displacements $\\sin\\theta \\approx \\theta$, restoring torque is $\\tau = -mgL\\theta = I\\alpha = mL^2\\frac{d^2\\theta}{dt^2}$.\n\nThus $\\frac{d^2\\theta}{dt^2} + \\frac{g}{L}\\theta = 0$, yielding:\n\n$$T = 2\\pi \\sqrt{\\frac{L}{g}} = 2\\pi \\sqrt{\\frac{${L}}{${g}}} = ${T_val}\\,\\text{s}$$`,
+        formulaUsed: 'T = 2\\pi \\sqrt{\\frac{L}{g}}',
+        isDynamic: true,
+        source: 'AI Physics Tutor (Procedural Engine)',
+        paramSnapshot: currentParams,
+      };
+    }
+  }
+
+  // 4. Universal Fallback
+  const paramEntries = Object.entries(currentParams);
+  const paramDesc = paramEntries.length > 0
+    ? paramEntries.map(([k, v]) => `$${k} = ${v}$`).join(', ')
+    : 'calibrated laboratory settings';
+
+  const firstParam = paramEntries[0] || ['magnitude', 10];
+
+  return {
+    id,
+    type: 'mcq',
+    difficulty,
+    question: `In the active apparatus for **${conceptTitle}**, active operational parameters are configured as ${paramDesc}. Assuming ideal conservative boundary conditions, if parameter $${firstParam[0]}$ is doubled while keeping other independent variables locked, by what factor does the associated quadratic stored energy or work scale?`,
+    options: [
+      `Quadruples (factor of $4$)`,
+      `Doubles (factor of $2$)`,
+      `Increases by $\\sqrt{2}$`,
+      `Remains invariant ($1$)`,
+    ],
+    correctAnswer: 0,
+    numericalAnswer: 4,
+    tolerance: 0,
+    explanation: `In standard quadratic mechanical and field potentials ($E \\propto x^2$, $K = \\frac{1}{2}mv^2$, or $U = \\frac{1}{2}kx^2 = \\frac{1}{2}CV^2$):\n\n$$E_2 = k(2x)^2 = 4 \\cdot \\left(\\frac{1}{2}kx^2\\right) = 4E_1$$\n\nHence doubling the active characteristic variable scales the total quadratic quantity by a factor of $2^2 = 4$.`,
+    formulaUsed: 'E \\propto (\\text{parameter})^2',
+    isDynamic: true,
+    source: 'AI Physics Tutor (Procedural Engine)',
+    paramSnapshot: currentParams,
+  };
+}
+
+// 4. AI Custom Question Generator based on Active Concept Physical Parameters
+app.post('/api/ai/generate-question', async (req, res) => {
+  try {
+    const {
+      conceptTitle = 'JEE Physics',
+      currentParams = {},
+      difficulty = 'JEE Main',
+      userName = '',
+    } = req.body;
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      const proceduralQ = generateProceduralQuestion(conceptTitle, currentParams, difficulty);
+      return res.json({ question: proceduralQ, isFallback: true, modelUsed: 'procedural-physics-engine' });
+    }
+
+    const ai = getGenAI();
+    const modelsToTry = ALL_FLASH_MODELS;
+
+    const prompt = `You are the brilliant female AI Physics Tutor from 'JEE 3D Physics Lab'. ${userName ? `The student is ${userName}.` : ''}
+Generate ONE authentic, mathematically rigorous ${difficulty} level physics practice problem based DIRECTLY on the currently active concept and active simulation parameters.
+
+CONCEPT: "${conceptTitle}"
+ACTIVE PHYSICAL PARAMETERS: ${JSON.stringify(currentParams)}
+
+STRICT REQUIREMENTS:
+1. PROBLEM STATEMENT:
+   - Must explicitly use and reference the active simulation parameter values (${JSON.stringify(currentParams)}).
+   - Use crisp LaTeX notation: inline formulas with $...$ and key equations with $$...$$.
+   - Must be mathematically sound, solvable in 2-3 minutes, and physically realistic.
+2. OPTIONS:
+   - Provide exactly 4 distinct multiple-choice options (A, B, C, D) in the 'options' array.
+   - Format each option with LaTeX math (e.g. "$25\\,\\text{m/s}$").
+   - Exactly one option must be mathematically correct.
+   - Include realistic distractors (common student calculation/algebraic mistakes).
+3. CORRECT ANSWER:
+   - 'correctAnswer' must be the 0-based integer index of the correct option (0 for A, 1 for B, 2 for C, 3 for D).
+4. STEP-BY-STEP EXPLANATION:
+   - Provide a clear, publication-grade derivation showing how to solve the problem from fundamental physics principles.
+5. GOVERNING FORMULA:
+   - Provide the key formula in 'formulaUsed' (in LaTeX without wrapping $$).`;
+
+    for (const model of modelsToTry) {
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout on model ${model}`)), 4500)
+        );
+
+        const responsePromise = ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            systemInstruction: 'You are an expert AI physics tutor generating mathematically rigorous JEE Main and Advanced practice questions in structured JSON format.',
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                question: { type: Type.STRING },
+                type: { type: Type.STRING },
+                difficulty: { type: Type.STRING },
+                options: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+                correctAnswer: { type: Type.INTEGER },
+                numericalAnswer: { type: Type.NUMBER },
+                tolerance: { type: Type.NUMBER },
+                explanation: { type: Type.STRING },
+                formulaUsed: { type: Type.STRING },
+              },
+              required: ['question', 'options', 'correctAnswer', 'explanation', 'formulaUsed'],
+            },
+            temperature: 0.35,
+          },
+        });
+
+        const response = await Promise.race([responsePromise, timeoutPromise]);
+
+        const text = response.text?.trim() || '';
+        if (text) {
+          const parsed = JSON.parse(text);
+          if (parsed.question && Array.isArray(parsed.options) && parsed.options.length === 4 && typeof parsed.correctAnswer === 'number') {
+            const finalQ = {
+              id: `ai-custom-${Date.now()}`,
+              type: parsed.type || 'mcq',
+              difficulty: parsed.difficulty || difficulty,
+              question: parsed.question,
+              options: parsed.options,
+              correctAnswer: parsed.correctAnswer,
+              numericalAnswer: parsed.numericalAnswer ?? undefined,
+              tolerance: parsed.tolerance ?? 0.1,
+              explanation: parsed.explanation,
+              formulaUsed: parsed.formulaUsed,
+              isDynamic: true,
+              source: `AI Tutor (${model})`,
+              paramSnapshot: currentParams,
+            };
+            return res.json({ question: finalQ, isFallback: false, modelUsed: model });
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[AI Question Generator] Model ${model} generation failed or quota reached, trying next...`);
+      }
+    }
+
+    // Fallback to procedural generator if all models failed or quota exceeded
+    const fallbackQ = generateProceduralQuestion(conceptTitle, currentParams, difficulty);
+    res.json({ question: fallbackQ, isFallback: true, modelUsed: 'procedural-physics-engine' });
+  } catch (err: any) {
+    console.error('Error in /api/ai/generate-question:', err);
+    const fallbackQ = generateProceduralQuestion(req.body?.conceptTitle, req.body?.currentParams, req.body?.difficulty);
+    res.json({ question: fallbackQ, isFallback: true, modelUsed: 'procedural-physics-engine' });
+  }
+});
+
+// 4. Voice Response Generator (Gemini Neural TTS API with native Ursa Voice)
 const serverTtsCache = new Map<string, { audioBase64: string; mimeType: string; sampleRate: number; voiceUsed: string }>();
 
 app.post('/api/ai/tts', async (req, res) => {
   try {
-    const { text, voice = 'Aoede' } = req.body;
+    const { text, voice = 'Ursa' } = req.body;
     if (!text || typeof text !== 'string' || !text.trim()) {
       return res.status(400).json({ error: 'Text to speak is required' });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.json({ error: 'no_api_key', useBrowserVoice: true });
+      return res.status(503).json({ error: 'no_api_key', message: 'Gemini API key not configured' });
     }
 
     // Clean markdown and LaTeX to make natural-sounding spoken audio
     const spokenText = cleanTextForSpeech(text);
     if (!spokenText) {
-      return res.json({ error: 'empty_text', useBrowserVoice: true });
+      return res.status(400).json({ error: 'empty_text' });
     }
 
-    // Map voice aliases:
-    // 'Ursa' -> 'Aoede' (Gemini's official premier energetic female podcast host voice)
-    // Other supported voices: 'Aoede', 'Kore', 'Puck', 'Fenrir', 'Zephyr', 'Charon', 'Leda', 'Orus'
+    // Direct Gemini prebuilt voices: 'Ursa', 'Aoede', 'Kore', 'Puck', 'Fenrir', 'Zephyr', 'Charon'
     let selectedVoice = voice;
     if (!selectedVoice || selectedVoice.toLowerCase() === 'ursa') {
-      selectedVoice = 'Aoede';
+      selectedVoice = 'Ursa';
     }
 
-    const serverCacheKey = `${selectedVoice}:${spokenText.slice(0, 200)}`;
+    const serverCacheKey = `${selectedVoice}:${spokenText.slice(0, 300)}`;
     if (serverTtsCache.has(serverCacheKey)) {
       const cached = serverTtsCache.get(serverCacheKey)!;
       return res.json(cached);
@@ -589,46 +919,35 @@ app.post('/api/ai/tts', async (req, res) => {
 
     const ai = getGenAI();
 
-    // Cascade across high-fidelity TTS models
-    const ttsModelsToTry = [TTS_MODEL, PRIMARY_FLASH_MODEL];
-    let base64Audio: string | undefined;
-    let mimeType = 'audio/pcm;rate=24000';
+    // Cap spoken slice to avoid ultra-long generation delays while preserving full sentence clarity
+    const promptText = spokenText.slice(0, 750);
 
-    for (const model of ttsModelsToTry) {
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: [
+    const response = await ai.models.generateContent({
+      model: TTS_MODEL,
+      contents: [
+        {
+          parts: [
             {
-              parts: [
-                {
-                  text: `Read this physics explanation in an engaging, crystal-clear, and lively female podcast host cadence with expressive natural inflection: ${spokenText.slice(0, 900)}`,
-                },
-              ],
+              text: promptText,
             },
           ],
-          config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: selectedVoice,
-                },
-              },
+        },
+      ],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: selectedVoice,
             },
           },
-        });
+        },
+      },
+    });
 
-        const part = response.candidates?.[0]?.content?.parts?.[0];
-        if (part?.inlineData?.data) {
-          base64Audio = part.inlineData.data;
-          mimeType = part.inlineData.mimeType || mimeType;
-          break;
-        }
-      } catch (err: any) {
-        console.log(`[AI Tutor TTS] Model ${model} (voice: ${selectedVoice}) status:`, err?.status || err?.message || 'fallback');
-      }
-    }
+    const part = response.candidates?.[0]?.content?.parts?.[0];
+    const base64Audio = part?.inlineData?.data;
+    const mimeType = part?.inlineData?.mimeType || 'audio/pcm;rate=24000';
 
     if (base64Audio) {
       const result = {
@@ -638,7 +957,7 @@ app.post('/api/ai/tts', async (req, res) => {
         voiceUsed: selectedVoice,
       };
 
-      if (serverTtsCache.size >= 100) {
+      if (serverTtsCache.size >= 250) {
         const firstKey = serverTtsCache.keys().next().value;
         if (firstKey) serverTtsCache.delete(firstKey);
       }
@@ -647,12 +966,10 @@ app.post('/api/ai/tts', async (req, res) => {
       return res.json(result);
     }
 
-    // If Gemini TTS didn't return binary audio, instruct client to use fallback local speech
-    res.json({ error: 'no_audio_data_returned', useBrowserVoice: true });
+    res.status(502).json({ error: 'no_audio_data', message: 'No audio returned from Gemini Ursa TTS' });
   } catch (error: any) {
-    console.error('Error generating AI voice in /api/ai/tts:', error);
-    // Graceful fallback to browser speech synthesis when cloud TTS is busy or quota is restricted
-    res.json({ error: 'quota_exceeded_or_busy', useBrowserVoice: true });
+    console.error('[AI Tutor TTS] Error generating Ursa voice:', error?.status || error?.message || error);
+    res.status(503).json({ error: 'quota_or_busy', message: 'Ursa voice engine busy, please retry in a moment.' });
   }
 });
 
@@ -752,22 +1069,54 @@ function cleanTextForSpeech(input: string): string {
 
 // 5. Vite middleware (development) or Static serving (production)
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true, host: '0.0.0.0', port: PORT },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
+  const distPath = path.resolve(process.cwd(), 'dist');
+  const indexPath = path.join(distPath, 'index.html');
+  const hasDist = fs.existsSync(indexPath);
+
+  if (process.env.NODE_ENV === 'production' || hasDist) {
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send('Application bundle not found. Please ensure npm run build has completed.');
+      }
     });
+  } else {
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true, host: '0.0.0.0', port: PORT },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr) {
+      console.warn('Vite dev middleware could not be loaded, checking dist fallback:', viteErr);
+      if (hasDist) {
+        app.use(express.static(distPath));
+        app.get('*', (req, res) => {
+          res.sendFile(indexPath);
+        });
+      }
+    }
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`JEE 3D Physics Lab Server running on port ${PORT} with Gemini 3.7 Flash & TTS`);
+  });
+
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received: closing HTTP server gracefully');
+    server.close(() => {
+      console.log('HTTP server closed');
+      process.exit(0);
+    });
+  });
+
+  process.on('SIGINT', () => {
+    server.close(() => {
+      process.exit(0);
+    });
   });
 }
 

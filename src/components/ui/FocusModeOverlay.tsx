@@ -22,6 +22,7 @@ import {
   Info,
   Maximize2,
   Keyboard,
+  Camera,
 } from 'lucide-react';
 import { Latex } from './Latex';
 import { LiveGraphPanel } from './LiveGraphPanel';
@@ -52,6 +53,8 @@ interface FocusModeOverlayProps {
   onApplyPreset: (preset: Record<string, number>) => void;
   onOpenShortcuts?: () => void;
   isDark?: boolean;
+  isARMode?: boolean;
+  onToggleAR?: () => void;
 }
 
 export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
@@ -79,6 +82,8 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
   onApplyPreset,
   onOpenShortcuts,
   isDark = true,
+  isARMode = false,
+  onToggleAR,
 }) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [drawerTab, setDrawerTab] = useState<'params' | 'graphs' | 'equations'>('params');
@@ -269,6 +274,22 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
               aria-label="Keyboard Shortcuts"
             >
               <Keyboard className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* AR View Toggle in Focus Mode */}
+          {onToggleAR && (
+            <button
+              onClick={onToggleAR}
+              title={isARMode ? "Exit AR View" : "Enter AR View (Camera Overlay in Physical Room)"}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                isARMode
+                  ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)] border border-emerald-400'
+                  : 'bg-emerald-500/20 text-emerald-300 hover:text-white hover:bg-emerald-500/30 border border-emerald-500/30'
+              }`}
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>{isARMode ? 'Exit AR' : 'AR View'}</span>
             </button>
           )}
 

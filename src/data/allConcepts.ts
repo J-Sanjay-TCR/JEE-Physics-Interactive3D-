@@ -2,6 +2,7 @@ import { CONCEPTS, CHAPTERS, CATEGORIES } from './physicsData';
 import { EXTRA_CONCEPTS } from './extraConcepts';
 import { MORE_CONCEPTS } from './moreConcepts';
 import { LAWS_CONCEPTS } from './lawsConcepts';
+import { MECHANICS_CONCEPTS } from './mechanicsConcepts';
 import { COACHING_MODULES } from './coachingModules';
 import { PhysicsConcept, CoachingInstituteModule } from '../types';
 
@@ -10,6 +11,7 @@ const RAW_CONCEPTS: PhysicsConcept[] = [
   ...EXTRA_CONCEPTS,
   ...MORE_CONCEPTS,
   ...LAWS_CONCEPTS,
+  ...MECHANICS_CONCEPTS,
 ];
 
 export const ALL_CONCEPTS: PhysicsConcept[] = RAW_CONCEPTS.map((c) => {

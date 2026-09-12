@@ -679,7 +679,7 @@ export const JeeUnitConverter: React.FC = () => {
                 : 'bg-[#14141E] text-zinc-400 border-white/[0.06] hover:text-zinc-200 hover:border-white/[0.12]'
             }`}
           >
-            {cat.icon}
+            {cat?.icon}
             <span>{cat.name}</span>
           </button>
         ))}

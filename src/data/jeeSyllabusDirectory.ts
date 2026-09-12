@@ -70,26 +70,27 @@ export const JEE_SYLLABUS_DIRECTORY: JeeChapterSyllabusItem[] = [
     id: 'syl-work-energy-power',
     unit_name: 'Mechanics',
     chapter_name: 'Work-Energy-Power',
-    conceptId: 'shm-spring-pendulum',
+    conceptId: 'work-energy-collisions',
     core_explanation:
-      'Work-Energy Theorem dictates that the total work done by all conservative, non-conservative, and external forces equals the change in kinetic energy. It introduces conservative force potential energy wells and equilibrium stability criteria.',
+      'Work-Energy Theorem dictates that the total work done by all conservative, non-conservative, and external forces equals the change in kinetic energy. It governs 1D and 2D elastic and inelastic collisions with coefficient of restitution (e) and conservative spring potential energy wells.',
     important_cases: [
-      'Vertical circular motion with minimum velocity thresholds for completing full loops and string slack conditions',
-      'Non-linear spring compression with friction and air-resistance dissipation',
-      'Equilibrium classification (stable, unstable, neutral) from potential energy U(x) minima and maxima',
-      '1D and 2D elastic and inelastic collisions with coefficient of restitution (e)',
+      'Elastic, inelastic, and perfectly plastic head-on collisions with coefficient of restitution (e)',
+      'Fractional kinetic energy transfer in equal-mass and disparate-mass impacts',
+      'Maximum spring buffer compression during impact when velocities equalize (v1 = v2 = v_cm)',
+      'Equilibrium classification (stable, unstable, neutral) from potential energy U(x) curves',
     ],
     '3d_model_spec': {
       visual_description:
-        'A 3D vertical loop track with a roller coaster bob attached to a string or rail, accompanied by an interactive dynamic potential well curve U(x) and synchronized kinetic/potential energy bar charts.',
+        'A 3D linear air track with two colliding gliders equipped with spring bumper buffers, real-time velocity and momentum vectors, and an instantaneous kinetic energy dissipation readout.',
       interactive_variables: [
-        'Bob Mass (m)',
-        'String Length / Loop Radius (R)',
-        'Bottom Initial Velocity (v0)',
-        'Coefficient of Restitution (e)',
+        'Glider 1 Mass (m1)',
+        'Glider 2 Mass (m2)',
+        'Initial Velocities (u1, u2)',
+        'Restitution Coefficient (e)',
+        'Spring Buffer Stiffness (k)',
       ],
       expected_behavior:
-        'Shows whether the bob completes the circle, slacks and enters parabolic flight, or oscillates, with real-time tension vectors and energy conservation bar transitions.',
+        'Visualizes momentum exchange and kinetic energy loss ΔK in real time, simulating elastic rebounds (e=1), partially inelastic impacts (0<e<1), and sticking coalesce (e=0) with maximum spring compression.',
     },
   },
   {
@@ -149,27 +150,28 @@ export const JEE_SYLLABUS_DIRECTORY: JeeChapterSyllabusItem[] = [
     id: 'syl-properties-of-matter',
     unit_name: 'Mechanics',
     chapter_name: 'Properties of Matter',
-    conceptId: 'bernoulli-fluid-flow',
+    conceptId: 'elasticity-viscosity-stokes',
     core_explanation:
-      'Explores the mechanical behavior of bulk matter through elasticity, fluid statics, fluid dynamics, and surface phenomena. It incorporates Young\'s modulus, hydrostatic pressure, Pascal\'s principle, Bernoulli\'s energy theorem, and viscous drag.',
+      'Explores the mechanical behavior of bulk matter through elasticity, tensile stress-strain, Searle apparatus, and viscous fluid dynamics governed by Stokes\' law of terminal velocity and Bernoulli streamline energy.',
     important_cases: [
       'Searle\'s apparatus Young\'s modulus wire elongation and stress-strain curves',
+      'Terminal velocity of a spherical body falling through a viscous fluid under Stokes\' law',
       'Torricelli\'s law of efflux through orifices with falling liquid surface speed',
       'Capillary tube ascent/descent with meniscus contact angle and excess pressure inside bubbles',
-      'Terminal velocity of a spherical body falling through a viscous fluid under Stokes\' law',
     ],
     '3d_model_spec': {
       visual_description:
-        'A 3D fluid container with an efflux orifice at adjustable height, showing the draining streamline flow, parabolic liquid jet, and a capillary tube apparatus alongside.',
+        'A 3D laboratory bench featuring Searle\'s Young\'s modulus wire tension apparatus alongside a transparent viscous liquid column with an animated falling sphere demonstrating terminal velocity and Stokes\' drag.',
       interactive_variables: [
-        'Fluid Density (rho)',
-        'Orifice Height (h)',
-        'Liquid Column Height (H)',
+        'Hanging Load Mass (M)',
+        'Wire Radius (r_w)',
+        'Young\'s Modulus (Y)',
+        'Sphere Radius (r)',
         'Fluid Viscosity (eta)',
-        'Surface Tension (T)',
+        'Sphere Density (rho_s)',
       ],
       expected_behavior:
-        'Updates efflux jet velocity, trajectory range, fluid drainage rate, and capillary meniscus height in real-time.',
+        'Demonstrates microscopic wire elongation ΔL under tensile load, and simulates sphere free-fall acceleration transitioning smoothly into steady terminal velocity v_t with opposing viscous and buoyant vector arrows.',
     },
   },
   {

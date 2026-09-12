@@ -354,6 +354,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
           {CATEGORIES.map((cat) => {
             const config = CATEGORY_CONFIG[cat.id];
+            if (!config) return null;
             const isSelected = selectedCategory === cat.id;
             return (
               <button

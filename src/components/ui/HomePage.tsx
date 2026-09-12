@@ -119,7 +119,9 @@ export const HomePage: React.FC<HomePageProps> = ({
         : isDark ? 'bg-[#070709] text-zinc-100' : 'bg-slate-50 text-slate-900'
     }`}>
       {/* Hero Presentation Banner */}
-      <section className={`relative overflow-hidden rounded-3xl border p-6 sm:p-10 lg:p-12 shadow-2xl transition-colors ${
+      <section
+        id="home-hero-section"
+        className={`relative overflow-hidden rounded-3xl border p-6 sm:p-10 lg:p-12 shadow-2xl transition-colors ${
         isCyberpunk
           ? 'bg-gradient-to-b from-[#061024] via-[#040916] to-[#030712] border-cyan-500/30 shadow-[0_0_30px_rgba(0,240,255,0.08)]'
           : isDark
@@ -245,16 +247,19 @@ export const HomePage: React.FC<HomePageProps> = ({
 
             <button
               onClick={onOpenAnalytics}
-              className={`px-4 py-3 rounded-2xl border font-black text-xs sm:text-sm transition-all flex items-center gap-2 min-h-[44px] ${
+              className={`px-4 py-3 rounded-2xl border font-black text-xs sm:text-sm transition-all flex items-center gap-2 min-h-[44px] hover:scale-[1.02] active:scale-[0.98] ${
                 isCyberpunk
-                  ? 'bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
+                  ? 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-400/50 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
                   : isDark
-                  ? 'bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-200 border-emerald-500/30'
-                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300 shadow-xs'
+                  ? 'bg-gradient-to-r from-emerald-950/50 to-teal-950/40 hover:from-emerald-900/60 hover:to-teal-900/50 text-emerald-300 border-emerald-500/40 shadow-sm'
+                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 shadow-xs'
               }`}
             >
               <TrendingUp className="w-4 h-4 text-emerald-400" />
-              <span>Global JEE Analytics</span>
+              <span>JEE Weightage & Analytics Hub</span>
+              <span className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                2026 Ready
+              </span>
             </button>
             <button
               onClick={onOpenTutorial}
@@ -414,7 +419,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       </section>
 
       {/* Physics Syllabus Chapters Roadmap */}
-      <section className="space-y-5">
+      <section id="home-chapters-grid" className="space-y-5">
         <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4 ${
           isDark ? 'border-white/[0.08]' : 'border-slate-200'
         }`}>

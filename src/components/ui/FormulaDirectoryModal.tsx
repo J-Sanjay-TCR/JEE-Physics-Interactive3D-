@@ -380,7 +380,7 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                     Physics Chapters
                   </div>
                   {categories.map((cat) => {
-                    const Icon = cat.icon;
+                    const Icon = cat?.icon || BookOpen;
                     const isSelected = selectedCategory === cat.id;
 
                     return (

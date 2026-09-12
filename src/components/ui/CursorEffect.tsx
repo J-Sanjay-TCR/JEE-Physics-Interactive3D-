@@ -101,7 +101,7 @@ export const CursorEffect: React.FC = () => {
           y: mousePosition.y - 250,
           opacity: isVisible ? 1 : 0
         }}
-        transition={{ type: 'tween', ease: 'backOut', duration: 0.3 }}
+        transition={{ type: 'tween', ease: 'linear', duration: 0 }}
       />
 
       {/* Interactive Trailing Cursor Ring */}
@@ -116,7 +116,7 @@ export const CursorEffect: React.FC = () => {
           opacity: isVisible ? 1 : 0,
           scale: isHovering ? 1.2 : 1,
         }}
-        transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.5 }}
+        transition={{ type: 'tween', ease: 'linear', duration: 0 }}
       />
     </>
   );

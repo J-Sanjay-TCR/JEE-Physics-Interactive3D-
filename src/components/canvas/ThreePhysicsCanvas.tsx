@@ -7,6 +7,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { motion, AnimatePresence } from 'motion/react';
 import { SimulationType } from '../../types';
 import { SimulationRenderer } from './SimulationRenderer';
+import { ViewportApparatusSkeleton } from '../ui/GlobalPhysicsLoader';
 import {
   PhysicsEngineMiddleware,
   defaultPhysicsMiddleware,
@@ -40,6 +41,17 @@ import {
   Award,
   Activity,
   Gauge,
+  Camera,
+  RefreshCw,
+  AlertCircle,
+  X,
+  Zap,
+  Moon,
+  Sun,
+  Box,
+  FlaskConical,
+  Rocket,
+  Atom,
 } from 'lucide-react';
 
 interface ThreePhysicsCanvasProps {
@@ -63,10 +75,20 @@ interface ThreePhysicsCanvasProps {
   isDark?: boolean;
   isFocusMode?: boolean;
   onToggleFocusMode?: () => void;
+  isARMode?: boolean;
+  onToggleAR?: () => void;
+  bloomIntensity?: 'vibrant' | 'subtle' | 'off';
+  conceptTitle?: string;
+  onChangeBloom?: (val: 'vibrant' | 'subtle' | 'off') => void;
+  onDisableTrajectory?: () => void;
+  adaptivePerformance?: boolean;
+  onToggleAdaptivePerformance?: () => void;
+  onOpenLoadingScreen?: () => void;
 }
 
 export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
   simulationType,
+  conceptTitle,
   params,
   simTime,
   showVectors,
@@ -83,8 +105,16 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
   isDark = true,
   isFocusMode = false,
   onToggleFocusMode,
+  isARMode: externalARMode,
+  onToggleAR: externalToggleAR,
+  bloomIntensity = 'vibrant',
+  onChangeBloom,
+  onDisableTrajectory,
+  adaptivePerformance: externalAdaptivePerf,
+  onToggleAdaptivePerformance: externalToggleAdaptivePerf,
+  onOpenLoadingScreen,
 }) => {
-  const { isCyberpunk, theme } = useTheme();
+  const { isCyberpunk, theme, toggleTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -97,45 +127,156 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
   const bloomPassRef = useRef<UnrealBloomPass | null>(null);
   const animFrameId = useRef<number>(0);
 
-  // Cyberpunk Post-Processing Bloom Controls
-  const [bloomIntensity, setBloomIntensity] = useState<'vibrant' | 'subtle' | 'off'>(() => {
-    try {
-      const saved = localStorage.getItem('jee_cyberpunk_bloom');
-      if (saved === 'vibrant' || saved === 'subtle' || saved === 'off') return saved;
-      return 'vibrant';
-    } catch {
-      return 'vibrant';
-    }
-  });
+  // AR Mode State (controlled externally or internally)
+  const [internalARMode, setInternalARMode] = useState(false);
+  const isARMode = externalARMode !== undefined ? externalARMode : internalARMode;
+  const toggleAR = externalToggleAR || (() => setInternalARMode((prev) => !prev));
 
-  const toggleBloomIntensity = useCallback(() => {
-    setBloomIntensity((prev) => {
-      const next = prev === 'vibrant' ? 'subtle' : prev === 'subtle' ? 'off' : 'vibrant';
+  const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
+  // AR Video Stream Reference
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const startCamera = async () => {
+      if (!isARMode) {
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+        }
+        setCameraError(null);
+        setCameraLoading(false);
+        return;
+      }
+
+      setCameraLoading(true);
+      setCameraError(null);
+
       try {
-        localStorage.setItem('jee_cyberpunk_bloom', next);
-      } catch {}
-      return next;
-    });
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          throw new Error('Camera API (getUserMedia) not supported by browser.');
+        }
+
+        let stream: MediaStream;
+        try {
+          // Attempt target facingMode (environment on phones/tablets)
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: cameraFacing,
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
+            audio: false,
+          });
+        } catch {
+          // Fallback to any available video stream (e.g., standard PC/laptop webcam)
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
+
+        if (!active) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          try {
+            await videoRef.current.play();
+          } catch (playErr) {
+            console.warn('AR video play auto-resume:', playErr);
+          }
+        }
+        streamRef.current = stream;
+        setCameraLoading(false);
+      } catch (err: any) {
+        if (!active) return;
+        console.error('AR Camera Access Denied or Unavailable:', err);
+        setCameraError(
+          err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'
+            ? 'Camera permission denied. Please allow camera access in browser settings or open app in a new tab.'
+            : err.message || 'Unable to access device camera.'
+        );
+        setCameraLoading(false);
+      }
+    };
+
+    startCamera();
+
+    return () => {
+      active = false;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [isARMode, cameraFacing]);
+
+  const [envType, setEnvType] = useState<'void' | 'lab' | 'space'>('void');
+
+  const toggleEnvironment = useCallback(() => {
+    setEnvType((prev) => (prev === 'void' ? 'lab' : prev === 'lab' ? 'space' : 'void'));
   }, []);
+
+  useEffect(() => {
+    if (sceneRef.current && rendererRef.current) {
+      if (isARMode) {
+        sceneRef.current.background = null;
+        rendererRef.current.setClearColor(0x000000, 0);
+      } else {
+        const bgColor = envType === 'space' 
+          ? 0x000000 
+          : envType === 'lab' 
+            ? (isDark ? 0x1e293b : 0xe2e8f0)
+            : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xf8fafc);
+            
+        sceneRef.current.background = new THREE.Color(bgColor);
+        rendererRef.current.setClearColor(bgColor, 1);
+      }
+    }
+  }, [isARMode, isCyberpunk, isDark, envType]);
 
   // Update Bloom Pass dynamically when bloom intensity changes without scene rebuild
   useEffect(() => {
-    if (bloomPassRef.current) {
-      if (bloomIntensity === 'off') {
-        bloomPassRef.current.enabled = false;
+    if (rendererRef.current) {
+      if (bloomIntensity === 'vibrant') {
+        rendererRef.current.toneMappingExposure = isCyberpunk ? 1.25 : 1.15;
       } else if (bloomIntensity === 'subtle') {
-        bloomPassRef.current.enabled = true;
-        bloomPassRef.current.strength = 0.75;
-        bloomPassRef.current.radius = 0.35;
-        bloomPassRef.current.threshold = 0.28;
+        rendererRef.current.toneMappingExposure = isCyberpunk ? 1.05 : 1.0;
       } else {
-        bloomPassRef.current.enabled = true;
-        bloomPassRef.current.strength = 1.35;
-        bloomPassRef.current.radius = 0.45;
-        bloomPassRef.current.threshold = 0.16;
+        rendererRef.current.toneMappingExposure = 1.0;
       }
     }
-  }, [bloomIntensity]);
+
+    if (bloomPassRef.current) {
+      const isDarkEnv = isDark || isCyberpunk || envType === 'space' || (envType === 'lab' && isDark);
+      if (bloomIntensity === 'off') {
+        bloomPassRef.current.enabled = false;
+        bloomPassRef.current.strength = 0;
+      } else if (bloomIntensity === 'subtle') {
+        bloomPassRef.current.enabled = true;
+        bloomPassRef.current.strength = 0.58;
+        bloomPassRef.current.radius = 0.38;
+        bloomPassRef.current.threshold = isDarkEnv ? 0.38 : 0.52;
+      } else {
+        // Vibrant: High-contrast optical bloom with radiant neon trails, lasers & glowing vectors
+        bloomPassRef.current.enabled = true;
+        bloomPassRef.current.strength = 1.35;
+        bloomPassRef.current.radius = 0.65;
+        bloomPassRef.current.threshold = isDarkEnv ? 0.15 : 0.28;
+      }
+    }
+    if (simRendererRef.current) {
+      simRendererRef.current.setBloomIntensity(bloomIntensity);
+    }
+  }, [bloomIntensity, isDark, isCyberpunk, envType]);
 
   // Manual Orbit controls state
   const isDragging = useRef(false);
@@ -153,9 +294,104 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLegendExpanded, setIsLegendExpanded] = useState(false);
+  const [isTrajectoryHudExpanded, setIsTrajectoryHudExpanded] = useState(true);
   const [hiddenVectorIds, setHiddenVectorIds] = useState<Set<string>>(new Set());
   const [zoomPercent, setZoomPercent] = useState(100);
   const [wheelMode, setWheelMode] = useState<'scroll' | 'zoom'>('scroll');
+
+  // Compute comprehensive projectile trajectory details & metrics
+  const projectileTrajectoryData = React.useMemo(() => {
+    if (simulationType !== 'projectile-motion') return null;
+    const u = params.u ?? 20;
+    const theta = params.theta ?? 45;
+    const g = params.g ?? 9.8;
+    const h0 = params.h0 ?? 0;
+    const planeAngle = params.planeAngle ?? 0;
+
+    const rad = (theta * Math.PI) / 180;
+    const alpha = (planeAngle * Math.PI) / 180;
+    const ux = u * Math.cos(rad);
+    const uy = u * Math.sin(rad);
+
+    // Standard quadratic for landing on incline: 0.5*g*t^2 - (uy - ux*tan(alpha))*t - h0 = 0
+    const effUy = uy - ux * Math.tan(alpha);
+    const disc = effUy * effUy + 2 * g * h0;
+    const T = disc >= 0 ? (effUy + Math.sqrt(disc)) / g : (2 * uy) / g;
+    const rangeX = ux * T;
+    const rangeY = rangeX * Math.tan(alpha);
+    const range = Math.hypot(rangeX, rangeY);
+
+    const tApex = Math.max(0, uy / g);
+    const maxH = h0 + (uy * uy) / (2 * g);
+    const xApex = ux * tApex;
+
+    // Radius of curvature at apex: rho = (ux)^2 / g
+    const rhoApex = (ux * ux) / g;
+
+    // Impact velocity
+    const vyImpact = uy - g * T;
+    const vImpact = Math.hypot(ux, vyImpact);
+
+    return {
+      u,
+      theta,
+      g,
+      h0,
+      planeAngle,
+      ux,
+      uy,
+      T,
+      range,
+      rangeX,
+      rangeY,
+      maxH,
+      xApex,
+      tApex,
+      rhoApex,
+      vImpact,
+      isElevated: h0 > 0.05,
+      hasIncline: Math.abs(planeAngle) > 0.1,
+    };
+  }, [simulationType, params]);
+
+  // Real-time flight ballistics tracking for HUD
+  const liveProjectileState = React.useMemo(() => {
+    if (!projectileTrajectoryData) return null;
+    const { u, theta, g, h0, planeAngle, ux, uy, T, rangeX, rangeY } = projectileTrajectoryData;
+    const cycleTime = T + 1.5;
+    const curT = simTime % cycleTime;
+
+    if (curT <= T) {
+      const curX = ux * curT;
+      const curY = h0 + uy * curT - 0.5 * g * curT * curT;
+      const curVy = uy - g * curT;
+      const curV = Math.hypot(ux, curVy);
+      const isAtApex = Math.abs(curVy) <= 0.25;
+      const isAscending = curVy > 0.25;
+      const phase = isAtApex ? 'At Apex' : isAscending ? 'Ascending' : 'Descending';
+      return {
+        curT,
+        curX,
+        curY,
+        curVx: ux,
+        curVy,
+        curV,
+        phase,
+        isLanded: false,
+      };
+    } else {
+      return {
+        curT,
+        curX: rangeX,
+        curY: rangeY,
+        curVx: 0,
+        curVy: 0,
+        curV: 0,
+        phase: 'Impact & Restitution',
+        isLanded: true,
+      };
+    }
+  }, [projectileTrajectoryData, simTime]);
 
   // Toggle single vector arrow visibility
   const toggleVectorVisibility = useCallback((id: string, e?: React.MouseEvent) => {
@@ -206,6 +442,119 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
   const frameTimesRef = useRef<number[]>([]);
   const lastFpsUpdateRef = useRef<number>(performance.now());
   const lastFrameTimeRef = useRef<number>(performance.now());
+
+  // Scene Initialization & Skeleton State for Smooth Concept Transitions
+  const [isSceneInitializing, setIsSceneInitializing] = useState<boolean>(true);
+  const firstFrameRenderedRef = useRef<boolean>(false);
+
+  // Auto-Adjustment Adaptive Performance Manager for Low Frame Rates (< 30 FPS)
+  const [internalAdaptivePerf, setInternalAdaptivePerf] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('jee_adaptive_perf');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+  const adaptivePerformance = externalAdaptivePerf !== undefined ? externalAdaptivePerf : internalAdaptivePerf;
+  const toggleAdaptivePerformance = externalToggleAdaptivePerf || (() => {
+    setInternalAdaptivePerf((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('jee_adaptive_perf', String(next));
+      } catch {}
+      return next;
+    });
+  });
+
+  const adaptivePerformanceRef = useRef(adaptivePerformance);
+  useEffect(() => {
+    adaptivePerformanceRef.current = adaptivePerformance;
+  }, [adaptivePerformance]);
+
+  const bloomIntensityRef = useRef(bloomIntensity);
+  useEffect(() => {
+    bloomIntensityRef.current = bloomIntensity;
+  }, [bloomIntensity]);
+
+  const showTrajectoryRef = useRef(showTrajectory);
+  useEffect(() => {
+    showTrajectoryRef.current = showTrajectory;
+  }, [showTrajectory]);
+
+  const lowFpsCountRef = useRef<number>(0);
+  const lowFpsStartTimeRef = useRef<number | null>(null);
+  const lastAutoAdjustTimeRef = useRef<number>(0);
+  const [autoAdjustmentToast, setAutoAdjustmentToast] = useState<{
+    message: string;
+    actionText?: string;
+    onAction?: () => void;
+  } | null>(null);
+
+  // Auto-dismiss adaptive performance alert toast after 6 seconds
+  useEffect(() => {
+    if (!autoAdjustmentToast) return;
+    const timer = setTimeout(() => setAutoAdjustmentToast(null), 6000);
+    return () => clearTimeout(timer);
+  }, [autoAdjustmentToast]);
+
+  // Execute Auto-Adjustment when sustained < 30 FPS is detected for > 3.0s (corrected from 1.5s)
+  const triggerAutoAdjustment = useCallback((detectedFps = 24, sustainedDurationSec = 3.0) => {
+    const now = Date.now();
+    if (now - lastAutoAdjustTimeRef.current < 4500) return; // Debounce 4.5 seconds
+    lastAutoAdjustTimeRef.current = now;
+
+    const durationStr = sustainedDurationSec >= 3.0 ? '3.0' : sustainedDurationSec.toFixed(1);
+
+    // Stage 1: Step down bloom intensity if active
+    if (bloomIntensityRef.current === 'vibrant') {
+      onChangeBloom?.('subtle');
+      setAutoAdjustmentToast({
+        message: `⚡ Sustained low frame rate (${detectedFps} FPS) detected for > ${durationStr}s: Auto-stepped down bloom from Vibrant to Subtle to restore 60 FPS responsiveness.`,
+        actionText: 'Keep Vibrant',
+        onAction: () => onChangeBloom?.('vibrant'),
+      });
+      return;
+    }
+    if (bloomIntensityRef.current === 'subtle') {
+      onChangeBloom?.('off');
+      setAutoAdjustmentToast({
+        message: `⚡ Sustained low frame rate (${detectedFps} FPS) detected for > ${durationStr}s: Disabled bloom shaders to prioritize smooth 60 FPS on your hardware.`,
+        actionText: 'Re-enable',
+        onAction: () => onChangeBloom?.('subtle'),
+      });
+      return;
+    }
+
+    // Stage 2: Disable or simplify heavy trajectory rendering
+    if (showTrajectoryRef.current) {
+      if (onDisableTrajectory) {
+        onDisableTrajectory();
+      } else {
+        onToggleTrajectory();
+      }
+      setAutoAdjustmentToast({
+        message: `⚡ Sustained low frame rate (${detectedFps} FPS) detected for > ${durationStr}s: Simplified trajectory visualization to eliminate frame drops.`,
+        actionText: 'Restore',
+        onAction: () => onToggleTrajectory(),
+      });
+      return;
+    }
+
+    // Stage 3: Clamp high-DPI retina rendering to 1.0x
+    if (rendererRef.current && rendererRef.current.getPixelRatio() > 1.0) {
+      rendererRef.current.setPixelRatio(1.0);
+      setAutoAdjustmentToast({
+        message: `⚡ Sustained low frame rate (${detectedFps} FPS) detected for > ${durationStr}s: Clamped render resolution to 1.0x for smooth 60 FPS interaction.`,
+      });
+    }
+  }, [onChangeBloom, onDisableTrajectory, onToggleTrajectory]);
+
+  // Reset scene initializing when concept/simulationType changes
+  useEffect(() => {
+    firstFrameRenderedRef.current = false;
+    setIsSceneInitializing(true);
+  }, [simulationType]);
 
   const toggleFps = useCallback(() => {
     setShowFps((prev) => {
@@ -296,7 +645,16 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
     // 1. Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xf8fafc);
+    if (!isARMode) {
+      const bgColor = envType === 'space' 
+        ? 0x000000 
+        : envType === 'lab' 
+          ? (isDark ? 0x1e293b : 0xe2e8f0)
+          : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xf8fafc);
+      scene.background = new THREE.Color(bgColor);
+    } else {
+      scene.background = null;
+    }
     sceneRef.current = scene;
 
     // 2. Camera
@@ -307,9 +665,17 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     // 3. Renderer
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
-      alpha: false,
+      alpha: true,
       powerPreference: 'high-performance',
     });
+    renderer.setClearColor(
+      envType === 'space' 
+        ? 0x000000 
+        : envType === 'lab' 
+          ? (isDark ? 0x1e293b : 0xe2e8f0)
+          : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xf8fafc),
+      isARMode ? 0 : 1
+    );
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = isCyberpunk ? 1.05 : 1.0;
     renderer.setSize(width, height);
@@ -320,52 +686,50 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     containerRef.current.innerHTML = '';
     containerRef.current.appendChild(renderer.domElement);
 
-    // Setup Post-Processing EffectComposer & UnrealBloomPass for Cyberpunk Mode
-    if (isCyberpunk) {
-      try {
-        const composer = new EffectComposer(renderer);
-        const renderPass = new RenderPass(scene, camera);
-        composer.addPass(renderPass);
+    // Setup Post-Processing EffectComposer & UnrealBloomPass for Neon Glowing Effects
+    try {
+      const composer = new EffectComposer(renderer);
+      const renderPass = new RenderPass(scene, camera);
+      composer.addPass(renderPass);
 
-        const strength = bloomIntensity === 'vibrant' ? 1.35 : bloomIntensity === 'subtle' ? 0.75 : 0;
-        const threshold = bloomIntensity === 'vibrant' ? 0.16 : 0.28;
-        const radius = bloomIntensity === 'vibrant' ? 0.45 : 0.35;
+      const isDarkEnv = isDark || isCyberpunk || envType === 'space' || (envType === 'lab' && isDark);
+      const strength = bloomIntensity === 'vibrant' ? 1.35 : bloomIntensity === 'subtle' ? 0.58 : 0;
+      const threshold = isDarkEnv
+        ? (bloomIntensity === 'vibrant' ? 0.15 : 0.38)
+        : (bloomIntensity === 'vibrant' ? 0.28 : 0.52);
+      const radius = bloomIntensity === 'vibrant' ? 0.65 : 0.38;
 
-        const bloomPass = new UnrealBloomPass(
-          new THREE.Vector2(width, height),
-          strength,
-          radius,
-          threshold
-        );
-        bloomPass.enabled = bloomIntensity !== 'off';
-        composer.addPass(bloomPass);
-        bloomPassRef.current = bloomPass;
+      const bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(width, height),
+        strength,
+        radius,
+        threshold
+      );
+      bloomPass.enabled = bloomIntensity !== 'off';
+      composer.addPass(bloomPass);
+      bloomPassRef.current = bloomPass;
 
-        const outputPass = new OutputPass();
-        composer.addPass(outputPass);
+      const outputPass = new OutputPass();
+      composer.addPass(outputPass);
 
-        composerRef.current = composer;
-      } catch (err) {
-        console.warn('Postprocessing bloom setup encountered fallback:', err);
-        composerRef.current = null;
-        bloomPassRef.current = null;
-      }
-    } else {
+      composerRef.current = composer;
+    } catch (err) {
+      console.warn('Postprocessing bloom setup encountered fallback:', err);
       composerRef.current = null;
       bloomPassRef.current = null;
     }
 
     // 4. Lights with dynamic theme synchronization
     const ambientLight = new THREE.AmbientLight(
-      isCyberpunk ? 0x00f0ff : isDark ? 0xffffff : 0xf8fafc,
-      isCyberpunk ? 0.95 : isDark ? 0.95 : 1.35
+      envType === 'space' ? 0x222233 : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x00f0ff : isDark ? 0xffffff : 0xf8fafc),
+      envType === 'space' ? 0.3 : envType === 'lab' ? 1.5 : (isCyberpunk ? 0.95 : isDark ? 0.95 : 1.35)
     );
     scene.add(ambientLight);
 
     // Directional Key Sun Light
     const dirLight1 = new THREE.DirectionalLight(
-      isCyberpunk ? 0xffffff : isDark ? 0xffffff : 0xffffff,
-      isCyberpunk ? 1.6 : isDark ? 1.5 : 1.6
+      envType === 'space' ? 0xffffff : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0xffffff : isDark ? 0xffffff : 0xffffff),
+      envType === 'space' ? 2.5 : envType === 'lab' ? 1.2 : (isCyberpunk ? 1.6 : isDark ? 1.5 : 1.6)
     );
     dirLight1.position.set(20, 32, 20);
     dirLight1.castShadow = true;
@@ -373,36 +737,50 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
     // Directional Fill / Specular Rim Light
     const dirLight2 = new THREE.DirectionalLight(
-      isCyberpunk ? 0x00ff9d : isDark ? 0x38bdf8 : 0x93c5fd,
-      isCyberpunk ? 0.9 : isDark ? 0.75 : 0.45
+      envType === 'space' ? 0x4488ff : envType === 'lab' ? 0xddddff : (isCyberpunk ? 0x00ff9d : isDark ? 0x38bdf8 : 0x93c5fd),
+      envType === 'space' ? 1.0 : envType === 'lab' ? 0.8 : (isCyberpunk ? 0.9 : isDark ? 0.75 : 0.45)
     );
     dirLight2.position.set(-20, 12, -20);
     scene.add(dirLight2);
 
     // Hemisphere Light (Sky vs Ground Natural Irradiance)
     const hemiLight = new THREE.HemisphereLight(
-      isCyberpunk ? 0x0c4a6e : isDark ? 0x334155 : 0xffffff,
-      isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xe2e8f0,
-      isCyberpunk ? 0.7 : isDark ? 0.65 : 0.85
+      envType === 'space' ? 0x000000 : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x0c4a6e : isDark ? 0x334155 : 0xffffff),
+      envType === 'space' ? 0x111122 : envType === 'lab' ? 0xbbbbcc : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xe2e8f0),
+      envType === 'space' ? 0.2 : envType === 'lab' ? 0.9 : (isCyberpunk ? 0.7 : isDark ? 0.65 : 0.85)
     );
     hemiLight.position.set(0, 50, 0);
     scene.add(hemiLight);
 
     // Dynamic Accent Fill Light
     const accentLight = new THREE.PointLight(
-      isCyberpunk ? 0x00f0ff : isDark ? 0x06b6d4 : 0x3b82f6,
-      isCyberpunk ? 0.75 : isDark ? 0.5 : 0.3,
+      envType === 'space' ? 0x00ffff : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x00f0ff : isDark ? 0x06b6d4 : 0x3b82f6),
+      envType === 'space' ? 1.5 : envType === 'lab' ? 0.5 : (isCyberpunk ? 0.75 : isDark ? 0.5 : 0.3),
       50
     );
     accentLight.position.set(0, 10, 15);
     scene.add(accentLight);
 
+    // Add Starfield for Space Environment
+    if (envType === 'space') {
+      const starGeo = new THREE.BufferGeometry();
+      const starCount = 1500;
+      const starPos = new Float32Array(starCount * 3);
+      for(let i=0; i<starCount*3; i++) {
+        starPos[i] = (Math.random() - 0.5) * 300;
+      }
+      starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+      const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, transparent: true, opacity: 0.8 });
+      const stars = new THREE.Points(starGeo, starMat);
+      scene.add(stars);
+    }
+
     // 5. Grid and Axes with theme-tuned colors
     const gridHelper = new THREE.GridHelper(
       40,
       40,
-      isCyberpunk ? 0x00f0ff : isDark ? 0x475569 : 0x94a3b8,
-      isCyberpunk ? 0x06283d : isDark ? 0x1e293b : 0xe2e8f0
+      envType === 'space' ? 0x333344 : envType === 'lab' ? 0x999999 : (isCyberpunk ? 0x00f0ff : isDark ? 0x475569 : 0x94a3b8),
+      envType === 'space' ? 0x111122 : envType === 'lab' ? 0xcccccc : (isCyberpunk ? 0x06283d : isDark ? 0x1e293b : 0xe2e8f0)
     );
     gridHelper.position.y = -0.01;
     scene.add(gridHelper);
@@ -425,6 +803,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       showGrid,
       showAxes,
       isDark,
+      bloomIntensity,
     });
 
     // 7. Resize Observer
@@ -471,14 +850,39 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         setFrameTimeMs(parseFloat(avgDelta.toFixed(1)));
         setIsLowFps(computedFps < 30);
         lastFpsUpdateRef.current = now;
+
+        // Auto-adjustment feature: triggers when sustained low frame rate (<30 FPS) is detected for > 3.0s (corrected from 1.5s)
+        if (adaptivePerformanceRef.current) {
+          if (computedFps < 30) {
+            if (lowFpsStartTimeRef.current === null) {
+              lowFpsStartTimeRef.current = now;
+            }
+            const sustainedSec = (now - lowFpsStartTimeRef.current) / 1000;
+            // Sustained low frame rate detected for > 3.0 seconds triggers auto-adjustment
+            if (sustainedSec >= 3.0) {
+              lowFpsStartTimeRef.current = null;
+              triggerAutoAdjustment(computedFps, sustainedSec);
+            }
+          } else {
+            lowFpsStartTimeRef.current = null;
+          }
+        }
       }
 
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         try {
-          if (isCyberpunk && composerRef.current && bloomIntensity !== 'off') {
+          if (!isARMode && composerRef.current && bloomIntensity !== 'off') {
             composerRef.current.render();
           } else {
             rendererRef.current.render(sceneRef.current, cameraRef.current);
+          }
+
+          // Mark scene as initialized once the first frame renders successfully
+          if (!firstFrameRenderedRef.current) {
+            firstFrameRenderedRef.current = true;
+            setTimeout(() => {
+              setIsSceneInitializing(false);
+            }, 60);
           }
         } catch (renderErr) {
           console.error('WebGL render error caught in loop:', renderErr);
@@ -500,7 +904,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       bloomPassRef.current = null;
       renderer.dispose();
     };
-  }, [simulationType, isDark, isCyberpunk]);
+  }, [simulationType, isDark, isCyberpunk, envType]);
 
   // Update simulation type or params
   useEffect(() => {
@@ -515,6 +919,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         showGrid,
         showAxes,
         isDark,
+        bloomIntensity,
       });
     }
   }, [simulationType]);
@@ -705,10 +1110,19 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       className="relative w-full h-full min-h-[420px] rounded-2xl overflow-hidden border border-white/[0.08] bg-[#0A0A0B] select-none shadow-2xl flex flex-col touch-none"
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* AR Camera Video Overlay */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className={`absolute inset-0 w-full h-full object-cover z-0 transition-opacity duration-300 pointer-events-none ${isARMode ? 'opacity-100' : 'opacity-0 hidden'}`}
+      />
+
       {/* 3D Canvas Viewport */}
       <div
         ref={containerRef}
-        className="w-full flex-1 cursor-grab active:cursor-grabbing touch-none"
+        className="w-full flex-1 cursor-grab active:cursor-grabbing touch-none z-10"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -724,10 +1138,25 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none gap-2">
         {/* Left Badges */}
         <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
-          <div className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-white/[0.08] text-[11px] sm:text-xs font-semibold text-cyan-400 flex items-center gap-1.5 shadow-lg">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-            <span>3D Interactive Stage</span>
-          </div>
+          {isARMode ? (
+            <div className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-emerald-950/90 backdrop-blur-md border border-emerald-400/50 text-[11px] sm:text-xs font-bold text-emerald-300 flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.35)]">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+              <Camera className="w-3.5 h-3.5 text-emerald-400" />
+              <span>AR Camera Live</span>
+              <button
+                onClick={() => setCameraFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
+                title="Switch Camera (Rear / Front)"
+                className="p-1 rounded bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 ml-1 transition"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
+            </div>
+          ) : (
+            <div className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-white/[0.08] text-[11px] sm:text-xs font-semibold text-cyan-400 flex items-center gap-1.5 shadow-lg">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+              <span>3D Interactive Stage</span>
+            </div>
+          )}
 
           <div 
             className="hidden md:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-emerald-500/20 text-[11px] font-medium text-emerald-400 shadow-lg"
@@ -738,15 +1167,70 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </div>
 
           {/* Cyberpunk Post-Processing Bloom Status Indicator */}
-          {isCyberpunk && bloomIntensity !== 'off' && (
-            <div
-              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#060D20]/90 backdrop-blur-md border border-fuchsia-500/30 text-[11px] font-semibold text-fuchsia-300 shadow-[0_0_12px_rgba(217,70,239,0.25)]"
-              title="Cyberpunk Unreal Bloom Post-Processing FX Active: Glowing vectors, lasers, trajectories and point charges pop against the dark background."
+          {/* 3D Bloom Lighting Mode Pill (Vibrant / Subtle / Off) */}
+          <button
+            type="button"
+            onClick={() => {
+              const next = bloomIntensity === 'vibrant' ? 'subtle' : bloomIntensity === 'subtle' ? 'off' : 'vibrant';
+              onChangeBloom?.(next);
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer ${
+              bloomIntensity === 'vibrant'
+                ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300 shadow-[0_0_12px_rgba(0,240,255,0.25)]'
+                : bloomIntensity === 'subtle'
+                ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                : 'bg-[#111114]/90 border-white/[0.08] text-zinc-400 hover:text-zinc-200'
+            }`}
+            title={`3D Bloom Lighting: ${bloomIntensity.toUpperCase()} (Click to toggle: Vibrant -> Subtle -> Off)`}
+            aria-label="Toggle Bloom"
+          >
+            {bloomIntensity === 'vibrant' && <Sparkles className="w-3.5 h-3.5 text-cyan-400" />}
+            {bloomIntensity === 'subtle' && <Zap className="w-3.5 h-3.5 text-emerald-400" />}
+            {bloomIntensity === 'off' && <EyeOff className="w-3.5 h-3.5 text-zinc-500" />}
+            <span className="hidden sm:inline">Bloom:</span>
+            <span className="capitalize font-mono font-bold">
+              {bloomIntensity}
+            </span>
+          </button>
+
+          {/* Laboratory Calibration Screen Quick Access */}
+          {onOpenLoadingScreen && (
+            <button
+              type="button"
+              onClick={onOpenLoadingScreen}
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer bg-[#111114]/90 border-white/[0.08] text-zinc-300 hover:text-cyan-300 hover:border-cyan-500/30"
+              title="Open 3D Physics Laboratory Calibration & Loading Screen"
+              aria-label="Calibrate Laboratory"
             >
-              <span className="w-2 h-2 rounded-full bg-fuchsia-400 animate-pulse shadow-[0_0_8px_#e879f9]"></span>
-              <span>Cyber-Bloom FX ({bloomIntensity})</span>
-            </div>
+              <Atom className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Calibrate Lab</span>
+            </button>
           )}
+
+          {/* Adaptive Performance Auto-Optimization Pill */}
+          <button
+            type="button"
+            onClick={toggleAdaptivePerformance}
+            className={`flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer ${
+              adaptivePerformance
+                ? isDark
+                  ? 'bg-[#0A1628]/90 border-cyan-500/30 text-cyan-300 hover:border-cyan-500/50'
+                  : 'bg-cyan-50/90 border-cyan-200 text-cyan-800'
+                : 'bg-[#111114]/90 border-white/[0.08] text-zinc-400 hover:text-zinc-200'
+            }`}
+            title={
+              adaptivePerformance
+                ? 'Adaptive Performance Active: Detects sustained low frame rate (<30 FPS for > 3.0s) and automatically tunes bloom or trajectory to sustain 60 FPS responsiveness. Click to toggle.'
+                : 'Adaptive Performance Disabled: Click to enable auto-adjustment for low frame rates.'
+            }
+            aria-label="Toggle Adaptive Performance"
+          >
+            <Zap className={`w-3.5 h-3.5 ${adaptivePerformance ? 'text-cyan-400 fill-cyan-400/20' : 'text-zinc-500'}`} />
+            <span className="hidden sm:inline">Auto-Opt:</span>
+            <span className={adaptivePerformance ? 'text-emerald-400 font-bold' : 'text-zinc-500 font-normal'}>
+              {adaptivePerformance ? 'ON' : 'OFF'}
+            </span>
+          </button>
 
           {/* Real-time Viewport FPS & Hardware Diagnostics Badge (Unobtrusive & Toggleable) */}
           <AnimatePresence>
@@ -785,8 +1269,15 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
                 <span className="text-zinc-500 font-normal hidden sm:inline">&bull;</span>
                 <span className="text-zinc-400 font-normal text-[10px] hidden sm:inline">{frameTimeMs}ms</span>
                 {isLowFps && (
-                  <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px] font-sans font-bold border border-rose-500/30 animate-pulse">
-                    Heavy Load
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      triggerAutoAdjustment(fps, 3.0);
+                    }}
+                    title="Heavy Load (<30 FPS). Click to trigger auto-optimization step immediately."
+                    className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px] font-sans font-bold border border-rose-500/30 animate-pulse hover:bg-rose-500/40 transition cursor-pointer"
+                  >
+                    Heavy Load &bull; Optimize
                   </span>
                 )}
               </motion.button>
@@ -873,33 +1364,6 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             <span className="hidden xl:inline">FPS</span>
           </button>
 
-          {/* Cyberpunk Post-Processing Bloom FX Controller */}
-          {isCyberpunk && (
-            <button
-              onClick={toggleBloomIntensity}
-              title={`Cyberpunk Post-Processing Bloom FX: ${
-                bloomIntensity === 'vibrant'
-                  ? 'Vibrant Neon Bloom (Vectors, Lasers & Charges Pop)'
-                  : bloomIntensity === 'subtle'
-                  ? 'Subtle Cinematic Glow'
-                  : 'Bloom Disabled'
-              }. Click to cycle Vibrant / Soft / Off.`}
-              aria-label="Toggle Cyberpunk Bloom FX"
-              className={`p-1.5 rounded-lg transition flex items-center gap-1 text-xs font-semibold ${
-                bloomIntensity === 'vibrant'
-                  ? 'bg-fuchsia-500/25 text-fuchsia-300 border border-fuchsia-500/40 shadow-[0_0_10px_rgba(217,70,239,0.35)]'
-                  : bloomIntensity === 'subtle'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-[#1C1C22]'
-              }`}
-            >
-              <Sparkles className={`w-3.5 h-3.5 ${bloomIntensity !== 'off' ? 'text-fuchsia-400' : 'text-zinc-500'}`} />
-              <span className="hidden xl:inline">
-                {bloomIntensity === 'vibrant' ? 'Bloom: High' : bloomIntensity === 'subtle' ? 'Bloom: Soft' : 'Bloom: Off'}
-              </span>
-            </button>
-          )}
-
           <div className="h-4 w-px bg-white/[0.08]"></div>
 
           {/* Vectors Toggle */}
@@ -913,19 +1377,6 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           >
             <TrendingUp className="w-3.5 h-3.5" />
             <span className="hidden md:inline">Vectors</span>
-          </button>
-
-          {/* 3D Arrow Labels Toggle */}
-          <button
-            onClick={onToggleLabels}
-            title="Toggle 3D Vector & Physical Labels"
-            aria-label="Toggle Labels"
-            className={`p-1.5 rounded-lg transition flex items-center gap-1 text-xs font-medium ${
-              showLabels ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'text-zinc-400 hover:bg-[#1C1C22]'
-            }`}
-          >
-            <Tag className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Labels</span>
           </button>
 
           {/* Trajectory Toggle */}
@@ -980,6 +1431,39 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           )}
 
           <button
+            onClick={toggleAR}
+            title={isARMode ? "Exit AR View" : "Enter AR View (Camera Overlay)"}
+            aria-label="Toggle AR Mode"
+            className={`p-1.5 px-2 rounded-lg transition flex items-center gap-1.5 text-xs font-bold shadow-sm ${
+              isARMode
+                ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.6)] border border-emerald-400'
+                : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30'
+            }`}
+          >
+            <Camera className="w-3.5 h-3.5" />
+            <span>{isARMode ? 'Exit AR' : 'AR View'}</span>
+            {isARMode && <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping ml-0.5" />}
+          </button>
+
+          <button
+            onClick={toggleTheme}
+            title="Toggle Theme Mode"
+            aria-label="Toggle Theme"
+            className="p-1.5 text-zinc-400 hover:text-cyan-300 hover:bg-[#1C1C22] rounded-lg transition flex items-center justify-center"
+          >
+            {theme === 'dark' ? <Moon className="w-4 h-4" /> : theme === 'light' ? <Sun className="w-4 h-4" /> : <Zap className="w-4 h-4 text-cyan-400" />}
+          </button>
+
+          <button
+            onClick={toggleEnvironment}
+            title={`Toggle 3D Environment (Current: ${envType.charAt(0).toUpperCase() + envType.slice(1)})`}
+            aria-label="Toggle Environment"
+            className="p-1.5 text-zinc-400 hover:text-indigo-300 hover:bg-[#1C1C22] rounded-lg transition flex items-center justify-center"
+          >
+            {envType === 'void' ? <Box className="w-4 h-4" /> : envType === 'lab' ? <FlaskConical className="w-4 h-4" /> : <Rocket className="w-4 h-4" />}
+          </button>
+
+          <button
             onClick={toggleFullscreen}
             title="Toggle Fullscreen"
             aria-label="Toggle Fullscreen"
@@ -989,6 +1473,191 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Floating Canvas Labels (Legend) & Trajectory Details Toggles */}
+      <div className="absolute top-14 left-3 z-10 pointer-events-auto flex items-center gap-2">
+        <button
+          onClick={onToggleLabels}
+          title="Quickly hide or show the descriptive physics parameter labels directly on the canvas"
+          aria-label="Toggle Canvas Legend"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg backdrop-blur-md border transition-all ${
+            showLabels
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+              : 'bg-[#111114]/90 text-zinc-400 border-white/[0.08] hover:text-zinc-200 hover:bg-[#1C1C22]/90'
+          }`}
+        >
+          <Tag className="w-3.5 h-3.5" />
+          <span>Legend</span>
+        </button>
+
+        {simulationType === 'projectile-motion' && showTrajectory && (
+          <button
+            onClick={() => setIsTrajectoryHudExpanded(prev => !prev)}
+            title="Toggle Trajectory Details & Telemetry Overlay"
+            aria-label="Toggle Trajectory Details"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg backdrop-blur-md border transition-all ${
+              isTrajectoryHudExpanded
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                : 'bg-[#111114]/90 text-zinc-400 border-white/[0.08] hover:text-zinc-200 hover:bg-[#1C1C22]/90'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Trajectory Details</span>
+          </button>
+        )}
+      </div>
+
+      {/* Projectile Trajectory Flight Analytics & Telemetry HUD */}
+      {simulationType === 'projectile-motion' && showTrajectory && projectileTrajectoryData && (
+        <div className="absolute top-24 left-3 max-w-[calc(100%-24px)] sm:max-w-[340px] pointer-events-auto z-10 select-none">
+          {!isTrajectoryHudExpanded ? (
+            /* Micro-Capsule Summary */
+            <div className="flex items-center gap-1.5 p-1 sm:p-1.5 rounded-xl bg-[#0c0d14]/85 hover:bg-[#0c0d14]/95 backdrop-blur-xl border border-emerald-500/30 shadow-xl text-xs transition-all">
+              <button
+                onClick={() => setIsTrajectoryHudExpanded(true)}
+                className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-bold text-emerald-300 hover:text-emerald-200 transition"
+                title="Expand Trajectory Details & Flight Analytics"
+                aria-label="Expand Trajectory Details"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Trajectory Details</span>
+              </button>
+              <div className="h-3.5 w-px bg-white/[0.1] hidden sm:block" />
+              <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-300 px-1">
+                <span>R: <b className="text-emerald-400">{projectileTrajectoryData.range.toFixed(1)}m</b></span>
+                <span>H: <b className="text-pink-400">{projectileTrajectoryData.maxH.toFixed(1)}m</b></span>
+                <span>T: <b className="text-cyan-400">{projectileTrajectoryData.T.toFixed(2)}s</b></span>
+              </div>
+              <button
+                onClick={() => setIsTrajectoryHudExpanded(true)}
+                className="p-1 text-zinc-400 hover:text-emerald-300 rounded-lg hover:bg-white/[0.05] transition"
+                title="Expand Trajectory Details"
+                aria-label="Expand Trajectory Details"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            /* Rich Translucent Trajectory Telemetry Card */
+            <div className="bg-[#0c0d14]/90 backdrop-blur-2xl rounded-2xl border border-emerald-500/30 shadow-2xl overflow-hidden transition-all duration-200 animate-in fade-in zoom-in-95 text-xs">
+              {/* Header Bar */}
+              <div className="px-3 py-2 flex items-center justify-between gap-2 border-b border-white/[0.08] bg-emerald-950/20">
+                <div
+                  onClick={() => setIsTrajectoryHudExpanded(false)}
+                  className="flex items-center gap-2 cursor-pointer group"
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-xs font-bold text-zinc-100 group-hover:text-emerald-300 transition flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                    Trajectory Telemetry
+                  </span>
+                  {liveProjectileState && (
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold border ${
+                      liveProjectileState.isLanded
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : liveProjectileState.phase === 'At Apex'
+                        ? 'bg-pink-500/20 text-pink-300 border-pink-500/30'
+                        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    }`}>
+                      {liveProjectileState.phase}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setIsTrajectoryHudExpanded(false)}
+                    className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.08] rounded-md transition"
+                    title="Collapse Trajectory HUD"
+                    aria-label="Collapse Trajectory HUD"
+                  >
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Trajectory Analytics Grid */}
+              <div className="p-3 space-y-2.5">
+                {/* Benchmark Metrics Grid */}
+                <div className="grid grid-cols-3 gap-1.5 text-center">
+                  <div className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                    <span className="text-[10px] text-zinc-400 block font-medium">Max Height (H)</span>
+                    <span className="text-xs font-mono font-bold text-pink-400">
+                      {projectileTrajectoryData.maxH.toFixed(2)} m
+                    </span>
+                    <span className="text-[9px] text-zinc-500 block font-mono">
+                      @ t={projectileTrajectoryData.tApex.toFixed(2)}s
+                    </span>
+                  </div>
+
+                  <div className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                    <span className="text-[10px] text-zinc-400 block font-medium">Range (R)</span>
+                    <span className="text-xs font-mono font-bold text-emerald-400">
+                      {projectileTrajectoryData.range.toFixed(2)} m
+                    </span>
+                    <span className="text-[9px] text-zinc-500 block font-mono">
+                      {projectileTrajectoryData.hasIncline ? `Incline ${projectileTrajectoryData.planeAngle}°` : 'Flat ground'}
+                    </span>
+                  </div>
+
+                  <div className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                    <span className="text-[10px] text-zinc-400 block font-medium">Flight Time (T)</span>
+                    <span className="text-xs font-mono font-bold text-cyan-400">
+                      {projectileTrajectoryData.T.toFixed(2)} s
+                    </span>
+                    <span className="text-[9px] text-zinc-500 block font-mono">
+                      v_end={projectileTrajectoryData.vImpact.toFixed(1)}m/s
+                    </span>
+                  </div>
+                </div>
+
+                {/* JEE Advanced Curvature & Equation Row */}
+                <div className="p-2 rounded-lg bg-purple-950/20 border border-purple-500/25 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-purple-300 flex items-center gap-1">
+                      <Compass className="w-3 h-3 text-purple-400" />
+                      Apex Curvature (ρ)
+                    </span>
+                    <span className="text-[9px] text-zinc-400 font-mono">ρ = (u cos θ)² / g</span>
+                  </div>
+                  <span className="text-xs font-mono font-extrabold text-purple-300">
+                    {projectileTrajectoryData.rhoApex.toFixed(2)} m
+                  </span>
+                </div>
+
+                {/* Trajectory Parabolic Equation */}
+                <div className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.06] text-[10px] font-mono">
+                  <div className="text-zinc-400 flex items-center justify-between mb-1">
+                    <span className="font-semibold text-zinc-300">Cartesian Trajectory</span>
+                    <span className="text-zinc-500">y(x)</span>
+                  </div>
+                  <div className="text-cyan-300 font-bold break-all">
+                    y = {projectileTrajectoryData.isElevated ? `${projectileTrajectoryData.h0} + ` : ''}x·tan({projectileTrajectoryData.theta}°) - ({projectileTrajectoryData.g}·x²) / (2·{projectileTrajectoryData.u}²·cos²{projectileTrajectoryData.theta}°)
+                  </div>
+                </div>
+
+                {/* Live Flight Telemetry Coordinates */}
+                {liveProjectileState && (
+                  <div className="pt-1 border-t border-white/[0.06] flex items-center justify-between text-[10px] font-mono text-zinc-400">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-zinc-500">Live:</span>
+                      <span className="text-zinc-200">
+                        ({liveProjectileState.curX.toFixed(1)}, {liveProjectileState.curY.toFixed(1)}) m
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-zinc-500">Speed:</span>
+                      <span className="text-emerald-400 font-bold">
+                        {liveProjectileState.curV.toFixed(1)} m/s
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Floating Right Side Zoom Controller (Compatible with Android & Computer) */}
       <div className="absolute right-3 bottom-14 sm:bottom-12 flex flex-col items-center gap-1.5 bg-[#111114]/95 backdrop-blur-md p-1.5 rounded-2xl border border-white/[0.12] shadow-2xl z-10 pointer-events-auto">
@@ -1243,10 +1912,10 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       )}
 
       {/* Touch & Navigation Gesture Guide at bottom right */}
-      <div className="hidden lg:block absolute bottom-3 right-16 pointer-events-none z-10">
+      <div className="hidden 2xl:block absolute bottom-3 right-16 pointer-events-none z-10">
         <div className="px-2.5 py-1 rounded-lg bg-[#0A0A0B]/85 backdrop-blur-sm border border-white/[0.08] text-[10px] text-zinc-400 shadow-md">
           <span className="text-zinc-300 font-semibold">Drag:</span> Rotate &bull;{' '}
-          <span className="text-zinc-300 font-semibold">Wheel:</span> {wheelMode === 'scroll' ? 'Scroll Page (Ctrl+Zoom)' : '3D Zoom'} &bull;{' '}
+          <span className="text-zinc-300 font-semibold">Wheel:</span> {wheelMode === 'scroll' ? 'Scroll Page' : '3D Zoom'} &bull;{' '}
           <span className="text-zinc-300 font-semibold">2-Finger:</span> Pinch
         </div>
       </div>
@@ -1293,6 +1962,114 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           Questions
         </button>
       </div>
+
+      {/* In-Viewport Apparatus Calibration Skeleton (When Switching Concepts) */}
+      <AnimatePresence>
+        {isSceneInitializing && (
+          <ViewportApparatusSkeleton
+            conceptTitle={conceptTitle || simulationType}
+            isDark={isDark}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Adaptive Performance Low-FPS Auto-Adjustment Notification Toast */}
+      <AnimatePresence>
+        {autoAdjustmentToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 15, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.96 }}
+            transition={{ duration: 0.2 }}
+            className="absolute bottom-16 left-3 right-3 sm:left-auto sm:right-4 sm:max-w-md z-40 p-3 rounded-xl bg-[#090E1E]/95 border border-cyan-500/40 shadow-2xl backdrop-blur-md text-white flex items-center justify-between gap-3 pointer-events-auto"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 shrink-0">
+                <Zap className="w-4 h-4 text-cyan-400 fill-cyan-400/20" />
+              </div>
+              <p className="text-xs text-zinc-200 leading-snug">
+                {autoAdjustmentToast.message}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {autoAdjustmentToast.actionText && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    autoAdjustmentToast.onAction?.();
+                    setAutoAdjustmentToast(null);
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-mono font-bold rounded-lg bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30 transition cursor-pointer"
+                >
+                  {autoAdjustmentToast.actionText}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setAutoAdjustmentToast(null)}
+                className="p-1 text-zinc-400 hover:text-white rounded hover:bg-white/[0.08] transition"
+                title="Dismiss notification"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* AR View Guidance Overlay */}
+      {isARMode && (
+        <div className="absolute bottom-16 sm:bottom-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3 w-full max-w-md text-center">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/85 backdrop-blur-md border border-emerald-400/40 text-emerald-300 text-[11px] font-medium shadow-2xl">
+            <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>AR Mode: Drag to move apparatus • Pinch/scroll to resize in your room</span>
+          </div>
+        </div>
+      )}
+
+      {/* AR Camera Loading Spinner */}
+      {isARMode && cameraLoading && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
+          <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-[#111114] border border-emerald-500/40 text-emerald-300 text-xs font-bold shadow-2xl">
+            <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+            <span>Connecting Device Camera Stream...</span>
+          </div>
+        </div>
+      )}
+
+      {/* AR Camera Error Notice */}
+      {isARMode && cameraError && (
+        <div className="absolute top-16 left-3 right-3 sm:left-6 sm:right-6 z-40 p-3 rounded-xl bg-rose-950/95 backdrop-blur-md border border-rose-500/40 text-white shadow-2xl flex items-start gap-3 pointer-events-auto">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+          <div className="flex-1 text-xs">
+            <div className="font-bold text-rose-200">Camera Stream Notice</div>
+            <p className="text-zinc-300 mt-0.5">{cameraError}</p>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setCameraError(null);
+                  setCameraFacing((f) => (f === 'environment' ? 'user' : 'environment'));
+                }}
+                className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[11px] font-bold transition"
+              >
+                Switch Camera & Retry
+              </button>
+              <button
+                onClick={toggleAR}
+                className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-zinc-300 text-[11px] font-semibold transition"
+              >
+                Exit AR
+              </button>
+            </div>
+          </div>
+          <button
+            onClick={() => setCameraError(null)}
+            className="text-zinc-400 hover:text-white p-1"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

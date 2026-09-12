@@ -983,4 +983,219 @@ export const VECTOR_LEGENDS: Record<SimulationType, VectorLegendItem[]> = {
       formula: 'λ_ahead = (v - v_s) / f',
     },
   ],
+  'work-energy-collisions': [
+    {
+      id: 'v1-arrow',
+      name: 'Glider 1 Velocity (v₁)',
+      symbol: 'v_1',
+      color: '#38bdf8',
+      bgBadge: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+      description: 'Instantaneous velocity of primary impact mass along line of motion.',
+      formula: 'v_1 = [(m_1 - e·m_2)u_1 + (1+e)m_2·u_2] / (m_1 + m_2)',
+      getLiveValue: (p) => `${(p.u1 || 6).toFixed(1)} m/s`,
+    },
+    {
+      id: 'v2-arrow',
+      name: 'Glider 2 Velocity (v₂)',
+      symbol: 'v_2',
+      color: '#f59e0b',
+      bgBadge: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+      description: 'Instantaneous velocity of target impact mass along line of motion.',
+      formula: 'v_2 = [(m_2 - e·m_1)u_2 + (1+e)m_1·u_1] / (m_1 + m_2)',
+      getLiveValue: (p) => `${(p.u2 || -2).toFixed(1)} m/s`,
+    },
+    {
+      id: 'vcm-arrow',
+      name: 'Center of Mass Velocity (v_cm)',
+      symbol: 'v_{cm}',
+      color: '#a855f7',
+      bgBadge: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+      description: 'Constant center-of-mass velocity of the isolated 2-body system.',
+      formula: 'v_{cm} = (m_1·u_1 + m_2·u_2) / (m_1 + m_2)',
+      getLiveValue: (p) => {
+        const m1 = p.m1 || 2;
+        const m2 = p.m2 || 3;
+        const u1 = p.u1 || 6;
+        const u2 = p.u2 || -2;
+        return `${((m1 * u1 + m2 * u2) / (m1 + m2)).toFixed(2)} m/s`;
+      },
+    },
+    {
+      id: 'spring-force-arrow',
+      name: 'Buffer Restoring Force',
+      symbol: 'F_s',
+      color: '#ef4444',
+      bgBadge: 'bg-red-500/15 text-red-400 border-red-500/30',
+      description: 'Elastic restoring contact force generated during maximum compression.',
+      formula: 'F_s = -k · Δx',
+      getLiveValue: (p) => `${(p.kBuffer || 500).toFixed(0)} N/m`,
+    },
+  ],
+  'newton-laws-pulley': [
+    {
+      id: 'tension-arrow',
+      name: 'Cable Tension (T)',
+      symbol: 'T',
+      color: '#06b6d4',
+      bgBadge: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+      description: 'Tension transmitted along the ideal cord supporting hanging masses.',
+      formula: 'T = [2·m_1·m_2 / (m_1 + m_2)] · (g + a_{frame})',
+      getLiveValue: (p) => {
+        const m1 = p.m1 || 3;
+        const m2 = p.m2 || 5;
+        const geff = 9.8 + (p.aFrame || 0);
+        const T = (2 * m1 * m2 * geff) / (m1 + m2);
+        return `${T.toFixed(1)} N`;
+      },
+    },
+    {
+      id: 'pseudo-force-arrow',
+      name: 'Pseudo Force (-m·a_frame)',
+      symbol: 'F_p',
+      color: '#f43f5e',
+      bgBadge: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+      description: 'Inertial fictitious force acting in accelerating non-inertial elevator frame.',
+      formula: '\\vec{F}_{pseudo} = -m · \\vec{a}_{frame}',
+      getLiveValue: (p) => `${Math.abs((p.m2 || 5) * (p.aFrame || 0)).toFixed(1)} N`,
+    },
+    {
+      id: 'accel-arrow',
+      name: 'Relative Acceleration (a_rel)',
+      symbol: 'a_{rel}',
+      color: '#10b981',
+      bgBadge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+      description: 'Relative acceleration of masses with respect to elevator frame.',
+      formula: 'a_{rel} = |m_2 - m_1| / (m_1 + m_2) · g_{eff}',
+      getLiveValue: (p) => {
+        const m1 = p.m1 || 3;
+        const m2 = p.m2 || 5;
+        const geff = 9.8 + (p.aFrame || 0);
+        const a = Math.abs(m2 - m1) * geff / (m1 + m2);
+        return `${a.toFixed(2)} m/s²`;
+      },
+    },
+    {
+      id: 'weight-arrow',
+      name: 'Apparent Weight (W_app)',
+      symbol: 'W_{app}',
+      color: '#eab308',
+      bgBadge: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+      description: 'Scale reaction force felt inside cabin due to effective gravity.',
+      formula: 'W = m · (g + a_{frame})',
+      getLiveValue: (p) => `${((p.m2 || 5) * (9.8 + (p.aFrame || 0))).toFixed(1)} N`,
+    },
+  ],
+  'relative-motion-kinematics': [
+    {
+      id: 'v-boat-water',
+      name: 'Boat Velocity wrt River',
+      symbol: 'v_{b/r}',
+      color: '#3b82f6',
+      bgBadge: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+      description: 'Engine velocity vector oriented along steering angle θ.',
+      formula: '\\vec{v}_{b/r} = v_b \\cos\\theta\\hat{i} + v_b \\sin\\theta\\hat{j}',
+      getLiveValue: (p) => `${(p.vBoat || 10).toFixed(1)} m/s`,
+    },
+    {
+      id: 'v-river-flow',
+      name: 'River Flow Velocity',
+      symbol: 'v_{river}',
+      color: '#06b6d4',
+      bgBadge: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+      description: 'Uniform downstream river water velocity along bank.',
+      formula: '\\vec{v}_{river} = v_r \\hat{i}',
+      getLiveValue: (p) => `${(p.vRiver || 4).toFixed(1)} m/s`,
+    },
+    {
+      id: 'v-boat-ground',
+      name: 'Resultant Velocity wrt Ground',
+      symbol: 'v_{ground}',
+      color: '#10b981',
+      bgBadge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+      description: 'Vector sum observed by stationary observer on bank.',
+      formula: '\\vec{v}_{ground} = \\vec{v}_{b/r} + \\vec{v}_{river}',
+      getLiveValue: (p) => {
+        const theta = ((p.theta || 90) * Math.PI) / 180;
+        const vx = (p.vRiver || 4) + (p.vBoat || 10) * Math.cos(theta);
+        const vy = (p.vBoat || 10) * Math.sin(theta);
+        return `${Math.sqrt(vx * vx + vy * vy).toFixed(2)} m/s`;
+      },
+    },
+    {
+      id: 'v-rain-relative',
+      name: 'Relative Rain Velocity (v_{r/m})',
+      symbol: 'v_{r/m}',
+      color: '#a855f7',
+      bgBadge: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+      description: 'Velocity of raindrops observed by pedestrian walking at speed v_m.',
+      formula: '\\vec{v}_{r/m} = \\vec{v}_{rain} - \\vec{v}_{man}',
+      getLiveValue: (p) => {
+        const vmx = p.vMan || 3;
+        const vrx = p.vRainX || 2;
+        const vry = p.vRainY || -8;
+        return `${Math.sqrt((vrx - vmx) ** 2 + vry ** 2).toFixed(2)} m/s`;
+      },
+    },
+  ],
+  'elasticity-viscosity-stokes': [
+    {
+      id: 'stokes-drag-arrow',
+      name: 'Stokes Viscous Drag',
+      symbol: 'F_v',
+      color: '#f59e0b',
+      bgBadge: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+      description: 'Opposing laminar hydrodynamic drag force acting on sphere.',
+      formula: 'F_v = 6\\pi \\eta r v',
+      getLiveValue: (p) => {
+        const r = (p.sphereRadius || 2) * 0.01;
+        const eta = p.viscosity || 1.2;
+        const vt = (2 / 9) * (r * r * ((p.sphereDensity || 7800) - (p.fluidDensity || 1200)) * 9.8) / eta;
+        const F = 6 * Math.PI * eta * r * vt;
+        return `${F.toFixed(3)} N`;
+      },
+    },
+    {
+      id: 'buoyant-arrow',
+      name: 'Archimedes Buoyant Force',
+      symbol: 'F_b',
+      color: '#38bdf8',
+      bgBadge: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+      description: 'Upward hydrostatic buoyant force equal to weight of displaced fluid.',
+      formula: 'F_b = \\frac{4}{3}\\pi r^3 \\rho_f g',
+      getLiveValue: (p) => {
+        const r = (p.sphereRadius || 2) * 0.01;
+        const vol = (4 / 3) * Math.PI * r * r * r;
+        return `${(vol * (p.fluidDensity || 1200) * 9.8).toFixed(3)} N`;
+      },
+    },
+    {
+      id: 'gravity-sphere-arrow',
+      name: 'Sphere Weight (W)',
+      symbol: 'W',
+      color: '#ef4444',
+      bgBadge: 'bg-red-500/15 text-red-400 border-red-500/30',
+      description: 'Downward gravitational attraction on falling metal sphere.',
+      formula: 'W = m_s g = \\frac{4}{3}\\pi r^3 \\rho_s g',
+      getLiveValue: (p) => {
+        const r = (p.sphereRadius || 2) * 0.01;
+        const vol = (4 / 3) * Math.PI * r * r * r;
+        return `${(vol * (p.sphereDensity || 7800) * 9.8).toFixed(3)} N`;
+      },
+    },
+    {
+      id: 'wire-tension-arrow',
+      name: 'Searle Wire Tensile Stress',
+      symbol: 'σ',
+      color: '#10b981',
+      bgBadge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+      description: 'Tensile restoring stress per unit cross-sectional area of wire.',
+      formula: '\\sigma = F / A = M g / (\\pi r_w^2)',
+      getLiveValue: (p) => {
+        const rw = (p.wireRadius || 0.5) * 0.001;
+        const A = Math.PI * rw * rw;
+        const stress = ((p.hangingMass || 10) * 9.8) / A;
+        return `${(stress / 1e6).toFixed(1)} MPa`;
+      },
+    },
+  ],
 };

@@ -1,7 +1,7 @@
 import { PhysicsConcept, Chapter, CategoryId } from '../types';
 
 export const CATEGORIES: { id: CategoryId; name: string; icon: string; count: number }[] = [
-  { id: 'mechanics', name: 'Mechanics & Fluids', icon: 'Atom', count: 6 },
+  { id: 'mechanics', name: 'Mechanics & Fluids', icon: 'Atom', count: 10 },
   { id: 'thermal', name: 'Thermal Physics & Radiation', icon: 'Flame', count: 2 },
   { id: 'electromagnetism', name: 'Electrodynamics & Magnetism', icon: 'Zap', count: 6 },
   { id: 'waves-oscillations', name: 'Oscillations & Waves', icon: 'Activity', count: 3 },
@@ -33,7 +33,7 @@ export const CHAPTERS: Chapter[] = [
     category: 'mechanics',
     iconName: 'MoveUpRight',
     description: 'Projectile motion, trajectories, velocity vectors & acceleration.',
-    conceptIds: ['projectile-motion'],
+    conceptIds: ['projectile-motion', 'relative-motion-kinematics'],
   },
   {
     id: 'laws-of-motion',
@@ -41,7 +41,15 @@ export const CHAPTERS: Chapter[] = [
     category: 'mechanics',
     iconName: 'ShieldAlert',
     description: 'Free Body Diagrams, Limiting friction, Inclined planes & Banking of Roads.',
-    conceptIds: ['inclined-plane-friction', 'circular-motion'],
+    conceptIds: ['inclined-plane-friction', 'circular-motion', 'newton-laws-pulley'],
+  },
+  {
+    id: 'work-energy-power',
+    name: 'Work, Energy, Power & Collisions',
+    category: 'mechanics',
+    iconName: 'Zap',
+    description: 'Work-energy theorem, 1D/2D collisions, restitution coefficient & spring potential wells.',
+    conceptIds: ['work-energy-collisions'],
   },
   {
     id: 'rotational-motion',
@@ -58,6 +66,14 @@ export const CHAPTERS: Chapter[] = [
     iconName: 'Globe',
     description: 'Kepler laws, Orbital velocity, Escape velocity & elliptical orbits.',
     conceptIds: ['gravitational-orbit'],
+  },
+  {
+    id: 'properties-matter',
+    name: 'Properties of Matter & Viscosity',
+    category: 'mechanics',
+    iconName: 'Layers',
+    description: "Hooke's law, Young's modulus stress-strain, Searle's apparatus & Stokes' viscous terminal velocity.",
+    conceptIds: ['elasticity-viscosity-stokes'],
   },
   {
     id: 'fluid-mechanics',

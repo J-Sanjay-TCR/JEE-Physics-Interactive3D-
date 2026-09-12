@@ -39,18 +39,46 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
 }
 
 /**
- * Selects the highest quality natural/female voice for Ursa / NotebookLM podcast host style
+ * Filter out any non-English, Tamil, or regional Indian speech synthesis voices
+ * to prevent unwanted bilingual or Tamil voice fallbacks.
  */
-function selectBestFemalePodcastVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice {
+export function isForbiddenNonEnglishVoice(v: SpeechSynthesisVoice | null | undefined): boolean {
+  if (!v) return true;
+  const lang = (v.lang || '').toLowerCase();
+  const name = (v.name || '').toLowerCase();
+  return (
+    lang.startsWith('ta') ||
+    name.includes('tamil') ||
+    name.includes('தமிழ்') ||
+    name.includes('hindi') ||
+    name.includes('marathi') ||
+    name.includes('bengali') ||
+    name.includes('telugu') ||
+    name.includes('kannada') ||
+    name.includes('malayalam') ||
+    !lang.startsWith('en')
+  );
+}
+
+/**
+ * Selects the highest quality natural/female voice for Ursa / NotebookLM podcast host style.
+ * Strictly guarantees that NO Tamil or non-English voice will ever be selected.
+ */
+function selectBestFemalePodcastVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+  const cleanEnglishVoices = voices.filter((v) => !isForbiddenNonEnglishVoice(v));
+  if (cleanEnglishVoices.length === 0) {
+    return null;
+  }
+
   const priorityList = [
-    'Google US English', // Often the default Chrome female voice
+    'Google US English', // Default Chrome female voice
     'Google US English Female',
-    'en-US-Neural2-F', // GCP High quality female
+    'en-US-Neural2-F', // High quality neural female
     'en-US-Standard-C',
     'en-US-Standard-E',
     'en-US-Standard-F',
-    'Samantha', // macOS native high quality female
-    'Microsoft Jenny Online (Natural)', // Edge Chromium
+    'Samantha', // macOS high quality female
+    'Microsoft Jenny Online (Natural)', // Edge Chromium Natural
     'Microsoft Aria Online (Natural)',
     'Victoria',
     'Karen',
@@ -58,26 +86,27 @@ function selectBestFemalePodcastVoice(voices: SpeechSynthesisVoice[]): SpeechSyn
   ];
 
   for (const name of priorityList) {
-    const match = voices.find(
-      (v) => v.lang.startsWith('en') && v.name.toLowerCase().includes(name.toLowerCase())
+    const match = cleanEnglishVoices.find(
+      (v) => v.name.toLowerCase().includes(name.toLowerCase())
     );
     if (match) return match;
   }
 
-  // Exact fallback if they are missing the name but have a generic en-US female voice
-  const femaleVoice = voices.find(
-    (v) => v.lang === 'en-US' && /female|woman|jenny|aria|samantha/i.test(v.name)
+  // Exact fallback: clean en-US female voice
+  const femaleVoice = cleanEnglishVoices.find(
+    (v) => (v.lang === 'en-US' || v.lang === 'en-GB') && /female|woman|jenny|aria|samantha/i.test(v.name)
   );
   if (femaleVoice) return femaleVoice;
 
   // Next best en-US voice
-  const usVoice = voices.find((v) => v.lang === 'en-US');
+  const usVoice = cleanEnglishVoices.find((v) => v.lang === 'en-US' || v.lang === 'en-GB');
   if (usVoice) return usVoice;
 
-  const englishVoice = voices.find((v) => v.lang.startsWith('en'));
+  const englishVoice = cleanEnglishVoices.find((v) => v.lang.startsWith('en'));
   if (englishVoice) return englishVoice;
 
-  return voices[0];
+  // If no verified English voice exists, return null. NEVER return voices[0] to prevent unwanted language speech!
+  return null;
 }
 
 /**
@@ -101,9 +130,9 @@ export function getVoiceCacheStats(): VoiceCacheStats {
   return {
     itemCount: voiceBufferCache.size,
     estimatedSizeKb: Math.round(totalBytes / 1024),
-    engine: 'Low-Latency Buffer (Gemini Ursa/Aoede 24kHz PCM + Neural Web Speech)',
+    engine: 'Low-Latency Buffer (Gemini Ursa 24kHz Web Audio PCM)',
     selectedVoiceName: selectedVoiceCache?.name || 'Ursa (Gemini Neural Podcast Voice)',
-    availableVoicesCount: cachedVoices.length,
+    availableVoicesCount: cachedVoices.filter((v) => !isForbiddenNonEnglishVoice(v)).length,
     decodedBuffersCount: decodedAudioBufferCache.size,
   };
 }
@@ -130,7 +159,8 @@ export function getAudioContext(): AudioContext {
 }
 
 /**
- * Call synchronously on any user touch/click gesture to unlock browser audio & speech pipelines
+ * Call synchronously on any user touch/click gesture to unlock browser audio & speech pipelines.
+ * Notice: Does NOT call speechSynthesis.speak with dummy text to avoid waking up unwanted system voices.
  */
 export function unlockAudio(): void {
   if (typeof window === 'undefined') return;
@@ -142,19 +172,6 @@ export function unlockAudio(): void {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.resume();
       loadVoices();
-
-      // Micro-utterance trick to synchronously prime WebKit/iOS speech permissions
-      try {
-        const silentUtterance = new SpeechSynthesisUtterance(' ');
-        silentUtterance.volume = 0.01;
-        silentUtterance.rate = 10;
-        window.speechSynthesis.speak(silentUtterance);
-        setTimeout(() => {
-          try {
-            window.speechSynthesis.cancel();
-          } catch {}
-        }, 10);
-      } catch {}
     }
   } catch (e) {
     // Ignore unlock errors
@@ -307,7 +324,8 @@ export class LowLatencyAudioBufferQueue {
 }
 
 /**
- * Instant Zero-Latency Browser Speech Synthesis Fallback (<5ms)
+ * Instant Zero-Latency Browser Speech Synthesis Fallback (<5ms).
+ * Strictly guarantees that NO Tamil or non-English voice will ever be triggered.
  */
 export function speakWithBrowser(
   text: string,
@@ -326,6 +344,17 @@ export function speakWithBrowser(
       return true;
     }
 
+    if (!selectedVoiceCache) {
+      loadVoices();
+    }
+
+    // Strictly refuse to speak if no verified English voice is found or if it matches non-English
+    if (!selectedVoiceCache || isForbiddenNonEnglishVoice(selectedVoiceCache)) {
+      console.warn('[AI Voice] Suppressing browser speech synthesis: No verified clean English voice found. Aborting to avoid unwanted language output.');
+      if (onEnd) onEnd();
+      return false;
+    }
+
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume();
 
@@ -333,13 +362,7 @@ export function speakWithBrowser(
     utterance.rate = options?.rate ?? 1.04;
     utterance.pitch = options?.pitch ?? 1.05;
     utterance.volume = 1.0;
-
-    if (!selectedVoiceCache) {
-      loadVoices();
-    }
-    if (selectedVoiceCache) {
-      utterance.voice = selectedVoiceCache;
-    }
+    utterance.voice = selectedVoiceCache;
 
     let ended = false;
     const handleCompletion = () => {
@@ -383,10 +406,10 @@ export function speakWithBrowser(
 }
 
 /**
- * Unified Tutor Voice Player with Ursa Neural Voice & LRU Buffer Cache:
+ * Unified Tutor Voice Player with Gemini Ursa Voice & LRU Buffer Cache:
  * 1. Checks memory buffer cache for instant playback (<1ms).
- * 2. Uses low-latency Gemini Ursa (Aoede) voice engine with Web Audio PCM.
- * 3. Seamlessly falls back to calibrated browser neural speech if server is busy.
+ * 2. Uses low-latency Gemini Ursa voice engine with Web Audio PCM.
+ * 3. Pre-fetches sequential sentences with lookahead for gapless playback.
  */
 export async function playTutorVoice(
   text: string,
@@ -404,7 +427,7 @@ export async function playTutorVoice(
   }
 
   const player = new StreamAudioPlayer({
-    voice: options?.voice,
+    voice: options?.voice || 'Ursa',
     rate: options?.rate,
     pitch: options?.pitch,
     onStart,
@@ -416,17 +439,22 @@ export async function playTutorVoice(
 }
 
 /**
- * STREAM-BASED INSTANT AUDIO PLAYER
- * Starts speaking IMMEDIATELY on the very first token chunk (<30ms latency).
- * Feeds streamed text tokens into early clauses and manages seamless continuous playback.
+ * STREAM-BASED INSTANT AUDIO PLAYER WITH NATIVE URSA VOICE & LOOKAHEAD SCHEDULING
+ * - Splits streaming responses into natural full-sentence units.
+ * - Streams Gemini Ursa 24kHz Web Audio PCM with lookahead prefetching.
+ * - Guarantees NO unwanted Tamil or non-English voice output.
  */
 export class StreamAudioPlayer {
   private buffer = '';
-  private queue: { text: string, audioPromise: Promise<AudioBuffer | null> }[] = [];
+  private pendingSentences: string[] = [];
   private isSpeakingChunk = false;
+  private isFetchingChunk = false;
   private isFlushed = false;
   private isStopped = false;
+  private nextFetchIndex = 0;
+  private currentPlayIndex = 0;
   private currentChunkIndex = 0;
+  private preloadedBuffers: Map<number, AudioBuffer> = new Map();
   private rate: number;
   private pitch: number;
   private voice: string;
@@ -461,23 +489,23 @@ export class StreamAudioPlayer {
 
     while (!this.isStopped) {
       let splitPos = -1;
-      const isFirst = (this.currentChunkIndex === 0 && this.queue.length === 0 && !this.isSpeakingChunk);
+      const isFirst = this.pendingSentences.length === 0;
+      const minLength = isFirst ? 35 : 65;
 
-      if (isFirst) {
-        const match = this.buffer.search(/(\. |\! |\? |\n+|\: |\; |\, )/);
-        if (match !== -1 && match >= 4) {
-          splitPos = match + 1;
-        } else if (this.buffer.length >= 24) {
-          const lastSpace = this.buffer.lastIndexOf(' ');
-          if (lastSpace > 10) splitPos = lastSpace + 1;
-        }
-      } else {
-        const match = this.buffer.search(/(\. |\! |\? |\n+)/);
-        if (match !== -1) {
-          splitPos = match + 1;
-        } else if (this.buffer.length >= 50) {
-          const clauseMatch = this.buffer.search(/(\: |\; |\, )/);
-          if (clauseMatch !== -1) splitPos = clauseMatch + 1;
+      // Extract natural full sentences on punctuation followed by whitespace or newline
+      const match = this.buffer.search(/(\. |\! |\? |\n+)/);
+      if (match !== -1 && match >= minLength) {
+        splitPos = match + 1;
+      } else if (this.buffer.length >= 140) {
+        // Fallback for long run-on sentences with semicolons or colons
+        const clauseMatch = this.buffer.search(/(\; |\: )/);
+        if (clauseMatch !== -1 && clauseMatch >= 55) {
+          splitPos = clauseMatch + 1;
+        } else if (this.buffer.length >= 190) {
+          const commaMatch = this.buffer.search(/(\, )/);
+          if (commaMatch !== -1 && commaMatch >= 80) {
+            splitPos = commaMatch + 1;
+          }
         }
       }
 
@@ -487,7 +515,8 @@ export class StreamAudioPlayer {
 
         const cleaned = cleanTextForSpeech(sentence);
         if (cleaned.length > 0) {
-          this.enqueueChunk(cleaned);
+          this.pendingSentences.push(cleaned);
+          this.pumpPipeline();
         }
       } else {
         break;
@@ -502,134 +531,174 @@ export class StreamAudioPlayer {
     if (this.buffer.trim().length > 0) {
       const cleaned = cleanTextForSpeech(this.buffer.trim());
       if (cleaned.length > 0) {
-        this.enqueueChunk(cleaned);
+        this.pendingSentences.push(cleaned);
       }
       this.buffer = '';
     }
 
-    this.processQueue();
+    this.pumpPipeline();
   }
 
   public stop(): void {
     this.isStopped = true;
     this.isSpeakingChunk = false;
-    this.queue = [];
+    this.isFetchingChunk = false;
+    this.pendingSentences = [];
+    this.preloadedBuffers.clear();
     this.buffer = '';
     if (this.abortController) {
-      try { this.abortController.abort(); } catch(e) {}
+      try { this.abortController.abort(); } catch (e) {}
     }
     stopAllAudio();
   }
-  
-  private enqueueChunk(text: string) {
-    const voiceName = this.voice === 'Ursa' ? 'Aoede' : this.voice;
-    const promise = fetch('/api/ai/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice: voiceName }),
-      signal: this.abortController?.signal
-    })
-    .then(res => res.ok ? res.json() : null)
-    .then(async data => {
+
+  private async fetchAudioBuffer(text: string): Promise<AudioBuffer | null> {
+    const cacheKey = `${this.voice}:${text}`;
+    if (decodedAudioBufferCache.has(cacheKey)) {
+      return decodedAudioBufferCache.get(cacheKey)!;
+    }
+
+    try {
+      const res = await fetch('/api/ai/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: this.voice }),
+        signal: this.abortController?.signal
+      });
+
+      if (!res.ok) return null;
+      const data = await res.json();
       if (data?.audioBase64) {
-         return await decodePcmBase64(data.audioBase64, data.sampleRate || 24000);
+        const buffer = await decodePcmBase64(data.audioBase64, data.sampleRate || 24000);
+        if (decodedAudioBufferCache.size < MAX_DECODED_CACHE) {
+          decodedAudioBufferCache.set(cacheKey, buffer);
+        }
+        return buffer;
       }
       return null;
-    })
-    .catch(() => null);
-    
-    this.queue.push({ text, audioPromise: promise });
-    this.processQueue();
+    } catch {
+      return null;
+    }
   }
 
-  private async processQueue(): Promise<void> {
-    if (this.isSpeakingChunk || this.isStopped) return;
+  private async pumpPipeline(): Promise<void> {
+    if (this.isStopped) return;
 
-    if (this.queue.length === 0) {
-      if (this.isFlushed) {
+    // 1. Fetch next chunk if needed (lookahead prefetching: fetch up to currentPlayIndex + 1)
+    if (
+      !this.isFetchingChunk &&
+      this.nextFetchIndex < this.pendingSentences.length &&
+      this.nextFetchIndex <= this.currentPlayIndex + 1
+    ) {
+      this.isFetchingChunk = true;
+      const fetchIdx = this.nextFetchIndex++;
+      const textToFetch = this.pendingSentences[fetchIdx];
+
+      this.fetchAudioBuffer(textToFetch)
+        .then((buf) => {
+          if (this.isStopped) return;
+          if (buf) {
+            this.preloadedBuffers.set(fetchIdx, buf);
+          }
+          this.isFetchingChunk = false;
+          this.pumpPipeline();
+        })
+        .catch(() => {
+          this.isFetchingChunk = false;
+          this.pumpPipeline();
+        });
+    }
+
+    // 2. If already speaking an active audio chunk, let it finish
+    if (this.isSpeakingChunk) return;
+
+    // 3. If finished all pending sentences
+    if (this.currentPlayIndex >= this.pendingSentences.length) {
+      if (this.isFlushed && !this.isFetchingChunk) {
         this.isSpeakingChunk = false;
         if (this.onEndCallback) this.onEndCallback();
       }
       return;
     }
 
-    this.isSpeakingChunk = true;
-    const item = this.queue.shift()!;
-    const chunkIdx = this.currentChunkIndex++;
+    // 4. Check if currentPlayIndex audio buffer is ready in preloaded memory
+    const targetIdx = this.currentPlayIndex;
+    const buffer = this.preloadedBuffers.get(targetIdx);
 
-
-    const buffer = await item.audioPromise;
-    if (this.isStopped) return;
-
-    if (chunkIdx === 0 && this.onStartCallback) {
-      this.onStartCallback();
-    }
-    if (this.onChunkCallback) {
-      this.onChunkCallback(chunkIdx, item.text);
-    }
-    if (this.isStopped) return;
-    
     if (buffer) {
-      try {
-        const ctx = getAudioContext();
-        if (ctx.state === 'suspended') await ctx.resume();
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        const gain = ctx.createGain();
-        gain.gain.value = 1.25;
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        
-        currentSourceNode = source;
-        source.onended = () => {
-          if (currentSourceNode === source) currentSourceNode = null;
-          this.isSpeakingChunk = false;
-          if (!this.isStopped) this.processQueue();
-        };
-        source.start(0);
-      } catch (e) {
-        this.speakBrowserFallback(item.text, () => {
-          this.isSpeakingChunk = false;
-          if (!this.isStopped) this.processQueue();
-        });
+      this.preloadedBuffers.delete(targetIdx);
+      this.currentPlayIndex++;
+      this.isSpeakingChunk = true;
+
+      const chunkIdx = this.currentChunkIndex++;
+      if (chunkIdx === 0 && this.onStartCallback) {
+        this.onStartCallback();
       }
-    } else {
-      this.speakBrowserFallback(item.text, () => {
+      if (this.onChunkCallback) {
+        this.onChunkCallback(chunkIdx, this.pendingSentences[targetIdx]);
+      }
+
+      this.playBuffer(buffer, () => {
         this.isSpeakingChunk = false;
-        if (!this.isStopped) this.processQueue();
+        this.pumpPipeline();
       });
+
+      // While playing, trigger lookahead fetch for the following sentence
+      this.pumpPipeline();
+    } else if (!this.isFetchingChunk && this.nextFetchIndex > targetIdx) {
+      // Chunk fetch finished but returned null (TTS unavailable)
+      this.currentPlayIndex++;
+      const text = this.pendingSentences[targetIdx];
+
+      // ONLY use browser speech synthesis IF a verified clean English voice exists
+      if (selectedVoiceCache && !isForbiddenNonEnglishVoice(selectedVoiceCache)) {
+        this.isSpeakingChunk = true;
+        speakWithBrowser(
+          text,
+          () => {
+            this.isSpeakingChunk = false;
+            this.pumpPipeline();
+          },
+          { rate: this.rate, pitch: this.pitch }
+        );
+      } else {
+        // No verified English browser voice exists - skip to next chunk to prevent unwanted Tamil speech
+        this.pumpPipeline();
+      }
     }
   }
 
-  private speakBrowserFallback(text: string, onDone: () => void): void {
-    if (this.isStopped || typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      onDone();
-      return;
-    }
+  private playBuffer(buffer: AudioBuffer, onEnded: () => void): void {
     try {
-      window.speechSynthesis.resume();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = this.rate;
-      utterance.pitch = this.pitch;
-      utterance.volume = 1.0;
-      if (!selectedVoiceCache) loadVoices();
-      if (selectedVoiceCache) utterance.voice = selectedVoiceCache;
-      let done = false;
-      const finish = () => {
-        if (!done) { done = true; (window as any).__currentChunkUtterance = null; onDone(); }
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+
+      const gain = ctx.createGain();
+      gain.gain.value = 1.25;
+      source.connect(gain);
+      gain.connect(ctx.destination);
+
+      currentSourceNode = source;
+      source.onended = () => {
+        if (currentSourceNode === source) {
+          currentSourceNode = null;
+        }
+        onEnded();
       };
-      utterance.onend = finish;
-      utterance.onerror = finish;
-      (window as any).__currentChunkUtterance = utterance;
-      window.speechSynthesis.speak(utterance);
-    } catch (err) {
-      onDone();
+      source.start(0);
+    } catch {
+      onEnded();
     }
   }
 }
 
 /**
- * Returns available system English voices for user selection
+ * Returns available system English voices for user selection, strictly excluding Tamil/regional voices
  */
 export function getAvailableVoices(): SpeechSynthesisVoice[] {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
@@ -638,7 +707,7 @@ export function getAvailableVoices(): SpeechSynthesisVoice[] {
   if (cachedVoices.length === 0) {
     cachedVoices = window.speechSynthesis.getVoices();
   }
-  return cachedVoices.filter((v) => v.lang.startsWith('en'));
+  return cachedVoices.filter((v) => !isForbiddenNonEnglishVoice(v));
 }
 
 /**

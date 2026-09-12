@@ -16,6 +16,7 @@ export interface SimRenderContext {
   showGrid: boolean;
   showAxes: boolean;
   isDark: boolean;
+  bloomIntensity?: 'vibrant' | 'subtle' | 'off';
 }
 
 export class SimulationRenderer {
@@ -24,9 +25,13 @@ export class SimulationRenderer {
   private vectorGroup: THREE.Group = new THREE.Group();
   private labelsGroup: THREE.Group = new THREE.Group();
   private trajectoryLine: THREE.Line | null = null;
+  private trajectoryGlowLine: THREE.Line | null = null;
+  private bounceTrajLine: THREE.Line | null = null;
+  private activeTrailLine: THREE.Line | null = null;
   private trajectoryPoints: THREE.Vector3[] = [];
   private particleSystem: THREE.Points | null = null;
   private physicsMiddleware: PhysicsEngineMiddleware = defaultPhysicsMiddleware;
+  private currentBloomIntensity: 'vibrant' | 'subtle' | 'off' = 'vibrant';
 
   // Projectile caching
   private lastProjectileParamsStr: string = '';
@@ -123,16 +128,89 @@ export class SimulationRenderer {
       case 'heat-transfer-radiation':
         this.setupHeatRadiation(context);
         break;
+      case 'work-energy-collisions':
+        this.setupCollisions(context);
+        break;
+      case 'newton-laws-pulley':
+        this.setupPulley(context);
+        break;
+      case 'relative-motion-kinematics':
+        this.setupRelativeMotion(context);
+        break;
+      case 'elasticity-viscosity-stokes':
+        this.setupElasticityStokes(context);
+        break;
       default:
         this.setupDefault();
         break;
+    }
+
+    if (context.bloomIntensity) {
+      this.setBloomIntensity(context.bloomIntensity);
+    } else {
+      this.setBloomIntensity(this.currentBloomIntensity);
+    }
+  }
+
+  public setBloomIntensity(intensity: 'vibrant' | 'subtle' | 'off') {
+    this.currentBloomIntensity = intensity;
+    this.applyBloomToGroup(this.objectsGroup, intensity);
+    this.applyBloomToGroup(this.vectorGroup, intensity);
+  }
+
+  private applyBloomToGroup(group: THREE.Group, intensity: 'vibrant' | 'subtle' | 'off') {
+    group.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.isMesh) {
+        const mat = mesh.material;
+        if (Array.isArray(mat)) {
+          mat.forEach((m) => this.applyBloomToMaterial(m, intensity));
+        } else if (mat) {
+          this.applyBloomToMaterial(mat, intensity);
+        }
+      }
+    });
+  }
+
+  private applyBloomToMaterial(mat: THREE.Material, intensity: 'vibrant' | 'subtle' | 'off') {
+    const stdMat = mat as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial;
+    if (stdMat.emissive) {
+      if (mat.userData.origEmissiveHex === undefined) {
+        mat.userData.origEmissiveHex = stdMat.emissive.getHex();
+        mat.userData.origEmissiveIntensity = stdMat.emissiveIntensity ?? 0;
+      }
+      if (intensity === 'vibrant') {
+        if (mat.userData.origEmissiveHex === 0) {
+          if (stdMat.color) {
+            stdMat.emissive.copy(stdMat.color);
+            stdMat.emissiveIntensity = 0.45;
+          }
+        } else {
+          stdMat.emissive.setHex(mat.userData.origEmissiveHex);
+          stdMat.emissiveIntensity = Math.min(1.3, Math.max(0.65, (mat.userData.origEmissiveIntensity || 0.35) * 2.2));
+        }
+      } else if (intensity === 'subtle') {
+        if (mat.userData.origEmissiveHex === 0) {
+          if (stdMat.color) {
+            stdMat.emissive.copy(stdMat.color);
+            stdMat.emissiveIntensity = 0.12;
+          }
+        } else {
+          stdMat.emissive.setHex(mat.userData.origEmissiveHex);
+          stdMat.emissiveIntensity = Math.min(0.45, Math.max(0.18, (mat.userData.origEmissiveIntensity || 0.2) * 1.0));
+        }
+      } else {
+        // 'off': Clean, matte realistic shading with zero emissive bloom glow
+        stdMat.emissive.setHex(0x000000);
+        stdMat.emissiveIntensity = 0;
+      }
     }
   }
 
   public update(context: SimRenderContext) {
     if (!this.currentType) return;
     this.vectorGroup.visible = context.showVectors;
-    this.labelsGroup.visible = context.showVectors && context.showLabels;
+    this.labelsGroup.visible = context.showLabels;
 
     switch (this.currentType) {
       case 'projectile-motion':
@@ -213,6 +291,18 @@ export class SimulationRenderer {
       case 'heat-transfer-radiation':
         this.updateHeatRadiation(context);
         break;
+      case 'work-energy-collisions':
+        this.updateCollisions(context);
+        break;
+      case 'newton-laws-pulley':
+        this.updatePulley(context);
+        break;
+      case 'relative-motion-kinematics':
+        this.updateRelativeMotion(context);
+        break;
+      case 'elasticity-viscosity-stokes':
+        this.updateElasticityStokes(context);
+        break;
     }
   }
 
@@ -233,6 +323,9 @@ export class SimulationRenderer {
       this.labelsGroup.remove(obj);
     }
     this.trajectoryLine = null;
+    this.trajectoryGlowLine = null;
+    this.bounceTrajLine = null;
+    this.activeTrailLine = null;
     this.trajectoryPoints = [];
     this.particleSystem = null;
   }
@@ -487,118 +580,183 @@ export class SimulationRenderer {
     launcherGroup.add(cannon);
     this.objectsGroup.add(launcherGroup);
 
-    // 4. Aerodynamic Artillery Shell (Projectile)
-    
+    // 4. Aerodynamic Artillery Shell Ammunition (Projectile)
     const shellGroup = new THREE.Group();
     shellGroup.name = 'projectile-ball';
 
-    
-    // Dummy inside shell
-    const dmyGroup = new THREE.Group();
-    dmyGroup.rotation.y = Math.PI / 2; 
-    
-    const dmySkin = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.9 });
+    // A. Main cylindrical shell casing (Gunmetal blackened steel)
+    const shellSteelMat = new THREE.MeshStandardMaterial({
+      color: isDark ? 0x334155 : 0x1e293b,
+      metalness: 0.85,
+      roughness: 0.25,
+    });
+    const shellBodyGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.65, 32);
+    const shellBody = new THREE.Mesh(shellBodyGeo, shellSteelMat);
+    shellBody.position.y = 0;
+    shellGroup.add(shellBody);
 
-    const dmyTorso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.7, 0.25), dmySkin);
-    dmyTorso.position.y = 0.35;
-    dmyGroup.add(dmyTorso);
+    // B. Aerodynamic Ballistic Ogive Nose Cone (Brass/steel cap)
+    const ogiveMat = new THREE.MeshStandardMaterial({
+      color: 0xd97706,
+      metalness: 0.9,
+      roughness: 0.2,
+    });
+    const ogiveGeo = new THREE.ConeGeometry(0.2, 0.45, 32);
+    const ogiveMesh = new THREE.Mesh(ogiveGeo, ogiveMat);
+    ogiveMesh.position.y = 0.55;
+    shellGroup.add(ogiveMesh);
 
-    const dmyHead = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), dmySkin);
-    dmyHead.position.y = 0.85;
-    dmyHead.name = 'dummy-head';
-    
-    const dmyEyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
-    const dmyEyeR = new THREE.Mesh(new THREE.SphereGeometry(0.04), dmyEyeMat);
-    dmyEyeR.position.set(0.08, 0.05, 0.17);
-    const dmyEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.04), dmyEyeMat);
-    dmyEyeL.position.set(-0.08, 0.05, 0.17);
-    dmyHead.add(dmyEyeR);
-    dmyHead.add(dmyEyeL);
-    dmyGroup.add(dmyHead);
+    // C. Copper Rifling Rotating Driving Band (Obturation band)
+    const copperMat = new THREE.MeshStandardMaterial({
+      color: 0xb45309,
+      metalness: 0.95,
+      roughness: 0.25,
+    });
+    const bandGeo = new THREE.CylinderGeometry(0.21, 0.21, 0.12, 32);
+    const drivingBand = new THREE.Mesh(bandGeo, copperMat);
+    drivingBand.position.y = -0.18;
+    shellGroup.add(drivingBand);
 
-    const dmyArmGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.5);
-    const dmyLarm = new THREE.Group();
-    dmyLarm.position.set(-0.25, 0.65, 0);
-    dmyLarm.name = 'dummy-larm';
-    const dmyLarmMesh = new THREE.Mesh(dmyArmGeo, dmySkin);
-    dmyLarmMesh.position.y = -0.25;
-    dmyLarm.add(dmyLarmMesh);
-    dmyGroup.add(dmyLarm);
+    // D. Boat-Tail Base & Pyrotechnic Tracer Flare
+    const boatTailGeo = new THREE.CylinderGeometry(0.2, 0.16, 0.14, 32);
+    const boatTail = new THREE.Mesh(boatTailGeo, shellSteelMat);
+    boatTail.position.y = -0.395;
+    shellGroup.add(boatTail);
 
-    const dmyRarm = new THREE.Group();
-    dmyRarm.position.set(0.25, 0.65, 0);
-    dmyRarm.name = 'dummy-rarm';
-    const dmyRarmMesh = new THREE.Mesh(dmyArmGeo, dmySkin);
-    dmyRarmMesh.position.y = -0.25;
-    dmyRarm.add(dmyRarmMesh);
-    dmyGroup.add(dmyRarm);
-
-    const dmyLegGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.5);
-    const dmyHipL = new THREE.Group();
-    dmyHipL.position.set(-0.12, 0, 0);
-    dmyHipL.name = 'dummy-hip-l';
-    const dmyLleg = new THREE.Mesh(dmyLegGeo, dmySkin);
-    dmyLleg.position.y = -0.25;
-    dmyHipL.add(dmyLleg);
-    
-    const dmyKneeL = new THREE.Group();
-    dmyKneeL.position.y = -0.5;
-    dmyKneeL.name = 'dummy-knee-l';
-    const dmyLcalf = new THREE.Mesh(dmyLegGeo, dmySkin);
-    dmyLcalf.position.y = -0.25;
-    dmyKneeL.add(dmyLcalf);
-    dmyHipL.add(dmyKneeL);
-    dmyGroup.add(dmyHipL);
-
-    const dmyHipR = new THREE.Group();
-    dmyHipR.position.set(0.12, 0, 0);
-    dmyHipR.name = 'dummy-hip-r';
-    const dmyRleg = new THREE.Mesh(dmyLegGeo, dmySkin);
-    dmyRleg.position.y = -0.25;
-    dmyHipR.add(dmyRleg);
-
-    const dmyKneeR = new THREE.Group();
-    dmyKneeR.position.y = -0.5;
-    dmyKneeR.name = 'dummy-knee-r';
-    const dmyRcalf = new THREE.Mesh(dmyLegGeo, dmySkin);
-    dmyRcalf.position.y = -0.25;
-    dmyKneeR.add(dmyRcalf);
-    dmyHipR.add(dmyKneeR);
-    dmyGroup.add(dmyHipR);
-
-    dmyGroup.position.y = -0.1;
-    shellGroup.add(dmyGroup);
-
-
+    // Pyrotechnic Tracer Flare Glow at rear of ammunition
+    const tracerGeo = new THREE.SphereGeometry(0.12, 16, 16);
+    const tracerMat = new THREE.MeshStandardMaterial({
+      color: 0xffedd5,
+      emissive: 0xf97316,
+      emissiveIntensity: 2.8,
+      roughness: 0.1,
+    });
+    const tracerMesh = new THREE.Mesh(tracerGeo, tracerMat);
+    tracerMesh.position.y = -0.47;
+    shellGroup.add(tracerMesh);
 
     this.objectsGroup.add(shellGroup);
 
-    // 5. Parabolic Trajectory Line
+    // 5. Parabolic Trajectory Elements:
+    // A. Primary Theoretical Flight Parabola (DOTTED LINE)
     const trajGeo = new THREE.BufferGeometry();
     const trajMat = new THREE.LineDashedMaterial({
       color: 0x38bdf8,
-      dashSize: 0.6,
-      gapSize: 0.3,
+      dashSize: 0.45,
+      gapSize: 0.35,
       linewidth: 2,
     });
     this.trajectoryLine = new THREE.Line(trajGeo, trajMat);
     this.trajectoryLine.name = 'trajectory';
     this.objectsGroup.add(this.trajectoryLine);
 
-    // 6. Apex Peak Indicator Beacon
+    // Glowing Parabola Halo (Dotted)
+    const trajGlowMat = new THREE.LineDashedMaterial({
+      color: 0x0284c7,
+      dashSize: 0.45,
+      gapSize: 0.35,
+      transparent: true,
+      opacity: 0.45,
+      linewidth: 3,
+    });
+    this.trajectoryGlowLine = new THREE.Line(new THREE.BufferGeometry(), trajGlowMat);
+    this.trajectoryGlowLine.name = 'trajectory-glow';
+    this.objectsGroup.add(this.trajectoryGlowLine);
+
+    // Dedicated High-Visibility Dotted Trajectory Beads
+    const trajDotsGroup = new THREE.Group();
+    trajDotsGroup.name = 'projectile-traj-dots-group';
+    const dotSphereGeo = new THREE.SphereGeometry(0.08, 12, 12);
+    const dotSphereMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0284c7,
+      emissiveIntensity: 1.2,
+      roughness: 0.2,
+    });
+    for (let d = 0; d < 75; d++) {
+      const dotMesh = new THREE.Mesh(dotSphereGeo, dotSphereMat);
+      dotMesh.name = `traj-dot-${d}`;
+      dotMesh.visible = false;
+      trajDotsGroup.add(dotMesh);
+    }
+    this.objectsGroup.add(trajDotsGroup);
+
+    // B. Secondary Inelastic Bounce Trajectory Line
+    const bounceGeo = new THREE.BufferGeometry();
+    const bounceMat = new THREE.LineDashedMaterial({
+      color: 0xf59e0b,
+      dashSize: 0.5,
+      gapSize: 0.25,
+      linewidth: 1.5,
+    });
+    this.bounceTrajLine = new THREE.Line(bounceGeo, bounceMat);
+    this.bounceTrajLine.name = 'projectile-bounce-path';
+    this.objectsGroup.add(this.bounceTrajLine);
+
+    // C. Dynamic Active Flight Trail (Tracer following projectile live in air)
+    const activeTrailGeo = new THREE.BufferGeometry();
+    const activeTrailMat = new THREE.LineBasicMaterial({
+      color: 0x10b981,
+      linewidth: 3,
+    });
+    this.activeTrailLine = new THREE.Line(activeTrailGeo, activeTrailMat);
+    this.activeTrailLine.name = 'projectile-active-trail';
+    this.objectsGroup.add(this.activeTrailLine);
+
+    // D. Trajectory Strobe / Time Waypoint Markers Group
+    const waypointsGroup = new THREE.Group();
+    waypointsGroup.name = 'projectile-waypoints-group';
+    for (let i = 0; i < 6; i++) {
+      const wpMarker = new THREE.Group();
+      wpMarker.name = `waypoint-marker-${i}`;
+
+      const dotGeo = new THREE.SphereGeometry(0.14, 12, 12);
+      const dotMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        emissive: 0x0284c7,
+        emissiveIntensity: 0.9,
+      });
+      const dot = new THREE.Mesh(dotGeo, dotMat);
+      wpMarker.add(dot);
+
+      // Vertical guide drop line down to plane
+      const dropLineGeo = new THREE.BufferGeometry();
+      const dropLineMat = new THREE.LineDashedMaterial({
+        color: 0x38bdf8,
+        dashSize: 0.3,
+        gapSize: 0.2,
+        transparent: true,
+        opacity: 0.7,
+      });
+      const dropLine = new THREE.Line(dropLineGeo, dropLineMat);
+      dropLine.name = 'drop-line';
+      wpMarker.add(dropLine);
+
+      waypointsGroup.add(wpMarker);
+    }
+    this.objectsGroup.add(waypointsGroup);
+
+    // 6. Apex Peak Indicator Beacon & Geometry
     const apexGroup = new THREE.Group();
     apexGroup.name = 'projectile-apex-group';
 
-    const apexSphereGeo = new THREE.SphereGeometry(0.25, 16, 16);
+    const apexSphereGeo = new THREE.SphereGeometry(0.28, 16, 16);
     const apexSphereMat = new THREE.MeshStandardMaterial({
       color: 0xec4899,
       emissive: 0xdb2777,
-      emissiveIntensity: 0.8,
+      emissiveIntensity: 0.9,
     });
     const apexSphere = new THREE.Mesh(apexSphereGeo, apexSphereMat);
     apexGroup.add(apexSphere);
 
-    // Vertical Dotted Height Line
+    // Apex Pulsing Halo Ring
+    const apexRingGeo = new THREE.RingGeometry(0.35, 0.45, 24);
+    const apexRingMat = new THREE.MeshBasicMaterial({ color: 0xf472b6, side: THREE.DoubleSide });
+    const apexRing = new THREE.Mesh(apexRingGeo, apexRingMat);
+    apexRing.name = 'apex-ring';
+    apexGroup.add(apexRing);
+
+    // Vertical Dotted Height Line down to ground/incline
     const apexLineGeo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 0),
       new THREE.Vector3(0, -10, 0),
@@ -611,6 +769,30 @@ export class SimulationRenderer {
     const apexLine = new THREE.Line(apexLineGeo, apexLineMat);
     apexLine.name = 'apex-line';
     apexGroup.add(apexLine);
+
+    // Horizontal Guideline to y-axis (shows H_max elevation level)
+    const apexHLineGeo = new THREE.BufferGeometry();
+    const apexHLineMat = new THREE.LineDashedMaterial({
+      color: 0xf472b6,
+      dashSize: 0.4,
+      gapSize: 0.2,
+      transparent: true,
+      opacity: 0.75,
+    });
+    const apexHLine = new THREE.Line(apexHLineGeo, apexHLineMat);
+    apexHLine.name = 'apex-h-line';
+    apexGroup.add(apexHLine);
+
+    // Osculating Curvature Circle Arc at Apex (JEE Advanced: ρ = u² cos²θ / g)
+    const curvatureGeo = new THREE.BufferGeometry();
+    const curvatureMat = new THREE.LineBasicMaterial({
+      color: 0xa855f7,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const curvatureLine = new THREE.Line(curvatureGeo, curvatureMat);
+    curvatureLine.name = 'apex-curvature-arc';
+    apexGroup.add(curvatureLine);
 
     this.objectsGroup.add(apexGroup);
 
@@ -662,9 +844,62 @@ export class SimulationRenderer {
 
     this.objectsGroup.add(targetRingGroup);
 
-    // 8. Anatomically Articulated Crash-Test Dummy Ragdoll
+    // Ground baseline range dimension line
+    const rangeDimGeo = new THREE.BufferGeometry();
+    const rangeDimMat = new THREE.LineDashedMaterial({
+      color: 0xef4444,
+      dashSize: 0.5,
+      gapSize: 0.25,
+    });
+    const rangeDimLine = new THREE.Line(rangeDimGeo, rangeDimMat);
+    rangeDimLine.name = 'range-dimension-line';
+    this.objectsGroup.add(rangeDimLine);
+
+    // 7B. Launch Platform & Angle Indicator Group
+    const launchGroup = new THREE.Group();
+    launchGroup.name = 'projectile-launch-group';
+    const angleArcGeo = new THREE.BufferGeometry();
+    const angleArcMat = new THREE.LineBasicMaterial({ color: 0x38bdf8 });
+    const angleArc = new THREE.Line(angleArcGeo, angleArcMat);
+    angleArc.name = 'launch-angle-arc';
+    launchGroup.add(angleArc);
+    this.objectsGroup.add(launchGroup);
+
+    // 8. Anatomically Articulated Crash-Test Dummy Ragdoll (Target downrange)
     const ragdoll = new THREE.Group();
     ragdoll.name = 'target-ragdoll';
+
+    // Target Stand Platform beneath dummy
+    const targetStandGroup = new THREE.Group();
+    targetStandGroup.name = 'target-stand-group';
+    const targetPlateGeo = new THREE.CylinderGeometry(1.5, 1.7, 0.2, 32);
+    const targetPlateMat = new THREE.MeshStandardMaterial({
+      color: isDark ? 0x0f172a : 0x475569,
+      roughness: 0.6,
+      metalness: 0.4,
+    });
+    const targetPlate = new THREE.Mesh(targetPlateGeo, targetPlateMat);
+    targetPlate.position.y = 0.1;
+    targetStandGroup.add(targetPlate);
+
+    // Bullseye Rings decal on platform
+    const bullseyeRing1 = new THREE.Mesh(
+      new THREE.RingGeometry(0.5, 1.3, 32),
+      new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide })
+    );
+    bullseyeRing1.rotation.x = -Math.PI / 2;
+    bullseyeRing1.position.y = 0.205;
+    targetStandGroup.add(bullseyeRing1);
+
+    const bullseyeRing2 = new THREE.Mesh(
+      new THREE.CircleGeometry(0.5, 32),
+      new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide })
+    );
+    bullseyeRing2.rotation.x = -Math.PI / 2;
+    bullseyeRing2.position.y = 0.21;
+    targetStandGroup.add(bullseyeRing2);
+
+    ragdoll.add(targetStandGroup);
 
     const dummyYellowMat = new THREE.MeshStandardMaterial({
       color: 0xfacc15,
@@ -942,13 +1177,6 @@ export class SimulationRenderer {
         if (bounces >= 3) break;
       }
       this.projectileTotalTime = t;
-      
-      // Update trajectory line geometry
-      if (this.trajectoryLine) {
-        const pts = this.projectilePath.map(p => new THREE.Vector3(p.x, p.y, 0));
-        this.trajectoryLine.geometry.setFromPoints(pts);
-        this.trajectoryLine.computeLineDistances();
-      }
     }
 
     if (this.projectilePath.length === 0) return;
@@ -959,16 +1187,87 @@ export class SimulationRenderer {
     const impactPoint = this.projectilePath[firstImpactIdx];
     const T = impactPoint.t;
     const range = Math.hypot(impactPoint.x, impactPoint.y);
+    const v_impact = Math.hypot(impactPoint.vx, impactPoint.vy);
+
+    // Primary theoretical flight points & bounce points
+    const primaryFlightPoints = this.projectilePath.slice(0, firstImpactIdx + 1);
+    const bouncePoints = this.projectilePath.slice(firstImpactIdx);
+
+    // Update primary trajectory line geometry (DOTTED)
+    if (this.trajectoryLine) {
+      const pts = primaryFlightPoints.map(p => new THREE.Vector3(p.x, p.y, 0));
+      this.trajectoryLine.geometry.setFromPoints(pts);
+      this.trajectoryLine.computeLineDistances();
+      this.trajectoryLine.visible = ctx.showTrajectory;
+    }
+
+    // Update glowing halo line geometry (DOTTED)
+    if (this.trajectoryGlowLine) {
+      const pts = primaryFlightPoints.map(p => new THREE.Vector3(p.x, p.y, 0));
+      this.trajectoryGlowLine.geometry.setFromPoints(pts);
+      this.trajectoryGlowLine.computeLineDistances();
+      this.trajectoryGlowLine.visible = ctx.showTrajectory;
+    }
+
+    // Update secondary bounce trajectory line geometry
+    if (this.bounceTrajLine) {
+      if (bouncePoints.length > 1) {
+        const pts = bouncePoints.map(p => new THREE.Vector3(p.x, p.y, 0));
+        this.bounceTrajLine.geometry.setFromPoints(pts);
+        this.bounceTrajLine.computeLineDistances();
+        this.bounceTrajLine.visible = ctx.showTrajectory;
+      } else {
+        this.bounceTrajLine.visible = false;
+      }
+    }
+
+    // Update dedicated dotted trajectory beads along primary flight path
+    const trajDotsGroup = this.objectsGroup.getObjectByName('projectile-traj-dots-group') as THREE.Group;
+    if (trajDotsGroup) {
+      trajDotsGroup.visible = ctx.showTrajectory;
+      if (ctx.showTrajectory) {
+        let accumDist = 0;
+        let dotIdx = 0;
+        const dotSpacing = 0.85;
+        let lastPt = primaryFlightPoints[0];
+        
+        for (let i = 1; i < primaryFlightPoints.length && dotIdx < 75; i++) {
+          const pt = primaryFlightPoints[i];
+          const segDist = Math.hypot(pt.x - lastPt.x, pt.y - lastPt.y);
+          accumDist += segDist;
+          if (accumDist >= dotSpacing) {
+            accumDist = 0;
+            const dot = trajDotsGroup.children[dotIdx] as THREE.Mesh;
+            if (dot) {
+              dot.position.set(pt.x, pt.y, 0);
+              dot.visible = true;
+              dotIdx++;
+            }
+          }
+          lastPt = pt;
+        }
+        for (let j = dotIdx; j < 75; j++) {
+          const dot = trajDotsGroup.children[j] as THREE.Mesh;
+          if (dot) dot.visible = false;
+        }
+      }
+    }
     
     // Find apex before first impact
     let max_y = -Infinity;
     let apex_x = 0;
+    let t_apex = 0;
     for(let i = 0; i <= firstImpactIdx; i++) {
        if (this.projectilePath[i].y > max_y) {
            max_y = this.projectilePath[i].y;
            apex_x = this.projectilePath[i].x;
+           t_apex = this.projectilePath[i].t;
        }
     }
+
+    // JEE Advanced: Radius of Curvature at apex rho = (u * cos(theta))^2 / g
+    const vx_apex = u * Math.cos(rad);
+    const rho_apex = Math.max(0.1, (vx_apex * vx_apex) / Math.max(0.1, g));
 
     // Time cycle logic
     const cycleDuration = this.projectileTotalTime + 1.5;
@@ -1055,11 +1354,44 @@ export class SimulationRenderer {
       shellGroup.visible = tInCycle < this.projectileTotalTime + 0.1;
     }
 
-    // 4. Apex Peak Beacon
+    // Active Dynamic Flight Trail (live tracer from launch to current position)
+    if (this.activeTrailLine) {
+      if (ctx.showTrajectory && tInCycle <= T) {
+        const activePts: THREE.Vector3[] = [];
+        for (const p of primaryFlightPoints) {
+          if (p.t <= tInCycle) {
+            activePts.push(new THREE.Vector3(p.x, p.y, 0));
+          } else {
+            break;
+          }
+        }
+        activePts.push(new THREE.Vector3(currentState.x, currentState.y, 0));
+        if (activePts.length >= 2) {
+          this.activeTrailLine.geometry.setFromPoints(activePts);
+          this.activeTrailLine.visible = true;
+        } else {
+          this.activeTrailLine.visible = false;
+        }
+      } else if (ctx.showTrajectory && tInCycle > T) {
+        const pts = primaryFlightPoints.map(p => new THREE.Vector3(p.x, p.y, 0));
+        this.activeTrailLine.geometry.setFromPoints(pts);
+        this.activeTrailLine.visible = true;
+      } else {
+        this.activeTrailLine.visible = false;
+      }
+    }
+
+    // 4. Apex Peak Beacon & Curvature Geometry
     const apexGroup = this.objectsGroup.getObjectByName('projectile-apex-group');
     if (apexGroup) {
       apexGroup.position.set(apex_x, max_y, 0);
       apexGroup.visible = ctx.showTrajectory;
+
+      const apexRing = apexGroup.getObjectByName('apex-ring') as THREE.Mesh;
+      if (apexRing) {
+        const pulse = 1.0 + Math.sin(ctx.simTime * 4) * 0.18;
+        apexRing.scale.setScalar(pulse);
+      }
 
       const apexLine = apexGroup.getObjectByName('apex-line') as THREE.Line;
       if (apexLine) {
@@ -1068,6 +1400,39 @@ export class SimulationRenderer {
         apexLine.geometry.setFromPoints(linePts);
         apexLine.computeLineDistances();
       }
+
+      // Horizontal guideline to y-axis showing H_max elevation level
+      const apexHLine = apexGroup.getObjectByName('apex-h-line') as THREE.Line;
+      if (apexHLine) {
+        apexHLine.geometry.setFromPoints([
+          new THREE.Vector3(-apex_x, 0, 0),
+          new THREE.Vector3(0, 0, 0),
+        ]);
+        apexHLine.computeLineDistances();
+      }
+
+      // Osculating Curvature Circle Arc (JEE Advanced: ρ = u² cos²θ / g)
+      const curvatureArc = apexGroup.getObjectByName('apex-curvature-arc') as THREE.Line;
+      if (curvatureArc) {
+        const arcPts: THREE.Vector3[] = [];
+        const segs = 32;
+        const maxAngle = Math.PI / 7;
+        for (let j = -segs; j <= segs; j++) {
+          const a = (j / segs) * maxAngle;
+          const ax = rho_apex * Math.sin(a);
+          const ay = -rho_apex + rho_apex * Math.cos(a);
+          arcPts.push(new THREE.Vector3(ax, ay, 0));
+        }
+        curvatureArc.geometry.setFromPoints(arcPts);
+      }
+
+      this.updateArrowLabel(
+        'apex-label',
+        `Apex: H_max = ${max_y.toFixed(2)} m (t = ${t_apex.toFixed(2)}s, ρ = ${rho_apex.toFixed(1)}m)`,
+        '#ec4899',
+        new THREE.Vector3(apex_x, max_y + 1.2, 0),
+        ctx.showTrajectory && ctx.showLabels
+      );
     }
 
     // 5. Landing Target & Crater Shockwave (at first impact)
@@ -1093,73 +1458,230 @@ export class SimulationRenderer {
         if (crater) (crater.material as THREE.MeshStandardMaterial).opacity = 0;
         if (dust) (dust.material as THREE.MeshStandardMaterial).opacity = 0;
       }
+
+      this.updateArrowLabel(
+        'landing-label',
+        `Impact Crater [T = ${T.toFixed(2)}s, v = ${v_impact.toFixed(1)} m/s]`,
+        '#ef4444',
+        new THREE.Vector3(impactPoint.x + 0.6, impactPoint.y - 0.7, 0),
+        ctx.showTrajectory && ctx.showLabels
+      );
     }
 
-    // 6. Projectile Ragdoll Parts (Flailing Dummy in shell)
-    const dummyLarm = this.objectsGroup.getObjectByName('dummy-larm');
-    const dummyRarm = this.objectsGroup.getObjectByName('dummy-rarm');
-    const hipL = this.objectsGroup.getObjectByName('dummy-hip-l');
-    const hipR = this.objectsGroup.getObjectByName('dummy-hip-r');
-    const kneeL = this.objectsGroup.getObjectByName('dummy-knee-l');
-    const kneeR = this.objectsGroup.getObjectByName('dummy-knee-r');
-    const head = this.objectsGroup.getObjectByName('dummy-head');
+    // Ground baseline range dimension line
+    const rangeDimLine = this.objectsGroup.getObjectByName('range-dimension-line') as THREE.Line;
+    if (rangeDimLine) {
+      rangeDimLine.visible = ctx.showTrajectory;
+      rangeDimLine.geometry.setFromPoints([
+        new THREE.Vector3(0, 0.04, 0.04),
+        new THREE.Vector3(impactPoint.x, impactPoint.y + 0.04, 0.04),
+      ]);
+      rangeDimLine.computeLineDistances();
+    }
 
-    if (head) {
-      if (tInCycle >= T) {
-        // Ragdoll Flail after impact
-        const flailFactor = Math.sin((tInCycle - T) * 25) * Math.max(0, 1 - (tInCycle - T));
-        if (dummyLarm) dummyLarm.rotation.z = Math.PI/2 + flailFactor;
-        if (dummyRarm) dummyRarm.rotation.z = -Math.PI/2 - flailFactor;
-        if (hipL) hipL.rotation.z = flailFactor;
-        if (hipR) hipR.rotation.z = -flailFactor;
-        if (kneeL) kneeL.rotation.z = flailFactor;
-        if (kneeR) kneeR.rotation.z = -flailFactor;
-        head.rotation.z = flailFactor * 0.5;
-      } else {
-        // Aerodynamic posture
-        if (dummyLarm) dummyLarm.rotation.z = Math.PI - 0.2;
-        if (dummyRarm) dummyRarm.rotation.z = -Math.PI + 0.2;
-        if (hipL) hipL.rotation.z = 0;
-        if (hipR) hipR.rotation.z = 0;
-        if (kneeL) kneeL.rotation.z = 0;
-        if (kneeR) kneeR.rotation.z = 0;
-        head.rotation.z = 0;
+    // Launch Platform Angle Arc & Label
+    const launchGroup = this.objectsGroup.getObjectByName('projectile-launch-group');
+    if (launchGroup) {
+      launchGroup.position.set(0, h0, 0);
+      launchGroup.visible = ctx.showTrajectory;
+      const angleArc = launchGroup.getObjectByName('launch-angle-arc') as THREE.Line;
+      if (angleArc) {
+        const arcPts: THREE.Vector3[] = [];
+        const arcR = 1.8;
+        const segs = 20;
+        for (let j = 0; j <= segs; j++) {
+          const a = (j / segs) * rad;
+          arcPts.push(new THREE.Vector3(arcR * Math.cos(a), arcR * Math.sin(a), 0));
+        }
+        angleArc.geometry.setFromPoints(arcPts);
+      }
+
+      this.updateArrowLabel(
+        'launch-label',
+        `Cannon Launch: u = ${u} m/s @ ${theta}° (h₀ = ${h0.toFixed(1)}m)`,
+        '#38bdf8',
+        new THREE.Vector3(-Math.cos(rad) * 1.5, h0 + 2.4, 0),
+        ctx.showTrajectory && ctx.showLabels
+      );
+    }
+
+    // Trajectory Strobe / Time Waypoint Markers (Galileo spacing law)
+    const waypointsGroup = this.objectsGroup.getObjectByName('projectile-waypoints-group') as THREE.Group;
+    if (waypointsGroup) {
+      waypointsGroup.visible = ctx.showTrajectory;
+      const wpCount = 5;
+      for (let k = 1; k <= wpCount; k++) {
+        const targetT = (k / (wpCount + 1)) * T;
+        let closest = primaryFlightPoints[0];
+        let minDiff = Infinity;
+        for (const p of primaryFlightPoints) {
+          const diff = Math.abs(p.t - targetT);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closest = p;
+          }
+        }
+        const wpMarker = waypointsGroup.getObjectByName(`waypoint-marker-${k-1}`) as THREE.Group;
+        if (wpMarker && closest) {
+          wpMarker.position.set(closest.x, closest.y, 0);
+          wpMarker.visible = ctx.showTrajectory;
+          const dropLine = wpMarker.getObjectByName('drop-line') as THREE.Line;
+          if (dropLine) {
+            const planeYAtWp = closest.x * Math.tan(alpha);
+            dropLine.geometry.setFromPoints([
+              new THREE.Vector3(0, 0, 0),
+              new THREE.Vector3(0, -(closest.y - planeYAtWp), 0)
+            ]);
+            dropLine.computeLineDistances();
+          }
+          this.updateArrowLabel(
+            `wp-${k}`,
+            `t=${closest.t.toFixed(1)}s (${closest.x.toFixed(1)}, ${closest.y.toFixed(1)})`,
+            '#38bdf8',
+            new THREE.Vector3(closest.x, closest.y + 0.6, 0),
+            ctx.showTrajectory && ctx.showLabels
+          );
+        }
       }
     }
 
-    // 7. Trajectory Line visibility
-    if (this.trajectoryLine) {
-      this.trajectoryLine.visible = ctx.showTrajectory;
+    // Hide trajectory labels when showTrajectory is false
+    if (!ctx.showTrajectory) {
+      if (this.trajectoryLine) this.trajectoryLine.visible = false;
+      if (this.trajectoryGlowLine) this.trajectoryGlowLine.visible = false;
+      if (this.bounceTrajLine) this.bounceTrajLine.visible = false;
+      if (this.activeTrailLine) this.activeTrailLine.visible = false;
+      if (trajDotsGroup) trajDotsGroup.visible = false;
+      if (apexGroup) apexGroup.visible = false;
+      if (targetGroup) targetGroup.visible = false;
+      if (launchGroup) launchGroup.visible = false;
+      if (rangeDimLine) rangeDimLine.visible = false;
+      if (waypointsGroup) waypointsGroup.visible = false;
+      this.updateArrowLabel('apex-label', '', '#ec4899', new THREE.Vector3(), false);
+      this.updateArrowLabel('landing-label', '', '#ef4444', new THREE.Vector3(), false);
+      this.updateArrowLabel('launch-label', '', '#38bdf8', new THREE.Vector3(), false);
+      this.updateArrowLabel('target-dummy-label', '', '#f59e0b', new THREE.Vector3(), false);
+      for (let k = 1; k <= 5; k++) {
+        this.updateArrowLabel(`wp-${k}`, '', '#38bdf8', new THREE.Vector3(), false);
+      }
     }
 
-    // 8. Vectors & Real-Time Physics Labels
+    // 6. Target Dummy Doll at Distance (Positioned downrange at landing point)
+    const ragdoll = this.objectsGroup.getObjectByName('target-ragdoll');
+    if (ragdoll) {
+      // Position target dummy firmly downrange at the landing point
+      ragdoll.position.set(impactPoint.x, impactPoint.y, 0);
+      ragdoll.rotation.z = alpha;
+      ragdoll.rotation.y = -Math.PI / 2; // Face towards the incoming cannon fire (-X direction)
+
+      const torso = ragdoll.getObjectByName('ragdoll-torso');
+      const shoulderL = ragdoll.getObjectByName('ragdoll-shoulder-l');
+      const shoulderR = ragdoll.getObjectByName('ragdoll-shoulder-r');
+      const hipL = ragdoll.getObjectByName('ragdoll-hip-l');
+      const hipR = ragdoll.getObjectByName('ragdoll-hip-r');
+      const neck = ragdoll.getObjectByName('ragdoll-neck');
+
+      if (tInCycle >= T) {
+        // Dynamic impact shockwave reaction: dummy recoils and flails from blast
+        const dtImpact = tInCycle - T;
+        const shock = Math.sin(dtImpact * 20) * Math.max(0, 1 - dtImpact * 1.5);
+        if (torso) torso.rotation.x = -shock * 0.45;
+        if (shoulderL) shoulderL.rotation.z = shock * 0.7;
+        if (shoulderR) shoulderR.rotation.z = -shock * 0.7;
+        if (hipL) hipL.rotation.x = shock * 0.25;
+        if (hipR) hipR.rotation.x = shock * 0.25;
+        if (neck) neck.rotation.x = -shock * 0.5;
+      } else {
+        // Standing upright, stable target stance facing incoming fire
+        if (torso) torso.rotation.set(0, 0, 0);
+        if (shoulderL) shoulderL.rotation.set(0, 0, 0.2);
+        if (shoulderR) shoulderR.rotation.set(0, 0, -0.2);
+        if (hipL) hipL.rotation.set(0, 0, 0);
+        if (hipR) hipR.rotation.set(0, 0, 0);
+        if (neck) neck.rotation.set(0, 0, 0);
+      }
+
+      this.updateArrowLabel(
+        'target-dummy-label',
+        `Target Dummy [R = ${range.toFixed(1)} m]`,
+        '#f59e0b',
+        new THREE.Vector3(impactPoint.x, impactPoint.y + 2.5, 0),
+        ctx.showTrajectory && ctx.showLabels
+      );
+    }
+
+    // 7. Vectors & Real-Time Physics Labels (Velocity Decomposition & Acceleration)
     const velArrow = this.vectorGroup.getObjectByName('vel-arrow') as THREE.ArrowHelper;
     if (velArrow) {
       const vVec = new THREE.Vector3(currentState.vx, currentState.vy, 0);
-      const vLen = Math.min(6, vVec.length() * 0.14);
+      const vMag = vVec.length();
+      const vLen = Math.min(6, vMag * 0.14);
       velArrow.position.set(currentState.x, currentState.y, 0);
       velArrow.setDirection(vVec.clone().normalize());
       velArrow.setLength(Math.max(0.1, vLen), 0.4, 0.2);
+
+      const velAngleDeg = (Math.atan2(currentState.vy, currentState.vx) * 180) / Math.PI;
+      const vLabelPos = new THREE.Vector3(
+        currentState.x + (currentState.vx / (vMag || 1)) * (vLen + 0.8),
+        currentState.y + (currentState.vy / (vMag || 1)) * (vLen + 0.8),
+        0
+      );
+      this.updateArrowLabel(
+        'vel-arrow',
+        `v = ${vMag.toFixed(1)} m/s (${velAngleDeg.toFixed(0)}°)`,
+        '#22c55e',
+        vLabelPos,
+        ctx.showLabels && ctx.showVectors
+      );
     }
 
     const vxArrow = this.vectorGroup.getObjectByName('vx-arrow') as THREE.ArrowHelper;
     if (vxArrow) {
+      const vxLen = Math.max(0.1, Math.abs(currentState.vx) * 0.14);
       vxArrow.position.set(currentState.x, currentState.y, 0);
       vxArrow.setDirection(new THREE.Vector3(Math.sign(currentState.vx) || 1, 0, 0));
-      vxArrow.setLength(Math.max(0.1, Math.abs(currentState.vx) * 0.14), 0.3, 0.15);
+      vxArrow.setLength(vxLen, 0.3, 0.15);
+
+      this.updateArrowLabel(
+        'vx-arrow',
+        `v_x = ${currentState.vx.toFixed(1)} m/s`,
+        '#06b6d4',
+        new THREE.Vector3(currentState.x + vxLen + 0.8, currentState.y + 0.35, 0),
+        ctx.showLabels && ctx.showVectors
+      );
     }
 
     const vyArrow = this.vectorGroup.getObjectByName('vy-arrow') as THREE.ArrowHelper;
     if (vyArrow) {
+      const vyLen = Math.max(0.1, Math.abs(currentState.vy) * 0.14);
+      const vySign = Math.sign(currentState.vy) || 1;
       vyArrow.position.set(currentState.x, currentState.y, 0);
-      vyArrow.setDirection(new THREE.Vector3(0, Math.sign(currentState.vy) || 1, 0));
-      vyArrow.setLength(Math.max(0.1, Math.abs(currentState.vy) * 0.14), 0.3, 0.15);
+      vyArrow.setDirection(new THREE.Vector3(0, vySign, 0));
+      vyArrow.setLength(vyLen, 0.3, 0.15);
+
+      this.updateArrowLabel(
+        'vy-arrow',
+        `v_y = ${currentState.vy.toFixed(1)} m/s`,
+        '#f59e0b',
+        new THREE.Vector3(currentState.x + 0.5, currentState.y + vySign * (vyLen + 0.8), 0),
+        ctx.showLabels && ctx.showVectors
+      );
     }
 
-    const gArrow = this.vectorGroup.getObjectByName('g-arrow') as THREE.ArrowHelper;
-    if (gArrow) {
-      gArrow.position.set(currentState.x, currentState.y, 0);
-      gArrow.setLength(Math.min(4, g * 0.15), 0.4, 0.2);
+    const accArrow = (this.vectorGroup.getObjectByName('acc-arrow') || this.vectorGroup.getObjectByName('g-arrow')) as THREE.ArrowHelper;
+    if (accArrow) {
+      const gLen = Math.min(4, g * 0.18);
+      accArrow.position.set(currentState.x, currentState.y, 0);
+      accArrow.setDirection(new THREE.Vector3(0, -1, 0));
+      accArrow.setLength(Math.max(0.1, gLen), 0.4, 0.2);
+
+      this.updateArrowLabel(
+        'acc-arrow',
+        `g = ${g.toFixed(1)} m/s²`,
+        '#ef4444',
+        new THREE.Vector3(currentState.x - 0.5, currentState.y - gLen - 0.8, 0),
+        ctx.showLabels && ctx.showVectors
+      );
     }
   }
 
@@ -7361,6 +7883,1073 @@ export class SimulationRenderer {
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.rotation.x = Math.PI / 2;
         waves.add(ring);
+      }
+    }
+  }
+
+  // ==========================================
+  // 27. WORK, ENERGY & COLLISIONS (1D/2D RESTITUTION & BUFFER)
+  // ==========================================
+  private setupCollisions(ctx: SimRenderContext) {
+    const isDark = ctx.isDark;
+    const trackGroup = new THREE.Group();
+    trackGroup.name = 'collisions-root';
+
+    // 1. Air Track Rail (Long polished anodized aluminum beam)
+    const trackGeo = new THREE.BoxGeometry(26, 0.4, 1.8);
+    const trackMat = new THREE.MeshStandardMaterial({
+      color: isDark ? 0x334155 : 0x94a3b8,
+      metalness: 0.85,
+      roughness: 0.25,
+    });
+    const trackMesh = new THREE.Mesh(trackGeo, trackMat);
+    trackMesh.position.y = 0;
+    trackGroup.add(trackMesh);
+
+    // Track Centimeter Graduation Line
+    const centerLineGeo = new THREE.BoxGeometry(26, 0.02, 0.06);
+    const centerLineMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+    const centerLine = new THREE.Mesh(centerLineGeo, centerLineMat);
+    centerLine.position.y = 0.21;
+    trackGroup.add(centerLine);
+
+    // Track End Bumpers
+    const bumperMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.5 });
+    const bumperLeft = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.0, 1.8), bumperMat);
+    bumperLeft.position.set(-13, 0.4, 0);
+    const bumperRight = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.0, 1.8), bumperMat);
+    bumperRight.position.set(13, 0.4, 0);
+    trackGroup.add(bumperLeft, bumperRight);
+
+    // Support Pedestals
+    const legMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x1e293b : 0x64748b, roughness: 0.7 });
+    [-9, 0, 9].forEach((xPos) => {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 1.8, 16), legMat);
+      leg.position.set(xPos, -1.0, 0);
+      trackGroup.add(leg);
+    });
+
+    // 2. Glider 1 (Primary Impact Body, Cyan)
+    const glider1Group = new THREE.Group();
+    glider1Group.name = 'glider-1';
+
+    const g1Base = new THREE.Mesh(
+      new THREE.BoxGeometry(2.4, 0.7, 1.4),
+      new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.5, roughness: 0.3 })
+    );
+    g1Base.position.y = 0.55;
+    glider1Group.add(g1Base);
+
+    // Glider 1 Mass Plates
+    const g1Plate = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 0.35, 1.0),
+      new THREE.MeshStandardMaterial({ color: 0x38bdf8, metalness: 0.7, roughness: 0.2 })
+    );
+    g1Plate.name = 'g1-mass-plate';
+    g1Plate.position.y = 1.05;
+    glider1Group.add(g1Plate);
+
+    // Spring Bumper 1 (Contact coil on right nose)
+    const bumper1Geo = new THREE.CylinderGeometry(0.2, 0.2, 0.6, 12);
+    const bumper1Mat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.9, roughness: 0.1 });
+    const bumper1 = new THREE.Mesh(bumper1Geo, bumper1Mat);
+    bumper1.name = 'g1-buffer';
+    bumper1.rotation.z = Math.PI / 2;
+    bumper1.position.set(1.4, 0.55, 0);
+    glider1Group.add(bumper1);
+
+    trackGroup.add(glider1Group);
+
+    // 3. Glider 2 (Target Body, Amber)
+    const glider2Group = new THREE.Group();
+    glider2Group.name = 'glider-2';
+
+    const g2Base = new THREE.Mesh(
+      new THREE.BoxGeometry(2.4, 0.7, 1.4),
+      new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.5, roughness: 0.3 })
+    );
+    g2Base.position.y = 0.55;
+    glider2Group.add(g2Base);
+
+    // Glider 2 Mass Plates
+    const g2Plate = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 0.35, 1.0),
+      new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.7, roughness: 0.2 })
+    );
+    g2Plate.name = 'g2-mass-plate';
+    g2Plate.position.y = 1.05;
+    glider2Group.add(g2Plate);
+
+    // Spring Bumper 2 (Contact coil on left nose)
+    const bumper2 = new THREE.Mesh(bumper1Geo.clone(), bumper1Mat);
+    bumper2.name = 'g2-buffer';
+    bumper2.rotation.z = Math.PI / 2;
+    bumper2.position.set(-1.4, 0.55, 0);
+    glider2Group.add(bumper2);
+
+    trackGroup.add(glider2Group);
+
+    // 4. Center of Mass Indicator (Glowing Purple Diamond)
+    const comGroup = new THREE.Group();
+    comGroup.name = 'com-marker-group';
+    const comMarker = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.35),
+      new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0xa855f7, emissiveIntensity: 0.8 })
+    );
+    comMarker.position.y = 2.0;
+    const comPole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.04, 1.5),
+      new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.6 })
+    );
+    comPole.position.y = 1.0;
+    comGroup.add(comMarker, comPole);
+    trackGroup.add(comGroup);
+
+    this.objectsGroup.add(trackGroup);
+
+    // 5. Setup Live Vector Arrows
+    this.createArrow('v1-arrow', 0x38bdf8, new THREE.Vector3(), new THREE.Vector3(1, 0, 0), 2.0);
+    this.createArrow('v2-arrow', 0xf59e0b, new THREE.Vector3(), new THREE.Vector3(1, 0, 0), 2.0);
+    this.createArrow('vcm-arrow', 0xa855f7, new THREE.Vector3(), new THREE.Vector3(1, 0, 0), 2.0);
+    this.createArrow('spring-force-arrow', 0xef4444, new THREE.Vector3(), new THREE.Vector3(-1, 0, 0), 1.5);
+  }
+
+  private updateCollisions(ctx: SimRenderContext) {
+    const { m1 = 2, m2 = 3, u1 = 6, u2 = -2, e = 0.8, kBuffer = 600 } = ctx.params;
+    const glider1 = this.objectsGroup.getObjectByName('glider-1');
+    const glider2 = this.objectsGroup.getObjectByName('glider-2');
+    const comMarker = this.objectsGroup.getObjectByName('com-marker-group');
+    if (!glider1 || !glider2 || !comMarker) return;
+
+    // Scale mass plate geometries visually based on m1 and m2
+    const g1Plate = glider1.getObjectByName('g1-mass-plate') as THREE.Mesh;
+    if (g1Plate) g1Plate.scale.set(1, Math.min(2.5, Math.max(0.6, m1 / 2)), 1);
+    const g2Plate = glider2.getObjectByName('g2-mass-plate') as THREE.Mesh;
+    if (g2Plate) g2Plate.scale.set(1, Math.min(2.5, Math.max(0.6, m2 / 3)), 1);
+
+    // Collision Kinematics
+    const v1Post = ((m1 - e * m2) * u1 + (1 + e) * m2 * u2) / (m1 + m2);
+    const v2Post = ((m2 - e * m1) * u2 + (1 + e) * m1 * u1) / (m1 + m2);
+    const vcm = (m1 * u1 + m2 * u2) / (m1 + m2);
+    const mu = (m1 * m2) / (m1 + m2);
+    const urel = Math.abs(u1 - u2);
+    const xMaxComp = Math.sqrt((mu * urel * urel) / Math.max(50, kBuffer));
+
+    // Looped collision cycle: Period T = 6.0s
+    const period = 6.0;
+    const tCycle = ctx.simTime % period;
+    const tCol = 2.6; // Instant of collision
+    const colDuration = 0.28; // Duration of buffer spring compression phase
+
+    let curX1 = 0;
+    let curX2 = 0;
+    let curV1 = u1;
+    let curV2 = u2;
+    let compression = 0;
+
+    const xCol = 0.0; // Collision point near center
+    const gHalfWidth = 1.4;
+
+    if (tCycle < tCol - colDuration / 2) {
+      // Phase 1: Approaching before collision
+      const dt = tCol - colDuration / 2 - tCycle;
+      curX1 = xCol - gHalfWidth - dt * u1 * 0.75;
+      curX2 = xCol + gHalfWidth + dt * (-u2) * 0.75;
+      curV1 = u1;
+      curV2 = u2;
+      compression = 0;
+    } else if (tCycle <= tCol + colDuration / 2) {
+      // Phase 2: Impact & Spring Buffer Compression Phase
+      const progress = (tCycle - (tCol - colDuration / 2)) / colDuration;
+      compression = Math.sin(progress * Math.PI) * Math.min(0.7, xMaxComp * 1.5);
+      curX1 = xCol - gHalfWidth + compression * 0.5;
+      curX2 = xCol + gHalfWidth - compression * 0.5;
+      // Interpolate velocities during contact pulse
+      curV1 = u1 + (v1Post - u1) * progress;
+      curV2 = u2 + (v2Post - u2) * progress;
+    } else {
+      // Phase 3: Moving apart after collision
+      const dt = tCycle - (tCol + colDuration / 2);
+      curX1 = xCol - gHalfWidth + dt * v1Post * 0.75;
+      curX2 = xCol + gHalfWidth + dt * v2Post * 0.75;
+      curV1 = v1Post;
+      curV2 = v2Post;
+      compression = 0;
+    }
+
+    // Bound within visible track length
+    curX1 = Math.max(-11.5, Math.min(11.5, curX1));
+    curX2 = Math.max(-11.5, Math.min(11.5, curX2));
+    glider1.position.x = curX1;
+    glider2.position.x = curX2;
+
+    // Center of mass position
+    const xcm = (m1 * curX1 + m2 * curX2) / (m1 + m2);
+    comMarker.position.x = xcm;
+
+    // Buffer visual compression
+    const b1 = glider1.getObjectByName('g1-buffer') as THREE.Mesh;
+    const b2 = glider2.getObjectByName('g2-buffer') as THREE.Mesh;
+    if (b1 && b2) {
+      const scaleX = Math.max(0.25, 1 - compression);
+      b1.scale.set(1, scaleX, 1);
+      b2.scale.set(1, scaleX, 1);
+    }
+
+    // Update Vector Arrows & Labels
+    const arrV1 = this.vectorGroup.getObjectByName('v1-arrow') as THREE.ArrowHelper;
+    if (arrV1) {
+      const len = Math.max(0.2, Math.min(4.0, Math.abs(curV1) * 0.35));
+      const dir = curV1 >= 0 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(-1, 0, 0);
+      arrV1.position.set(curX1, 1.4, 0);
+      arrV1.setDirection(dir);
+      arrV1.setLength(len, 0.35, 0.18);
+      this.updateArrowLabel('v1-arrow', `v₁ = ${curV1.toFixed(1)} m/s`, '#38bdf8', new THREE.Vector3(curX1, 2.2, 0));
+    }
+
+    const arrV2 = this.vectorGroup.getObjectByName('v2-arrow') as THREE.ArrowHelper;
+    if (arrV2) {
+      const len = Math.max(0.2, Math.min(4.0, Math.abs(curV2) * 0.35));
+      const dir = curV2 >= 0 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(-1, 0, 0);
+      arrV2.position.set(curX2, 1.4, 0);
+      arrV2.setDirection(dir);
+      arrV2.setLength(len, 0.35, 0.18);
+      this.updateArrowLabel('v2-arrow', `v₂ = ${curV2.toFixed(1)} m/s`, '#f59e0b', new THREE.Vector3(curX2, 2.2, 0));
+    }
+
+    const arrVcm = this.vectorGroup.getObjectByName('vcm-arrow') as THREE.ArrowHelper;
+    if (arrVcm) {
+      const len = Math.max(0.2, Math.min(3.5, Math.abs(vcm) * 0.35));
+      const dir = vcm >= 0 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(-1, 0, 0);
+      arrVcm.position.set(xcm, 2.5, 0);
+      arrVcm.setDirection(dir);
+      arrVcm.setLength(len, 0.35, 0.18);
+      this.updateArrowLabel('vcm-arrow', `v_cm = ${vcm.toFixed(2)} m/s`, '#a855f7', new THREE.Vector3(xcm, 3.2, 0));
+    }
+
+    const arrFs = this.vectorGroup.getObjectByName('spring-force-arrow') as THREE.ArrowHelper;
+    if (arrFs) {
+      const springF = compression * kBuffer;
+      const isCompressing = compression > 0.02;
+      arrFs.visible = isCompressing && ctx.showVectors;
+      if (isCompressing) {
+        const len = Math.min(3.0, Math.max(0.4, (springF / 400) * 1.5));
+        arrFs.position.set(curX1 + gHalfWidth, 0.55, 0);
+        arrFs.setDirection(new THREE.Vector3(-1, 0, 0));
+        arrFs.setLength(len, 0.35, 0.18);
+        this.updateArrowLabel('spring-force-arrow', `F_buffer = ${springF.toFixed(0)} N`, '#ef4444', new THREE.Vector3(xCol, -0.4, 0), isCompressing);
+      } else {
+        this.updateArrowLabel('spring-force-arrow', '', '#ef4444', new THREE.Vector3(), false);
+      }
+    }
+  }
+
+  // ==========================================
+  // 28. NEWTON'S LAWS & ACCELERATING ELEVATOR ATWOOD MACHINE
+  // ==========================================
+  private setupPulley(ctx: SimRenderContext) {
+    const isDark = ctx.isDark;
+    const root = new THREE.Group();
+    root.name = 'pulley-root';
+
+    // 1. Elevator Cabin (Enclosing transparent chamber with metallic structural frame)
+    const cabin = new THREE.Group();
+    cabin.name = 'elevator-cabin';
+
+    const cabinWidth = 8.0;
+    const cabinHeight = 11.0;
+    const cabinDepth = 6.0;
+
+    // Glass back panel
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.18,
+      roughness: 0.1,
+      metalness: 0.2,
+      side: THREE.DoubleSide,
+    });
+    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(cabinWidth, cabinHeight), glassMat);
+    backWall.position.z = -cabinDepth / 2;
+    cabin.add(backWall);
+
+    // Floor and Ceiling
+    const metalMat = new THREE.MeshStandardMaterial({
+      color: isDark ? 0x1e293b : 0x475569,
+      metalness: 0.7,
+      roughness: 0.3,
+    });
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(cabinWidth, 0.4, cabinDepth), metalMat);
+    floor.position.y = -cabinHeight / 2;
+    const ceiling = new THREE.Mesh(new THREE.BoxGeometry(cabinWidth, 0.4, cabinDepth), metalMat);
+    ceiling.position.y = cabinHeight / 2;
+    cabin.add(floor, ceiling);
+
+    // Corner Support Columns
+    const colMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x0f172a : 0x334155, metalness: 0.8, roughness: 0.2 });
+    const colGeo = new THREE.CylinderGeometry(0.12, 0.12, cabinHeight, 16);
+    [
+      [-cabinWidth / 2 + 0.15, -cabinDepth / 2 + 0.15],
+      [cabinWidth / 2 - 0.15, -cabinDepth / 2 + 0.15],
+      [-cabinWidth / 2 + 0.15, cabinDepth / 2 - 0.15],
+      [cabinWidth / 2 - 0.15, cabinDepth / 2 - 0.15],
+    ].forEach(([cx, cz]) => {
+      const col = new THREE.Mesh(colGeo, colMat);
+      col.position.set(cx, 0, cz);
+      cabin.add(col);
+    });
+
+    // Floor Weighing Scale Platform
+    const scaleMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.6, roughness: 0.3 });
+    const scaleMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.3, 0.18, 24), scaleMat);
+    scaleMesh.position.set(2.4, -cabinHeight / 2 + 0.18, 0);
+    cabin.add(scaleMesh);
+
+    // External Elevator Shaft Stripes (Move vertically to simulate cabin acceleration!)
+    const shaftMarkers = new THREE.Group();
+    shaftMarkers.name = 'shaft-markers';
+    for (let sy = -16; sy <= 16; sy += 3.5) {
+      const marker = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3, 0.8, 0.05),
+        new THREE.MeshBasicMaterial({ color: 0xe2e8f0, transparent: true, opacity: 0.35 })
+      );
+      marker.position.set(-cabinWidth / 2 - 0.6, sy, 0);
+      shaftMarkers.add(marker);
+    }
+    root.add(shaftMarkers);
+
+    // 2. Atwood Machine Pulley Suspension
+    const atwood = new THREE.Group();
+    atwood.name = 'atwood-assembly';
+    atwood.position.set(-0.8, 3.2, 0);
+
+    // Ceiling Bracket
+    const bracketMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.2 });
+    const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.2, 0.6), bracketMat);
+    bracket.position.y = 0.8;
+    atwood.add(bracket);
+
+    // Pulley Wheel
+    const pulleyWheel = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.2, 1.2, 0.35, 32),
+      new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9, roughness: 0.2 })
+    );
+    pulleyWheel.name = 'pulley-wheel';
+    pulleyWheel.rotation.x = Math.PI / 2;
+    atwood.add(pulleyWheel);
+
+    // Left Mass (m1, Cyan)
+    const m1Group = new THREE.Group();
+    m1Group.name = 'm1-group';
+    const m1Mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.65, 0.65, 1.2, 24),
+      new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.6, roughness: 0.3 })
+    );
+    m1Group.add(m1Mesh);
+    m1Group.position.set(-1.2, -2.5, 0);
+    atwood.add(m1Group);
+
+    // Right Mass (m2, Amber)
+    const m2Group = new THREE.Group();
+    m2Group.name = 'm2-group';
+    const m2Mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.85, 0.85, 1.6, 24),
+      new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.6, roughness: 0.3 })
+    );
+    m2Group.add(m2Mesh);
+    m2Group.position.set(1.2, -3.8, 0);
+    atwood.add(m2Group);
+
+    // Cable cords
+    const cordMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const cordLeft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.5), cordMat);
+    cordLeft.name = 'cord-left';
+    const cordRight = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.8), cordMat);
+    cordRight.name = 'cord-right';
+    atwood.add(cordLeft, cordRight);
+
+    cabin.add(atwood);
+    root.add(cabin);
+    this.objectsGroup.add(root);
+
+    // 3. Live Vector Arrows
+    this.createArrow('tension-arrow', 0x06b6d4, new THREE.Vector3(), new THREE.Vector3(0, 1, 0), 2.2);
+    this.createArrow('pseudo-force-arrow', 0xf43f5e, new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 1.8);
+    this.createArrow('accel-arrow', 0x10b981, new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 1.8);
+    this.createArrow('weight-arrow', 0xeab308, new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 2.5);
+  }
+
+  private updatePulley(ctx: SimRenderContext) {
+    const { m1 = 3, m2 = 5, aFrame = 2.5 } = ctx.params;
+    const root = this.objectsGroup.getObjectByName('pulley-root');
+    if (!root) return;
+
+    const geff = Math.max(0.01, 9.8 + aFrame);
+    const arel = (Math.abs(m2 - m1) * geff) / (m1 + m2);
+    const T = (2 * m1 * m2 * geff) / (m1 + m2);
+
+    // Shaft marker vertical animation to show elevator upward/downward movement
+    const shaft = root.getObjectByName('shaft-markers') as THREE.Group;
+    if (shaft) {
+      shaft.position.y = (-(ctx.simTime * aFrame * 1.2) % 3.5);
+    }
+
+    // Oscillating Atwood mass motion (simulating periodic turnaround inside cabin)
+    const atwood = root.getObjectByName('atwood-assembly') as THREE.Group;
+    const m1Group = atwood?.getObjectByName('m1-group') as THREE.Group;
+    const m2Group = atwood?.getObjectByName('m2-group') as THREE.Group;
+    const pulleyWheel = atwood?.getObjectByName('pulley-wheel') as THREE.Mesh;
+    const cordLeft = atwood?.getObjectByName('cord-left') as THREE.Mesh;
+    const cordRight = atwood?.getObjectByName('cord-right') as THREE.Mesh;
+
+    if (m1Group && m2Group && atwood) {
+      // Scale mass meshes based on mass parameter
+      m1Group.scale.set(1, Math.max(0.6, Math.min(2.0, m1 / 3)), 1);
+      m2Group.scale.set(1, Math.max(0.6, Math.min(2.0, m2 / 5)), 1);
+
+      // Travel amplitude limited inside cabin
+      const travelAmp = 2.2;
+      const motionFreq = Math.min(2.5, Math.max(0.5, Math.sqrt(arel / 2.0)));
+      const relDisp = Math.sin(ctx.simTime * motionFreq) * travelAmp * (m2 >= m1 ? 1 : -1);
+
+      const yM1 = -3.2 + relDisp;
+      const yM2 = -3.2 - relDisp;
+
+      m1Group.position.set(-1.2, yM1, 0);
+      m2Group.position.set(1.2, yM2, 0);
+
+      if (pulleyWheel) {
+        pulleyWheel.rotation.z = -relDisp * 0.9;
+      }
+
+      if (cordLeft && cordRight) {
+        const lenL = Math.max(0.1, -yM1);
+        cordLeft.scale.set(1, lenL, 1);
+        cordLeft.position.set(-1.2, yM1 / 2, 0);
+
+        const lenR = Math.max(0.1, -yM2);
+        cordRight.scale.set(1, lenR, 1);
+        cordRight.position.set(1.2, yM2 / 2, 0);
+      }
+
+      // World positions for arrows
+      const worldPosM1 = new THREE.Vector3();
+      m1Group.getWorldPosition(worldPosM1);
+      const worldPosM2 = new THREE.Vector3();
+      m2Group.getWorldPosition(worldPosM2);
+
+      // Update Cable Tension Arrow
+      const arrT = this.vectorGroup.getObjectByName('tension-arrow') as THREE.ArrowHelper;
+      if (arrT) {
+        const tLen = Math.min(3.5, Math.max(0.5, (T / 40) * 2.0));
+        arrT.position.copy(worldPosM2).add(new THREE.Vector3(0, 0.9, 0));
+        arrT.setDirection(new THREE.Vector3(0, 1, 0));
+        arrT.setLength(tLen, 0.35, 0.18);
+        this.updateArrowLabel('tension-arrow', `Tension T = ${T.toFixed(1)} N`, '#06b6d4', new THREE.Vector3(worldPosM2.x + 1.8, worldPosM2.y + 1.2, 0));
+      }
+
+      // Update Pseudo-Force Arrow (-m2 * aFrame)
+      const arrPseudo = this.vectorGroup.getObjectByName('pseudo-force-arrow') as THREE.ArrowHelper;
+      if (arrPseudo) {
+        const hasPseudo = Math.abs(aFrame) > 0.1;
+        arrPseudo.visible = hasPseudo && ctx.showVectors;
+        if (hasPseudo) {
+          const pForce = m2 * aFrame;
+          const pDir = aFrame > 0 ? new THREE.Vector3(0, -1, 0) : new THREE.Vector3(0, 1, 0);
+          const pLen = Math.min(3.0, Math.max(0.4, (Math.abs(pForce) / 35) * 1.8));
+          arrPseudo.position.copy(worldPosM2).add(new THREE.Vector3(0, -0.6, 0));
+          arrPseudo.setDirection(pDir);
+          arrPseudo.setLength(pLen, 0.35, 0.18);
+          this.updateArrowLabel('pseudo-force-arrow', `F_pseudo = ${Math.abs(pForce).toFixed(1)} N`, '#f43f5e', new THREE.Vector3(worldPosM2.x + 1.8, worldPosM2.y - 1.0, 0), true);
+        } else {
+          this.updateArrowLabel('pseudo-force-arrow', '', '#f43f5e', new THREE.Vector3(), false);
+        }
+      }
+
+      // Relative Acceleration Arrow
+      const arrAccel = this.vectorGroup.getObjectByName('accel-arrow') as THREE.ArrowHelper;
+      if (arrAccel) {
+        const aLen = Math.min(3.2, Math.max(0.4, (arel / 8.0) * 2.0));
+        const aDir = m2 >= m1 ? new THREE.Vector3(0, -1, 0) : new THREE.Vector3(0, 1, 0);
+        arrAccel.position.copy(worldPosM2).add(new THREE.Vector3(1.1, 0, 0));
+        arrAccel.setDirection(aDir);
+        arrAccel.setLength(aLen, 0.35, 0.18);
+        this.updateArrowLabel('accel-arrow', `a_rel = ${arel.toFixed(2)} m/s²`, '#10b981', new THREE.Vector3(worldPosM2.x + 1.8, worldPosM2.y, 0));
+      }
+
+      // Apparent Weight Arrow on cabin floor
+      const arrWeight = this.vectorGroup.getObjectByName('weight-arrow') as THREE.ArrowHelper;
+      if (arrWeight) {
+        const wApp = m2 * geff;
+        const wLen = Math.min(3.5, Math.max(0.5, (wApp / 60) * 2.2));
+        arrWeight.position.set(1.6, -2.5, 0);
+        arrWeight.setDirection(new THREE.Vector3(0, -1, 0));
+        arrWeight.setLength(wLen, 0.35, 0.18);
+        this.updateArrowLabel('weight-arrow', `W_app = ${wApp.toFixed(1)} N`, '#eab308', new THREE.Vector3(1.6, -3.4, 0));
+      }
+    }
+  }
+
+  // ==========================================
+  // 29. RELATIVE MOTION: RIVER-BOAT & RAIN-MAN KINEMATICS
+  // ==========================================
+  private setupRelativeMotion(ctx: SimRenderContext) {
+    const isDark = ctx.isDark;
+    const root = new THREE.Group();
+    root.name = 'relative-root';
+
+    // 1. River Environment & Banks
+    const riverWidth = 14.0;
+    const riverLength = 40.0;
+
+    // Water Surface
+    const waterGeo = new THREE.PlaneGeometry(riverLength, riverWidth);
+    const waterMat = new THREE.MeshStandardMaterial({
+      color: 0x0284c7,
+      transparent: true,
+      opacity: 0.78,
+      roughness: 0.15,
+      metalness: 0.3,
+    });
+    const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+    waterMesh.rotation.x = -Math.PI / 2;
+    waterMesh.position.y = 0;
+    root.add(waterMesh);
+
+    // River flow foam streak particles
+    const streamCount = 50;
+    const streamGeo = new THREE.BufferGeometry();
+    const streamPositions = new Float32Array(streamCount * 3);
+    for (let i = 0; i < streamCount; i++) {
+      streamPositions[i * 3] = (Math.random() - 0.5) * riverLength;
+      streamPositions[i * 3 + 1] = 0.05;
+      streamPositions[i * 3 + 2] = (Math.random() - 0.5) * (riverWidth - 2);
+    }
+    streamGeo.setAttribute('position', new THREE.BufferAttribute(streamPositions, 3));
+    const streamMat = new THREE.PointsMaterial({ color: 0xbae6fd, size: 0.25, transparent: true, opacity: 0.8 });
+    const streamPoints = new THREE.Points(streamGeo, streamMat);
+    streamPoints.name = 'river-foam-points';
+    root.add(streamPoints);
+
+    // North Bank (Destination Shore, z = -7)
+    const bankMat = new THREE.MeshStandardMaterial({
+      color: isDark ? 0x14532d : 0x16a34a,
+      roughness: 0.8,
+    });
+    const northBank = new THREE.Mesh(new THREE.BoxGeometry(riverLength, 0.8, 6.0), bankMat);
+    northBank.position.set(0, 0.4, -riverWidth / 2 - 3.0);
+    root.add(northBank);
+
+    // South Bank (Departure Shore, z = +7) with pedestrian path
+    const southBank = new THREE.Mesh(new THREE.BoxGeometry(riverLength, 0.8, 6.0), bankMat);
+    southBank.position.set(0, 0.4, riverWidth / 2 + 3.0);
+    root.add(southBank);
+
+    // Stone Quay / Promenade Walkway along South Bank
+    const pathMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x334155 : 0xcbd5e1, roughness: 0.5 });
+    const promenade = new THREE.Mesh(new THREE.BoxGeometry(riverLength, 0.85, 2.2), pathMat);
+    promenade.position.set(0, 0.42, riverWidth / 2 + 1.1);
+    root.add(promenade);
+
+    // 2. Motor Speedboat Model
+    const boat = new THREE.Group();
+    boat.name = 'motor-boat';
+
+    // Hull (Streamlined wedge)
+    const hullMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, metalness: 0.2, roughness: 0.2 });
+    const hull = new THREE.Mesh(new THREE.ConeGeometry(0.9, 3.2, 5), hullMat);
+    hull.rotation.z = -Math.PI / 2;
+    hull.rotation.y = Math.PI / 2;
+    hull.position.y = 0.3;
+    boat.add(hull);
+
+    // Cockpit / Windshield
+    const cabinMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 0.6, 0.9),
+      new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.2 })
+    );
+    cabinMesh.position.set(-0.3, 0.6, 0);
+    boat.add(cabinMesh);
+
+    // Engine Outboard
+    const engineMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.7, 0.4),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8, roughness: 0.2 })
+    );
+    engineMesh.position.set(-1.6, 0.4, 0);
+    boat.add(engineMesh);
+
+    boat.position.set(0, 0, riverWidth / 2 - 1.0);
+    root.add(boat);
+
+    // Boat Ground Path Trajectory Line
+    const pathLineGeo = new THREE.BufferGeometry();
+    const pathLineMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 2 });
+    const pathLine = new THREE.Line(pathLineGeo, pathLineMat);
+    pathLine.name = 'boat-ground-path';
+    root.add(pathLine);
+
+    // 3. Pedestrian Walker & Tilting Umbrella
+    const walker = new THREE.Group();
+    walker.name = 'walker-figure';
+    walker.position.set(-8, 0.85, riverWidth / 2 + 1.1);
+
+    // Body & Head
+    const bodyMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 1.2, 12), new THREE.MeshStandardMaterial({ color: 0x3b82f6 }));
+    bodyMesh.position.y = 0.6;
+    const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), new THREE.MeshStandardMaterial({ color: 0xfde047 }));
+    headMesh.position.y = 1.35;
+    walker.add(bodyMesh, headMesh);
+
+    // Umbrella (Canopy & Shaft)
+    const umbrellaGroup = new THREE.Group();
+    umbrellaGroup.name = 'umbrella-group';
+    umbrellaGroup.position.set(0.3, 1.3, 0);
+
+    const shaftMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.0), new THREE.MeshBasicMaterial({ color: 0xe2e8f0 }));
+    shaftMesh.position.y = 0.5;
+    const canopyMesh = new THREE.Mesh(
+      new THREE.ConeGeometry(0.95, 0.45, 16, 1, true),
+      new THREE.MeshStandardMaterial({ color: 0xef4444, side: THREE.DoubleSide, roughness: 0.3 })
+    );
+    canopyMesh.position.y = 0.95;
+    umbrellaGroup.add(shaftMesh, canopyMesh);
+    walker.add(umbrellaGroup);
+
+    root.add(walker);
+
+    // 4. Falling Rain Particles
+    const rainCount = 180;
+    const rainGeo = new THREE.BufferGeometry();
+    const rainPos = new Float32Array(rainCount * 3);
+    for (let i = 0; i < rainCount; i++) {
+      rainPos[i * 3] = (Math.random() - 0.5) * 36;
+      rainPos[i * 3 + 1] = Math.random() * 12;
+      rainPos[i * 3 + 2] = (Math.random() - 0.5) * 24;
+    }
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+    const rainPoints = new THREE.Points(
+      rainGeo,
+      new THREE.PointsMaterial({ color: 0x38bdf8, size: 0.15, transparent: true, opacity: 0.7 })
+    );
+    rainPoints.name = 'rain-particles';
+    root.add(rainPoints);
+
+    this.objectsGroup.add(root);
+
+    // 5. Setup Live Vector Arrows
+    this.createArrow('v-boat-water', 0x3b82f6, new THREE.Vector3(), new THREE.Vector3(0, 0, -1), 2.5);
+    this.createArrow('v-river-flow', 0x06b6d4, new THREE.Vector3(), new THREE.Vector3(1, 0, 0), 2.0);
+    this.createArrow('v-boat-ground', 0x10b981, new THREE.Vector3(), new THREE.Vector3(1, 0, -1), 3.0);
+    this.createArrow('v-rain-relative', 0xa855f7, new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 2.2);
+  }
+
+  private updateRelativeMotion(ctx: SimRenderContext) {
+    const { vBoat = 10, vRiver = 4, theta = 115, vMan = 3, vRainX = 2, vRainY = 8 } = ctx.params;
+    const root = this.objectsGroup.getObjectByName('relative-root');
+    if (!root) return;
+
+    const boat = root.getObjectByName('motor-boat') as THREE.Group;
+    const walker = root.getObjectByName('walker-figure') as THREE.Group;
+    const rain = root.getObjectByName('rain-particles') as THREE.Points;
+    const foam = root.getObjectByName('river-foam-points') as THREE.Points;
+
+    const riverW = 14.0;
+    const thetaRad = (theta * Math.PI) / 180;
+
+    // Kinematic vectors:
+    // River flows downstream along +X axis
+    // Boat heads at angle theta measured from downstream bank (+X axis towards -Z across river)
+    const vbxWater = vBoat * Math.cos(thetaRad);
+    const vbzWater = -vBoat * Math.sin(thetaRad); // Cross river towards negative Z
+    const vxGround = vRiver + vbxWater;
+    const vzGround = vbzWater;
+    const vGroundMag = Math.sqrt(vxGround * vxGround + vzGround * vzGround);
+
+    // Crossing cycle: Crossing distance Δz = -riverW + 2
+    const totalCrossingDist = riverW - 2.0;
+    const tCrossTotal = totalCrossingDist / Math.max(0.5, Math.abs(vbzWater));
+    const cyclePeriod = Math.max(3.0, tCrossTotal + 1.5);
+    const tProg = ctx.simTime % cyclePeriod;
+
+    let boatZ = 0;
+    let boatX = 0;
+
+    if (tProg <= tCrossTotal) {
+      const frac = tProg / tCrossTotal;
+      boatZ = (riverW / 2 - 1.0) - frac * totalCrossingDist;
+      boatX = -8.0 + frac * (vxGround * tCrossTotal) * 0.4;
+    } else {
+      // Pause at opposite bank before resetting
+      boatZ = -riverW / 2 + 1.0;
+      boatX = -8.0 + (vxGround * tCrossTotal) * 0.4;
+    }
+
+    if (boat) {
+      boat.position.set(boatX, 0, boatZ);
+      // Boat heading angle relative to world
+      boat.rotation.y = thetaRad;
+    }
+
+    // Animate river water foam streaks downstream
+    if (foam) {
+      const posArr = foam.geometry.attributes.position.array as Float32Array;
+      for (let i = 0; i < posArr.length; i += 3) {
+        posArr[i] += vRiver * 0.015;
+        if (posArr[i] > 20) posArr[i] = -20;
+      }
+      foam.geometry.attributes.position.needsUpdate = true;
+    }
+
+    // Animate Pedestrian along South Bank
+    if (walker) {
+      const walkerX = -14 + ((ctx.simTime * vMan * 0.8) % 28);
+      walker.position.x = walkerX;
+
+      // Relative rain velocity seen by walker:
+      // v_rel = (v_rx - v_m) î - v_ry ĵ
+      const vrelX = vRainX - vMan;
+      const vrelMag = Math.sqrt(vrelX * vrelX + vRainY * vRainY);
+      const umbrellaTilt = Math.atan2(vrelX, Math.max(0.5, vRainY));
+
+      const umbrella = walker.getObjectByName('umbrella-group') as THREE.Group;
+      if (umbrella) {
+        // Tilt umbrella towards oncoming rain
+        umbrella.rotation.z = umbrellaTilt;
+      }
+
+      // Rain Relative Vector Arrow
+      const arrRain = this.vectorGroup.getObjectByName('v-rain-relative') as THREE.ArrowHelper;
+      if (arrRain) {
+        const rLen = Math.min(3.2, Math.max(0.5, (vrelMag / 10) * 2.0));
+        const rDir = new THREE.Vector3(vrelX, -vRainY, 0).normalize();
+        arrRain.position.set(walkerX, 3.2, riverW / 2 + 1.1);
+        arrRain.setDirection(rDir);
+        arrRain.setLength(rLen, 0.35, 0.18);
+        this.updateArrowLabel('v-rain-relative', `v_{r/m} = ${vrelMag.toFixed(1)} m/s (Tilt: ${(umbrellaTilt * 180 / Math.PI).toFixed(1)}°)`, '#a855f7', new THREE.Vector3(walkerX, 4.0, riverW / 2 + 1.1));
+      }
+    }
+
+    // Animate Rain Particles
+    if (rain) {
+      const rArr = rain.geometry.attributes.position.array as Float32Array;
+      for (let i = 0; i < rArr.length; i += 3) {
+        rArr[i] += vRainX * 0.02;
+        rArr[i + 1] -= vRainY * 0.04;
+        if (rArr[i + 1] < 0) {
+          rArr[i + 1] = 12;
+          rArr[i] = (Math.random() - 0.5) * 36;
+        }
+      }
+      rain.geometry.attributes.position.needsUpdate = true;
+    }
+
+    // Live Boat Velocity Vectors
+    const arrVb = this.vectorGroup.getObjectByName('v-boat-water') as THREE.ArrowHelper;
+    if (arrVb) {
+      const len = Math.min(3.5, Math.max(0.5, (vBoat / 12) * 2.2));
+      const dir = new THREE.Vector3(vbxWater, 0, vbzWater).normalize();
+      arrVb.position.set(boatX, 1.2, boatZ);
+      arrVb.setDirection(dir);
+      arrVb.setLength(len, 0.35, 0.18);
+      this.updateArrowLabel('v-boat-water', `v_{b/r} = ${vBoat.toFixed(1)} m/s (θ=${theta.toFixed(0)}°)`, '#3b82f6', new THREE.Vector3(boatX, 2.0, boatZ - 0.8));
+    }
+
+    const arrVr = this.vectorGroup.getObjectByName('v-river-flow') as THREE.ArrowHelper;
+    if (arrVr) {
+      const len = Math.min(3.2, Math.max(0.5, (vRiver / 8) * 2.0));
+      arrVr.position.set(boatX, 0.6, boatZ);
+      arrVr.setDirection(new THREE.Vector3(1, 0, 0));
+      arrVr.setLength(len, 0.35, 0.18);
+      this.updateArrowLabel('v-river-flow', `v_{river} = ${vRiver.toFixed(1)} m/s`, '#06b6d4', new THREE.Vector3(boatX + 1.6, 0.4, boatZ));
+    }
+
+    const arrVg = this.vectorGroup.getObjectByName('v-boat-ground') as THREE.ArrowHelper;
+    if (arrVg) {
+      const len = Math.min(3.8, Math.max(0.5, (vGroundMag / 12) * 2.4));
+      const dir = new THREE.Vector3(vxGround, 0, vzGround).normalize();
+      arrVg.position.set(boatX, 1.6, boatZ);
+      arrVg.setDirection(dir);
+      arrVg.setLength(len, 0.35, 0.18);
+      this.updateArrowLabel('v-boat-ground', `v_{ground} = ${vGroundMag.toFixed(1)} m/s`, '#10b981', new THREE.Vector3(boatX, 2.6, boatZ + 0.8));
+    }
+  }
+
+  // ==========================================
+  // 30. PROPERTIES OF MATTER: ELASTICITY & STOKES VISCOUS DRAG
+  // ==========================================
+  private setupElasticityStokes(ctx: SimRenderContext) {
+    const isDark = ctx.isDark;
+    const root = new THREE.Group();
+    root.name = 'matter-root';
+
+    // 1. Heavy Laboratory Workbench
+    const benchGeo = new THREE.BoxGeometry(22, 1.0, 10);
+    const benchMat = new THREE.MeshStandardMaterial({
+      color: isDark ? 0x1e293b : 0x475569,
+      roughness: 0.4,
+      metalness: 0.3,
+    });
+    const bench = new THREE.Mesh(benchGeo, benchMat);
+    bench.position.y = -4.5;
+    root.add(bench);
+
+    // ----------------------------------------------------
+    // LEFT STATION: Searle's Apparatus for Young's Modulus
+    // ----------------------------------------------------
+    const searle = new THREE.Group();
+    searle.name = 'searle-apparatus';
+    searle.position.set(-5.5, 0, 0);
+
+    // Sturdy Cast Iron Ceiling Frame
+    const frameMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x0f172a : 0x334155, metalness: 0.8, roughness: 0.2 });
+    const topBar = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.6, 1.2), frameMat);
+    topBar.position.y = 5.2;
+    searle.add(topBar);
+
+    // Reference Wire (Left)
+    const wireRef = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.04, 7.5),
+      new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9, roughness: 0.1 })
+    );
+    wireRef.position.set(-1.0, 1.45, 0);
+    searle.add(wireRef);
+
+    // Experimental Test Wire (Right, Tensile Elongation)
+    const wireExp = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.04, 7.5),
+      new THREE.MeshStandardMaterial({ color: 0x38bdf8, metalness: 0.9, roughness: 0.1 })
+    );
+    wireExp.name = 'searle-exp-wire';
+    wireExp.position.set(1.0, 1.45, 0);
+    searle.add(wireExp);
+
+    // Spherometer / Spirit Level Bridge between wires
+    const bridgeMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(2.4, 0.3, 0.8),
+      new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.7, roughness: 0.3 })
+    );
+    bridgeMesh.name = 'searle-bridge';
+    bridgeMesh.position.set(0, -2.3, 0);
+    searle.add(bridgeMesh);
+
+    // Weight Hanger with Slotted Disc Weights
+    const hangerGroup = new THREE.Group();
+    hangerGroup.name = 'searle-hanger';
+    hangerGroup.position.set(1.0, -2.5, 0);
+
+    const hangerRod = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.8), frameMat);
+    hangerRod.position.y = -0.9;
+    const basePlate = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.15), frameMat);
+    basePlate.position.y = -1.8;
+    hangerGroup.add(hangerRod, basePlate);
+
+    // Slotted Mass Discs
+    const massDiscs = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.55, 0.55, 0.8, 24),
+      new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.6, roughness: 0.3 })
+    );
+    massDiscs.name = 'searle-mass-discs';
+    massDiscs.position.y = -1.3;
+    hangerGroup.add(massDiscs);
+
+    searle.add(hangerGroup);
+    root.add(searle);
+
+    // ----------------------------------------------------
+    // RIGHT STATION: Stokes' Viscometer Tall Fluid Column
+    // ----------------------------------------------------
+    const stokes = new THREE.Group();
+    stokes.name = 'stokes-apparatus';
+    stokes.position.set(5.5, 0, 0);
+
+    // Transparent Graduated Glass Cylinder
+    const cylHeight = 8.5;
+    const cylRadius = 1.6;
+    const glassCyl = new THREE.Mesh(
+      new THREE.CylinderGeometry(cylRadius, cylRadius, cylHeight, 32, 1, true),
+      new THREE.MeshStandardMaterial({
+        color: 0xbae6fd,
+        transparent: true,
+        opacity: 0.28,
+        roughness: 0.1,
+        metalness: 0.2,
+        side: THREE.DoubleSide,
+      })
+    );
+    glassCyl.position.y = 0.25;
+    stokes.add(glassCyl);
+
+    // Viscous Fluid Column (Glycerin amber tint)
+    const fluidMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(cylRadius - 0.05, cylRadius - 0.05, cylHeight - 0.2, 32),
+      new THREE.MeshStandardMaterial({
+        color: 0xfef08a,
+        transparent: true,
+        opacity: 0.48,
+        roughness: 0.3,
+      })
+    );
+    fluidMesh.position.y = 0.25;
+    stokes.add(fluidMesh);
+
+    // Millimeter Calibration Marks along cylinder side
+    const scaleLines = new THREE.Group();
+    for (let my = -3.8; my <= 4.0; my += 0.8) {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(cylRadius - 0.04, cylRadius + 0.04, 32),
+        new THREE.MeshBasicMaterial({ color: 0x475569, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = my;
+      scaleLines.add(ring);
+    }
+    stokes.add(scaleLines);
+
+    // Falling Metallic Spherical Bob
+    const sphereBob = new THREE.Mesh(
+      new THREE.SphereGeometry(0.4, 24, 24),
+      new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.15 })
+    );
+    sphereBob.name = 'stokes-sphere';
+    sphereBob.position.set(0, 3.8, 0);
+    stokes.add(sphereBob);
+
+    root.add(stokes);
+    this.objectsGroup.add(root);
+
+    // Live Vector Arrows
+    this.createArrow('stokes-drag-arrow', 0xf59e0b, new THREE.Vector3(), new THREE.Vector3(0, 1, 0), 2.0);
+    this.createArrow('buoyant-arrow', 0x38bdf8, new THREE.Vector3(), new THREE.Vector3(0, 1, 0), 1.6);
+    this.createArrow('gravity-sphere-arrow', 0xef4444, new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 2.2);
+    this.createArrow('wire-tension-arrow', 0x10b981, new THREE.Vector3(), new THREE.Vector3(0, 1, 0), 2.2);
+  }
+
+  private updateElasticityStokes(ctx: SimRenderContext) {
+    const {
+      hangingMass = 10,
+      wireLength = 2.5,
+      wireRadius = 0.5,
+      youngModulus = 200,
+      sphereRadius = 1.5,
+      sphereDensity = 7800,
+      fluidDensity = 1260,
+      viscosity = 1.5,
+    } = ctx.params;
+
+    const root = this.objectsGroup.getObjectByName('matter-root');
+    if (!root) return;
+
+    // 1. Searle Wire Elastic Elongation Dynamics
+    const searle = root.getObjectByName('searle-apparatus') as THREE.Group;
+    const wireExp = searle?.getObjectByName('searle-exp-wire') as THREE.Mesh;
+    const bridge = searle?.getObjectByName('searle-bridge') as THREE.Mesh;
+    const hanger = searle?.getObjectByName('searle-hanger') as THREE.Group;
+    const massDiscs = searle?.getObjectByName('searle-mass-discs') as THREE.Mesh;
+
+    const rwM = wireRadius * 0.001;
+    const area = Math.PI * rwM * rwM;
+    const forceLoad = hangingMass * 9.8;
+    const Y_Pa = youngModulus * 1e9;
+    const stress = forceLoad / area;
+    const strain = stress / Y_Pa;
+    const deltaL = strain * wireLength;
+
+    if (searle && wireExp && bridge && hanger && massDiscs) {
+      // Scale visual discs with mass
+      massDiscs.scale.set(1, Math.min(2.2, Math.max(0.5, hangingMass / 10)), 1);
+
+      // Microscopic deltaL magnified by factor for clear 3D observability
+      const visualElongation = Math.min(0.6, deltaL * 800);
+      wireExp.scale.set(1, 1 + visualElongation * 0.1, 1);
+      wireExp.position.y = 1.45 - visualElongation * 0.5;
+
+      bridge.position.y = -2.3 - visualElongation;
+      bridge.rotation.z = -visualElongation * 0.3; // Spirit level tilt!
+      hanger.position.y = -2.5 - visualElongation;
+
+      // Tensile Stress Vector Arrow
+      const arrStress = this.vectorGroup.getObjectByName('wire-tension-arrow') as THREE.ArrowHelper;
+      if (arrStress) {
+        const sLen = Math.min(3.2, Math.max(0.5, (stress / 1.5e8) * 2.0));
+        arrStress.position.set(-4.5, -2.4 - visualElongation, 0);
+        arrStress.setDirection(new THREE.Vector3(0, 1, 0));
+        arrStress.setLength(sLen, 0.35, 0.18);
+        this.updateArrowLabel('wire-tension-arrow', `Stress σ = ${(stress / 1e6).toFixed(1)} MPa (ΔL=${(deltaL * 1000).toFixed(3)} mm)`, '#10b981', new THREE.Vector3(-4.5, -1.4, 0));
+      }
+    }
+
+    // 2. Stokes' Viscometer Falling Sphere Dynamics
+    const stokes = root.getObjectByName('stokes-apparatus') as THREE.Group;
+    const sphereBob = stokes?.getObjectByName('stokes-sphere') as THREE.Mesh;
+
+    const rM = sphereRadius * 0.01;
+    const volSphere = (4 / 3) * Math.PI * rM * rM * rM;
+    const massSphere = volSphere * sphereDensity;
+    const weightForce = massSphere * 9.8;
+    const buoyantForce = volSphere * fluidDensity * 9.8;
+
+    // Terminal velocity vt = (2/9) * r^2 * (rho_s - rho_f) * g / eta
+    const vt = (2 / 9) * ((rM * rM * (sphereDensity - fluidDensity) * 9.8) / Math.max(0.01, viscosity));
+    const tau = (2 * sphereDensity * rM * rM) / (9 * Math.max(0.01, viscosity));
+
+    // Looped drop cycle: duration 4.5s
+    const dropPeriod = 4.8;
+    const tDrop = ctx.simTime % dropPeriod;
+
+    let curY = 3.8;
+    let curV = 0;
+
+    if (tDrop < 4.0) {
+      // Free fall & viscous settling
+      curV = vt * (1 - Math.exp(-tDrop / Math.max(0.05, tau)));
+      curY = 3.8 - curV * tDrop * 1.8;
+      if (curY < -3.5) curY = -3.5;
+    } else {
+      // Sits at bottom briefly before reset
+      curY = -3.5;
+      curV = 0;
+    }
+
+    const stokesDragForce = 6 * Math.PI * viscosity * rM * curV;
+
+    if (sphereBob) {
+      // Scale sphere geometry with radius
+      const geomScale = Math.min(2.0, Math.max(0.4, sphereRadius / 1.5));
+      sphereBob.scale.set(geomScale, geomScale, geomScale);
+      sphereBob.position.y = curY;
+
+      const worldPosSphere = new THREE.Vector3();
+      sphereBob.getWorldPosition(worldPosSphere);
+
+      // Stokes Drag Arrow (Upward)
+      const arrDrag = this.vectorGroup.getObjectByName('stokes-drag-arrow') as THREE.ArrowHelper;
+      if (arrDrag) {
+        const dLen = Math.min(3.0, Math.max(0.3, (stokesDragForce / Math.max(0.01, weightForce)) * 1.8));
+        arrDrag.position.copy(worldPosSphere).add(new THREE.Vector3(0, 0.4, 0));
+        arrDrag.setDirection(new THREE.Vector3(0, 1, 0));
+        arrDrag.setLength(dLen, 0.35, 0.18);
+        this.updateArrowLabel('stokes-drag-arrow', `Drag F_v = ${stokesDragForce.toFixed(3)} N`, '#f59e0b', new THREE.Vector3(worldPosSphere.x + 1.8, worldPosSphere.y + 0.8, 0));
+      }
+
+      // Buoyant Force Arrow (Upward)
+      const arrBuoy = this.vectorGroup.getObjectByName('buoyant-arrow') as THREE.ArrowHelper;
+      if (arrBuoy) {
+        const bLen = Math.min(2.5, Math.max(0.3, (buoyantForce / Math.max(0.01, weightForce)) * 1.5));
+        arrBuoy.position.copy(worldPosSphere).add(new THREE.Vector3(-0.4, 0.4, 0));
+        arrBuoy.setDirection(new THREE.Vector3(0, 1, 0));
+        arrBuoy.setLength(bLen, 0.35, 0.18);
+        this.updateArrowLabel('buoyant-arrow', `Buoyancy F_b = ${buoyantForce.toFixed(3)} N`, '#38bdf8', new THREE.Vector3(worldPosSphere.x - 1.8, worldPosSphere.y + 0.6, 0));
+      }
+
+      // Gravitational Weight Arrow (Downward)
+      const arrWeight = this.vectorGroup.getObjectByName('gravity-sphere-arrow') as THREE.ArrowHelper;
+      if (arrWeight) {
+        const wLen = Math.min(3.2, Math.max(0.4, 2.0));
+        arrWeight.position.copy(worldPosSphere).add(new THREE.Vector3(0, -0.4, 0));
+        arrWeight.setDirection(new THREE.Vector3(0, -1, 0));
+        arrWeight.setLength(wLen, 0.35, 0.18);
+        this.updateArrowLabel('gravity-sphere-arrow', `Weight W = ${weightForce.toFixed(3)} N (v_t = ${vt.toFixed(2)} m/s)`, '#ef4444', new THREE.Vector3(worldPosSphere.x + 1.8, worldPosSphere.y - 0.8, 0));
       }
     }
   }

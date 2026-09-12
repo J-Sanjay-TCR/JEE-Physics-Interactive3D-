@@ -15,6 +15,8 @@ import {
   Zap,
   TrendingUp,
   X,
+  Camera,
+  EyeOff,
 } from 'lucide-react';
 import { Latex } from './Latex';
 import { useTheme } from '../../context/ThemeContext';
@@ -33,6 +35,10 @@ interface ParameterControlsProps {
   specialCases?: SpecialCase[];
   onApplySpecialCase?: (preset: Record<string, number>) => void;
   simulationType?: string;
+  isARMode?: boolean;
+  onToggleAR?: () => void;
+  bloomIntensity?: 'vibrant' | 'subtle' | 'off';
+  onChangeBloom?: (val: 'vibrant' | 'subtle' | 'off') => void;
 }
 
 export const ParameterControls: React.FC<ParameterControlsProps> = ({
@@ -48,8 +54,12 @@ export const ParameterControls: React.FC<ParameterControlsProps> = ({
   specialCases,
   onApplySpecialCase,
   simulationType,
+  isARMode = false,
+  onToggleAR,
+  bloomIntensity,
+  onChangeBloom,
 }) => {
-  const { isDark } = useTheme();
+  const { isDark, isCyberpunk } = useTheme();
   // Track active tooltip or expanded insight card for each parameter
   const [activeTooltipParamId, setActiveTooltipParamId] = useState<string | null>(null);
   const [expandedInsightParamId, setExpandedInsightParamId] = useState<string | null>(null);
@@ -100,32 +110,189 @@ export const ParameterControls: React.FC<ParameterControlsProps> = ({
           >
             <RotateCcw className="w-4 h-4" />
           </button>
+
+          {onToggleAR && (
+            <button
+              onClick={onToggleAR}
+              id="btn-ar-view-toggle"
+              className={`px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition shadow-md min-h-[44px] touch-manipulation active:scale-95 ${
+                isARMode
+                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30 ring-2 ring-emerald-400/50'
+                  : isDark
+                  ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30'
+                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+              }`}
+              title={isARMode ? "Exit AR Camera View" : "Project 3D Simulation into Room via Device Camera (AR View)"}
+              aria-label="Toggle AR View"
+            >
+              <Camera className="w-4 h-4 text-emerald-400" />
+              <span>{isARMode ? 'Exit AR View' : 'AR View'}</span>
+              <span
+                className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-mono font-extrabold ${
+                  isARMode ? 'bg-black/30 text-white animate-pulse' : 'bg-emerald-500/20 text-emerald-300'
+                }`}
+              >
+                {isARMode ? 'LIVE' : '3D AR'}
+              </span>
+            </button>
+          )}
         </div>
 
-        {/* Speed Multiplier */}
-        <div
-          className={`flex items-center gap-1 p-1 rounded-xl border ${
-            isDark ? 'bg-[#0A0A0E] border-white/[0.08]' : 'bg-slate-100 border-slate-300'
-          }`}
-        >
-          <FastForward className="w-3.5 h-3.5 text-zinc-500 ml-1.5 hidden sm:inline" />
-          {[0.5, 1.0, 2.0].map((s) => (
-            <button
-              key={s}
-              onClick={() => onChangeSpeed(s)}
-              className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition min-h-[36px] min-w-[36px] flex items-center justify-center touch-manipulation ${
-                speed === s
-                  ? 'bg-cyan-500 text-slate-950 font-bold shadow-xs'
-                  : isDark
-                  ? 'text-zinc-400 hover:text-zinc-200'
-                  : 'text-slate-600 hover:text-slate-900'
+        <div className="flex items-center gap-2">
+          {/* Neon Bloom Quick Toggle */}
+          {onChangeBloom && bloomIntensity && (
+            <div
+              className={`flex items-center p-1 rounded-xl border ${
+                isDark ? 'bg-[#060B18] border-cyan-500/25 shadow-inner' : 'bg-slate-100 border-slate-300'
               }`}
+              title="Neon Glow Effects (Bloom)"
             >
-              {s}x
-            </button>
-          ))}
+              <Zap className="w-3.5 h-3.5 text-cyan-400 ml-1.5 hidden sm:inline" />
+              {(['vibrant', 'subtle', 'off'] as const).map((level) => (
+                <button
+                  key={level}
+                  onClick={() => onChangeBloom(level)}
+                  className={`px-2 py-1.5 text-[10px] sm:text-xs font-bold rounded-lg transition touch-manipulation capitalize ${
+                    bloomIntensity === level
+                      ? 'bg-gradient-to-r from-cyan-500 to-emerald-500 text-black shadow-[0_0_8px_rgba(0,240,255,0.3)]'
+                      : isDark
+                      ? 'text-zinc-500 hover:text-cyan-300'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Speed Multiplier */}
+          <div
+            className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border ${
+              isDark ? 'bg-[#0A0A0E] border-white/[0.08]' : 'bg-slate-100 border-slate-300'
+            }`}
+          >
+            <FastForward className="w-3.5 h-3.5 text-zinc-500 hidden sm:inline shrink-0" />
+            <input
+              type="range"
+              min="0.1"
+              max="4.0"
+              step="0.1"
+              value={speed}
+              onChange={(e) => onChangeSpeed(parseFloat(e.target.value))}
+              className="w-16 sm:w-24 h-1.5 bg-slate-200 dark:bg-[#22222C] rounded-lg appearance-none cursor-pointer accent-cyan-500 touch-pan-x"
+              title={`Playback Speed: ${speed.toFixed(1)}x`}
+            />
+            <span className={`text-[11px] font-mono font-bold w-8 text-right shrink-0 ${isDark ? 'text-zinc-300' : 'text-slate-700'}`}>
+              {speed.toFixed(1)}x
+            </span>
+          </div>
         </div>
       </div>
+
+      {/* AR View Active Status Banner in 3D Controls */}
+      {isARMode && (
+        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-2.5 text-xs text-emerald-300 shadow-sm animate-in fade-in duration-200">
+          <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="font-bold text-emerald-200 flex items-center justify-between">
+              <span>AR Physical Environment Mode Active</span>
+              {onToggleAR && (
+                <button
+                  onClick={onToggleAR}
+                  className="text-[11px] underline hover:text-white transition font-medium"
+                >
+                  Exit AR
+                </button>
+              )}
+            </div>
+            <p className="text-emerald-300/80 text-[11px] mt-0.5">
+              The 3D physics model is rendered directly over your physical room via the camera stream. Adjust parameters below to see the simulated apparatus behave in your real environment.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 3D Model Neon Glowing Effects Control Panel Block */}
+      {onChangeBloom && bloomIntensity && (
+        <div
+          id="neon-glow-control-panel"
+          className={`p-3 sm:p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+            isDark ? 'bg-[#0B0F19]/90 border-cyan-500/25 shadow-sm' : 'bg-cyan-50/80 border-cyan-200 shadow-sm'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`p-2.5 rounded-xl shrink-0 ${
+                bloomIntensity === 'vibrant'
+                  ? 'bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(0,240,255,0.35)]'
+                  : bloomIntensity === 'subtle'
+                  ? 'bg-emerald-500/20 text-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.25)]'
+                  : isDark ? 'bg-[#161622] text-zinc-500' : 'bg-slate-200 text-slate-500'
+              }`}
+            >
+              {bloomIntensity === 'vibrant' ? (
+                <Sparkles className="w-4 h-4" />
+              ) : bloomIntensity === 'subtle' ? (
+                <Zap className="w-4 h-4" />
+              ) : (
+                <EyeOff className="w-4 h-4" />
+              )}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-bold ${isDark ? 'text-zinc-100' : 'text-slate-800'}`}>
+                  3D Model Neon Glow Effect
+                </span>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold uppercase tracking-wider ${
+                    bloomIntensity === 'vibrant'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                      : bloomIntensity === 'subtle'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-zinc-500/20 text-zinc-400 border border-zinc-500/30'
+                  }`}
+                >
+                  {bloomIntensity}
+                </span>
+              </div>
+              <p className={`text-[11px] mt-0.5 ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                {bloomIntensity === 'vibrant'
+                  ? 'High-intensity optical bloom with radiant neon trails & glowing lasers'
+                  : bloomIntensity === 'subtle'
+                  ? 'Balanced, soft scientific glow for bright highlights and beacons'
+                  : 'Zero post-processing bloom with crisp realistic diffuse shading'}
+              </p>
+            </div>
+          </div>
+
+          <div
+            className={`flex items-center p-1 rounded-xl border shrink-0 ${
+              isDark ? 'bg-[#060A12] border-white/[0.08]' : 'bg-white border-slate-300 shadow-xs'
+            }`}
+          >
+            {(['vibrant', 'subtle', 'off'] as const).map((level) => (
+              <button
+                key={level}
+                onClick={() => onChangeBloom(level)}
+                id={`btn-neon-glow-${level}`}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition touch-manipulation capitalize flex items-center gap-1.5 min-h-[36px] ${
+                  bloomIntensity === level
+                    ? 'bg-gradient-to-r from-cyan-500 to-emerald-500 text-black shadow-sm'
+                    : isDark
+                    ? 'text-zinc-400 hover:text-cyan-300'
+                    : 'text-slate-600 hover:text-cyan-700'
+                }`}
+              >
+                {level === 'vibrant' && <Sparkles className="w-3.5 h-3.5" />}
+                {level === 'subtle' && <Zap className="w-3.5 h-3.5" />}
+                {level === 'off' && <EyeOff className="w-3.5 h-3.5" />}
+                <span>{level}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 2. Live Physical Quantities HUD Grid */}
       <div>

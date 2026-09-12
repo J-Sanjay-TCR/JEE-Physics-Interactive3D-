@@ -130,7 +130,12 @@ export type SimulationType =
   | 'wave-optics-polarization'
   | 'standing-waves-acoustics'
   | 'radioactivity-nuclear-decay'
-  | 'heat-transfer-radiation';
+  | 'heat-transfer-radiation'
+  | 'work-energy-collisions'
+  | 'newton-laws-pulley'
+  | 'relative-motion-kinematics'
+  | 'elasticity-viscosity-stokes'
+  | 'center-of-mass-ragdoll';
 
 export interface SpecialCase {
   id: string;

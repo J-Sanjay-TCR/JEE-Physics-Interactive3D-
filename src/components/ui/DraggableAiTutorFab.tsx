@@ -113,6 +113,7 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
 
   return (
     <div
+      id="draggable-ai-tutor-fab"
       ref={fabRef}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -124,8 +125,8 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
         transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
         touchAction: 'none',
       }}
-      className={`fixed top-0 left-0 z-40 select-none ${
-        isDragging ? 'cursor-grabbing scale-105' : 'cursor-grab hover:scale-105'
+      className={`fixed top-0 left-0 z-40 select-none p-2 ${
+        isDragging ? 'cursor-grabbing scale-105' : 'cursor-grab'
       } transition-transform duration-75`}
     >
       {/* Outer Glowing Aura & Attention-Grabbing Badge */}
@@ -150,7 +151,7 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
             }
           }}
           aria-label="Open AI Physics Tutor (Upside Right Floating Button)"
-          className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-tr from-[#080B14] via-[#12172E] to-[#0A3254] p-[2.5px] border-2 border-cyan-300 shadow-2xl shadow-cyan-500/60 flex items-center justify-center text-white overflow-hidden ring-2 ring-cyan-400/40 active:scale-95 transition-transform"
+          className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-tr from-[#080B14] via-[#12172E] to-[#0A3254] p-[2.5px] border-2 border-cyan-300 shadow-2xl shadow-cyan-500/60 flex items-center justify-center text-white overflow-hidden ring-2 ring-cyan-400/40 group-hover:scale-105 active:scale-95 transition-transform"
         >
           {/* Animated Background Shimmer */}
           <div className="absolute inset-0 bg-gradient-to-tr from-cyan-500/30 via-blue-600/40 to-indigo-500/40 rounded-full" />

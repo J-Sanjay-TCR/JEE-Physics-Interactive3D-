@@ -26,6 +26,7 @@ import {
   Sun,
   Activity,
   Info,
+  Camera,
 } from 'lucide-react';
 
 export interface ShortcutItem {
@@ -92,6 +93,15 @@ export const SHORTCUTS_LIST: ShortcutItem[] = [
   },
 
   // 3D Canvas & Visual Layers
+  {
+    id: 'toggle-ar',
+    category: 'canvas',
+    keys: ['A'],
+    label: 'Toggle AR Camera View',
+    description: 'Project 3D physics model into your physical room via device camera stream overlay.',
+    badge: 'AR / WebXR',
+    icon: <Camera className="w-4 h-4 text-emerald-400" />,
+  },
   {
     id: 'focus-mode',
     category: 'canvas',
@@ -582,7 +592,7 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
                               : 'bg-slate-100 border-slate-200 text-slate-700'
                           }`}
                         >
-                          {item.icon || <Sparkles className="w-4 h-4 text-cyan-400" />}
+                          {item?.icon || <Sparkles className="w-4 h-4 text-cyan-400" />}
                         </div>
 
                         <div className="min-w-0 flex-1">

@@ -83,6 +83,8 @@ interface MobileNavBottomSheetProps {
   onOpenAnalytics: () => void;
   onEnterFocusMode: () => void;
   onOpenShortcuts?: () => void;
+  bloomIntensity?: 'vibrant' | 'subtle' | 'off';
+  onChangeBloom?: (val: 'vibrant' | 'subtle' | 'off') => void;
 }
 
 const CATEGORY_ICON_MAP: Record<CategoryId, React.ReactNode> = {
@@ -130,6 +132,8 @@ export const MobileNavBottomSheet: React.FC<MobileNavBottomSheetProps> = ({
   onOpenAnalytics,
   onEnterFocusMode,
   onOpenShortcuts,
+  bloomIntensity,
+  onChangeBloom,
 }) => {
   const { isDark, isCyberpunk, theme, cycleTheme } = useTheme();
 
@@ -672,6 +676,8 @@ export const MobileNavBottomSheet: React.FC<MobileNavBottomSheetProps> = ({
                     liveQuantities={liveQuantities}
                     specialCases={currentConcept.specialCases}
                     simulationType={currentConcept.simulationType}
+                    bloomIntensity={bloomIntensity}
+                    onChangeBloom={onChangeBloom}
                     onApplySpecialCase={(preset) => {
                       Object.entries(preset).forEach(([k, v]) => onChangeParam(k, v));
                     }}
