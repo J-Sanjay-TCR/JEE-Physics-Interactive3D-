@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CHAPTERS, CATEGORIES, ALL_CONCEPTS } from '../../data/allConcepts';
+import { CHAPTERS, CATEGORIES, ALL_CONCEPTS, isClass11Chapter, isClass12Chapter, CLASS_11_CHAPTER_IDS, CLASS_12_CHAPTER_IDS } from '../../data/allConcepts';
 import { JEE_CHAPTER_SHEETS, JeeChapterSheet } from '../../data/jeeFormulaSheetData';
 import { Chapter, CategoryId, PhysicsConcept } from '../../types';
 import {
@@ -71,6 +71,7 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
 }) => {
   const { isDark } = useTheme();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedClass, setSelectedClass] = useState<'all' | 'class-11' | 'class-12'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [activePreviewChapterId, setActivePreviewChapterId] = useState<string>(
     initialChapterId || CHAPTERS[0].id
@@ -219,10 +220,58 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
     }
   };
 
+  const totalCategoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: CHAPTERS.length };
+    CATEGORIES.forEach((cat) => {
+      counts[cat.id] = CHAPTERS.filter((ch) => ch.category === cat.id).length;
+    });
+    return counts;
+  }, []);
+
+  const handleToggleCategory = (catId: CategoryId | 'all') => {
+    if (selectedCategory === catId) {
+      setSelectedCategory('all');
+    } else {
+      setSelectedCategory(catId);
+      if (selectedClass !== 'all' && catId !== 'all') {
+        const hasChaptersInClass = CHAPTERS.some((ch) => {
+          if (ch.category !== catId) return false;
+          return selectedClass === 'class-11' ? isClass11Chapter(ch.id) : isClass12Chapter(ch.id);
+        });
+        if (!hasChaptersInClass) {
+          setSelectedClass('all');
+        }
+      }
+      const firstInCat = CHAPTERS.find((ch) => {
+        if (catId !== 'all' && ch.category !== catId) return false;
+        return true;
+      });
+      if (firstInCat) setActivePreviewChapterId(firstInCat.id);
+    }
+  };
+
+  const handleToggleClass = (classId: 'all' | 'class-11' | 'class-12') => {
+    const nextClass = selectedClass === classId && classId !== 'all' ? 'all' : classId;
+    setSelectedClass(nextClass);
+    if (selectedCategory !== 'all' && nextClass !== 'all') {
+      const hasChaptersInCat = CHAPTERS.some((ch) => {
+        if (ch.category !== selectedCategory) return false;
+        return nextClass === 'class-11' ? isClass11Chapter(ch.id) : isClass12Chapter(ch.id);
+      });
+      if (!hasChaptersInCat) {
+        setSelectedCategory('all');
+      }
+    }
+  };
+
   // Filtered Chapters
   const filteredChapters = useMemo(() => {
     return CHAPTERS.filter((ch) => {
       const matchesCategory = selectedCategory === 'all' || ch.category === selectedCategory;
+      let matchesClass = true;
+      if (selectedClass === 'class-11') matchesClass = isClass11Chapter(ch.id);
+      else if (selectedClass === 'class-12') matchesClass = isClass12Chapter(ch.id);
+
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -235,13 +284,15 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
               c.formulas.some((f) => f.name.toLowerCase().includes(q)))
         );
 
-      return matchesCategory && matchesSearch;
+      return matchesCategory && matchesClass && matchesSearch;
     });
-  }, [selectedCategory, searchQuery]);
+  }, [selectedCategory, selectedClass, searchQuery]);
 
   // Active Preview Chapter and its concepts
   const activeChapter = useMemo(() => {
-    return CHAPTERS.find((ch) => ch.id === activePreviewChapterId) || filteredChapters[0] || CHAPTERS[0];
+    const foundInFiltered = filteredChapters.find((ch) => ch.id === activePreviewChapterId);
+    if (foundInFiltered) return foundInFiltered;
+    return filteredChapters[0] || CHAPTERS.find((ch) => ch.id === activePreviewChapterId) || CHAPTERS[0];
   }, [activePreviewChapterId, filteredChapters]);
 
   const activeConcepts = useMemo(() => {
@@ -392,50 +443,114 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
               </div>
             </div>
 
-            {/* Filter Bar: Branch selector and search */}
-            <div className="p-2.5 sm:px-5 py-2 bg-[#090A10] border-b border-white/[0.06] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+            {/* Filter Bar: Portion toggle, Branch selector and search */}
+            <div className="p-2.5 sm:px-5 py-2.5 bg-[#090A10] border-b border-white/[0.06] flex flex-col gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                {/* Class Portion Buttons */}
+                <div className="flex items-center gap-1.5 p-1 rounded-xl border bg-black/40 border-white/[0.06] overflow-x-auto no-scrollbar">
+                  <button
+                    onClick={() => handleToggleClass('all')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap min-h-[28px] ${
+                      selectedClass === 'all'
+                        ? 'bg-cyan-500 text-slate-950 font-black shadow-xs'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <span>All Syllabus</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                      selectedClass === 'all' ? 'bg-slate-950/25 text-slate-950' : 'bg-white/10 text-zinc-400'
+                    }`}>
+                      {CHAPTERS.length}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => handleToggleClass('class-11')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap min-h-[28px] ${
+                      selectedClass === 'class-11'
+                        ? 'bg-blue-500 text-white font-black shadow-xs'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <span>Class 11 Portion</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                      selectedClass === 'class-11' ? 'bg-white/25 text-white' : 'bg-white/10 text-zinc-400'
+                    }`}>
+                      {CLASS_11_CHAPTER_IDS.size}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => handleToggleClass('class-12')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap min-h-[28px] ${
+                      selectedClass === 'class-12'
+                        ? 'bg-purple-500 text-white font-black shadow-xs'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <span>Class 12 Portion</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                      selectedClass === 'class-12' ? 'bg-white/25 text-white' : 'bg-white/10 text-zinc-400'
+                    }`}>
+                      {CLASS_12_CHAPTER_IDS.size}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Search */}
+                <div className="relative w-full sm:w-60 shrink-0">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+                  <input
+                    type="text"
+                    placeholder="Search chapters & formulas..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1 bg-[#12131D] border border-white/[0.08] rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-cyan-500 transition min-h-[30px]"
+                  />
+                </div>
+              </div>
+
               {/* Category Pills */}
               <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
                 <button
-                  onClick={() => setSelectedCategory('all')}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold transition whitespace-nowrap min-h-[30px] ${
+                  onClick={() => handleToggleCategory('all')}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition whitespace-nowrap min-h-[28px] flex items-center gap-1.5 ${
                     selectedCategory === 'all'
-                      ? 'bg-cyan-500 text-slate-950 shadow-xs'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
                       : 'bg-white/[0.04] text-zinc-400 hover:text-white border border-white/[0.06]'
                   }`}
                 >
-                  All 18 Chapters
+                  <span>All Branches</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                    selectedCategory === 'all' ? 'bg-cyan-400/25 text-cyan-200' : 'bg-white/10 text-zinc-400'
+                  }`}>
+                    {CHAPTERS.length}
+                  </span>
                 </button>
                 {CATEGORIES.map((cat) => {
                   const Icon = getCategoryIcon(cat.id);
                   const isSelected = selectedCategory === cat.id;
+                  const catCount = totalCategoryCounts[cat.id] || 0;
                   return (
                     <button
                       key={cat.id}
-                      onClick={() => setSelectedCategory(cat.id)}
-                      className={`px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap min-h-[30px] ${
+                      onClick={() => handleToggleCategory(cat.id)}
+                      className={`px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap min-h-[28px] ${
                         isSelected
-                          ? 'bg-cyan-500 text-slate-950 shadow-xs'
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
                           : 'bg-white/[0.04] text-zinc-400 hover:text-white border border-white/[0.06]'
                       }`}
                     >
                       <Icon className="w-3.5 h-3.5" />
                       <span>{cat.name.split(' ')[0]}</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                        isSelected ? 'bg-cyan-400/25 text-cyan-200' : 'bg-white/10 text-zinc-400'
+                      }`}>
+                        {catCount}
+                      </span>
                     </button>
                   );
                 })}
-              </div>
-
-              {/* Search */}
-              <div className="relative w-full sm:w-60 shrink-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Search chapters & formulas..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1 bg-[#12131D] border border-white/[0.08] rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-cyan-500 transition min-h-[30px]"
-                />
               </div>
             </div>
 
@@ -473,9 +588,19 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                 </div>
 
                 {filteredChapters.length === 0 ? (
-                  <div className="p-6 text-center text-zinc-500 space-y-2">
+                  <div className="p-6 text-center text-zinc-500 space-y-2.5">
                     <FileText className="w-7 h-7 mx-auto opacity-40 text-zinc-400" />
-                    <p className="text-xs">No chapters match your query.</p>
+                    <p className="text-xs">No chapters match your selected filters.</p>
+                    <button
+                      onClick={() => {
+                        setSelectedClass('all');
+                        setSelectedCategory('all');
+                        setSearchQuery('');
+                      }}
+                      className="px-3 py-1 bg-cyan-500/20 text-cyan-300 rounded-lg text-xs font-bold border border-cyan-500/30 hover:bg-cyan-500/30 transition"
+                    >
+                      Reset Filters
+                    </button>
                   </div>
                 ) : (
                   filteredChapters.map((ch, idx) => {
@@ -487,6 +612,7 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                       ? chSheet.coreFormulas.reduce((acc, s) => acc + s.items.length, 0)
                       : chConcepts.reduce((acc, c) => acc + c.formulas.length, 0);
                     const isDownloading = downloadingChapterId === ch.id;
+                    const isC11 = isClass11Chapter(ch.id);
 
                     return (
                       <div
@@ -518,9 +644,18 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                             </h4>
                           </div>
 
-                          <span className="text-[10px] font-mono text-zinc-500 shrink-0">
-                            #{idx + 1}
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={`text-[9px] font-black px-1.5 py-0.2 rounded border ${
+                              isC11
+                                ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                            }`}>
+                              {isC11 ? 'Class 11' : 'Class 12'}
+                            </span>
+                            <span className="text-[10px] font-mono text-zinc-500">
+                              #{idx + 1}
+                            </span>
+                          </div>
                         </div>
 
                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/[0.04]">

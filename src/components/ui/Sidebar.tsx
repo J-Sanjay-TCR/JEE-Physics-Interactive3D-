@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PhysicsConcept, CategoryId } from '../../types';
-import { CHAPTERS, CATEGORIES, ALL_CONCEPTS } from '../../data/allConcepts';
+import { CHAPTERS, CATEGORIES, ALL_CONCEPTS, isClass11Chapter, isClass12Chapter } from '../../data/allConcepts';
 import { getHomePageSections, getLabPageSections, PageSectionItem } from '../../data/navigationRegistry';
 import { useTheme } from '../../context/ThemeContext';
 import { generateChapterPdf } from '../../utils/pdfGenerator';
@@ -34,6 +34,7 @@ import {
   ArrowRight,
   LayoutGrid,
   TrendingUp,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -124,7 +125,59 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [navMode, setNavMode] = useState<'sections' | 'syllabus'>('syllabus');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<CategoryId | 'all'>('all');
+  const [selectedClass, setSelectedClass] = useState<'all' | 'class-11' | 'class-12'>('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'saved' | 'completed'>('all');
+
+  const totalCategoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: CHAPTERS.length };
+    CATEGORIES.forEach((cat) => {
+      counts[cat.id] = CHAPTERS.filter((ch) => ch.category === cat.id).length;
+    });
+    return counts;
+  }, []);
+
+  const handleToggleCategory = (catId: CategoryId | 'all') => {
+    if (selectedCategory === catId) {
+      setSelectedCategory('all');
+    } else {
+      setSelectedCategory(catId);
+      if (catId !== 'all') {
+        setExpandedChapters((prev) => {
+          const next = { ...prev };
+          CHAPTERS.forEach((ch) => {
+            if (ch.category === catId) {
+              next[ch.id] = true;
+            }
+          });
+          return next;
+        });
+
+        if (selectedClass !== 'all') {
+          const chaptersInClass = CHAPTERS.filter((ch) => {
+            if (ch.category !== catId) return false;
+            return selectedClass === 'class-11' ? isClass11Chapter(ch.id) : isClass12Chapter(ch.id);
+          });
+          if (chaptersInClass.length === 0) {
+            setSelectedClass('all');
+          }
+        }
+      }
+    }
+  };
+
+  const handleToggleClass = (classId: 'all' | 'class-11' | 'class-12') => {
+    const nextClass = selectedClass === classId && classId !== 'all' ? 'all' : classId;
+    setSelectedClass(nextClass);
+    if (selectedCategory !== 'all' && nextClass !== 'all') {
+      const chaptersInCat = CHAPTERS.filter((ch) => {
+        if (ch.category !== selectedCategory) return false;
+        return nextClass === 'class-11' ? isClass11Chapter(ch.id) : isClass12Chapter(ch.id);
+      });
+      if (chaptersInCat.length === 0) {
+        setSelectedCategory('all');
+      }
+    }
+  };
 
   // Track expanded state for all chapters
   const [expandedChapters, setExpandedChapters] = useState<Record<string, boolean>>(() => {
@@ -194,6 +247,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return null;
       }
 
+      // Check class portion match
+      if (selectedClass === 'class-11' && !isClass11Chapter(chapter.id)) {
+        return null;
+      }
+      if (selectedClass === 'class-12' && !isClass12Chapter(chapter.id)) {
+        return null;
+      }
+
       // Filter concepts in this chapter
       const chapterConcepts = ALL_CONCEPTS.filter((c) => {
         if (c.chapterId !== chapter.id) return false;
@@ -222,7 +283,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         concepts: chapterConcepts,
       };
     }).filter(Boolean) as { chapter: (typeof CHAPTERS)[0]; concepts: PhysicsConcept[] }[];
-  }, [searchQuery, selectedCategory, activeFilter, favorites, completedConcepts]);
+  }, [searchQuery, selectedCategory, selectedClass, activeFilter, favorites, completedConcepts]);
 
   const totalMatchingConcepts = useMemo(() => {
     return filteredData.reduce((acc, item) => acc + item.concepts.length, 0);
@@ -592,6 +653,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
               </button>
             </div>
+
+            {/* Class Portion Toggle Buttons (All / Class 11 / Class 12) */}
+            <div className="flex items-center gap-1 pt-2">
+              <button
+                onClick={() => handleToggleClass('all')}
+                className={`flex-1 py-1 px-1 rounded-md text-[10px] font-bold transition text-center min-h-[26px] ${
+                  selectedClass === 'all'
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shadow-xs'
+                    : isDark
+                    ? 'bg-[#14141E] text-zinc-400 hover:text-zinc-200 border border-white/[0.04]'
+                    : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
+                All (21)
+              </button>
+              <button
+                onClick={() => handleToggleClass('class-11')}
+                className={`flex-1 py-1 px-1 rounded-md text-[10px] font-bold transition text-center min-h-[26px] ${
+                  selectedClass === 'class-11'
+                    ? 'bg-blue-500/25 text-blue-400 border border-blue-400/50 shadow-xs'
+                    : isDark
+                    ? 'bg-[#14141E] text-zinc-400 hover:text-zinc-200 border border-white/[0.04]'
+                    : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
+                Class 11 (14)
+              </button>
+              <button
+                onClick={() => handleToggleClass('class-12')}
+                className={`flex-1 py-1 px-1 rounded-md text-[10px] font-bold transition text-center min-h-[26px] ${
+                  selectedClass === 'class-12'
+                    ? 'bg-purple-500/25 text-purple-400 border border-purple-400/50 shadow-xs'
+                    : isDark
+                    ? 'bg-[#14141E] text-zinc-400 hover:text-zinc-200 border border-white/[0.04]'
+                    : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
+                Class 12 (7)
+              </button>
+            </div>
           </div>
 
           {/* Category / Physics Branch Horizontal Selector */}
@@ -602,8 +703,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
               <button
-                onClick={() => setSelectedCategory('all')}
-                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold shrink-0 transition whitespace-nowrap min-h-[30px] ${
+                onClick={() => handleToggleCategory('all')}
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold shrink-0 transition whitespace-nowrap min-h-[30px] flex items-center gap-1.5 ${
                   selectedCategory === 'all'
                     ? 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-300 border border-cyan-500/40 shadow-sm font-bold'
                     : isDark
@@ -611,16 +712,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     : 'text-slate-600 hover:text-slate-900 bg-white border border-slate-200'
                 }`}
               >
-                All Branches
+                <span>All Branches</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  selectedCategory === 'all'
+                    ? 'bg-cyan-500/30 text-cyan-200'
+                    : isDark
+                    ? 'bg-white/10 text-zinc-400'
+                    : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {CHAPTERS.length}
+                </span>
               </button>
               {CATEGORIES.map((cat) => {
                 const config = CATEGORY_CONFIG[cat.id];
                 if (!config) return null;
                 const isSelected = selectedCategory === cat.id;
+                const count = totalCategoryCounts[cat.id] || 0;
                 return (
                   <button
                     key={cat.id}
-                    onClick={() => setSelectedCategory(cat.id)}
+                    onClick={() => handleToggleCategory(cat.id)}
                     className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold shrink-0 transition flex items-center gap-1.5 whitespace-nowrap min-h-[30px] ${
                       isSelected
                         ? `${config.bg} ${config.color} ${config.border} border shadow-sm font-bold`
@@ -631,6 +742,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     {config.icon}
                     <span>{config.label}</span>
+                    <span className={`text-[10px] px-1 py-0.2 rounded-full font-mono ${
+                      isSelected
+                        ? 'bg-black/20 text-current'
+                        : isDark
+                        ? 'bg-white/10 text-zinc-400'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}>
+                      {count}
+                    </span>
                   </button>
                 );
               })}
@@ -678,6 +798,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={() => {
                     setSearchQuery('');
                     setSelectedCategory('all');
+                    setSelectedClass('all');
                     setActiveFilter('all');
                   }}
                   className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-600 dark:text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition"
@@ -948,14 +1069,75 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </span>
         </button>
 
-        <div className="flex items-center justify-between text-[11px]">
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
-            <span>JEE 3D Physics Lab</span>
+        {/* Elevated Founded by Sanjay Cyber Badge */}
+        <div
+          onClick={() => {
+            if (currentView !== 'home' && onSetView) {
+              onSetView('home');
+            }
+            setTimeout(() => {
+              const el = document.getElementById('home-founder-section');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+            if (isMobile) {
+              onToggleOpen();
+            }
+          }}
+          className={`relative overflow-hidden p-2.5 rounded-2xl border transition-all duration-300 cursor-pointer group select-none ${
+            isCyberpunk
+              ? 'bg-gradient-to-r from-cyan-950/50 via-[#071126] to-indigo-950/50 border-cyan-500/40 hover:border-cyan-400 shadow-[0_0_18px_rgba(0,240,255,0.18)] hover:shadow-[0_0_24px_rgba(0,240,255,0.35)]'
+              : isDark
+              ? 'bg-gradient-to-r from-cyan-950/40 via-[#0D101A] to-indigo-950/40 border-cyan-500/25 hover:border-cyan-400/50 shadow-md hover:shadow-cyan-900/20'
+              : 'bg-gradient-to-r from-cyan-50 via-white to-blue-50 border-cyan-200 hover:border-cyan-400 shadow-xs'
+          }`}
+          title="Click to view Founder's Mission & Architecture"
+        >
+          {/* Subtle Cyber scanline sheen */}
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 pointer-events-none" />
+
+          <div className="relative flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="relative shrink-0">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-400 via-blue-600 to-indigo-600 flex items-center justify-center text-slate-950 font-black text-xs shadow-md shadow-cyan-500/30 ring-2 ring-cyan-400/30 group-hover:ring-cyan-300 transition-all">
+                  SJ
+                </div>
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-slate-950 animate-pulse" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-xs font-black truncate transition-colors ${
+                    isCyberpunk
+                      ? 'text-cyan-200 group-hover:text-cyan-300'
+                      : isDark
+                      ? 'text-white group-hover:text-cyan-300'
+                      : 'text-slate-900 group-hover:text-cyan-700'
+                  }`}>
+                    Sanjay.J
+                  </span>
+                  <span className="px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    Founder
+                  </span>
+                </div>
+                <p className="text-[10px] text-zinc-400 truncate flex items-center gap-1 mt-0.5">
+                  <Sparkles className="w-2.5 h-2.5 text-cyan-400 shrink-0" />
+                  <span>Chief Physics Architect</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase border flex items-center gap-1 transition-all ${
+                isCyberpunk
+                  ? 'bg-cyan-500/25 text-cyan-300 border-cyan-400/50 group-hover:bg-cyan-400 group-hover:text-slate-950 shadow-[0_0_8px_rgba(0,240,255,0.3)]'
+                  : isDark
+                  ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30 group-hover:bg-cyan-500 group-hover:text-slate-950'
+                  : 'bg-cyan-100 text-cyan-800 border-cyan-300 group-hover:bg-cyan-600 group-hover:text-white'
+              }`}>
+                <span>Hub</span>
+                <ChevronRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
+              </span>
+            </div>
           </div>
-          <span className={`font-semibold ${isDark ? 'text-zinc-300' : 'text-slate-700'}`}>
-            Founder: <strong className="text-cyan-600 dark:text-cyan-400">Sanjay.J</strong>
-          </span>
         </div>
       </div>
     </div>

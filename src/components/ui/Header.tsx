@@ -25,6 +25,7 @@ import {
   Radio,
   Keyboard,
   TrendingUp,
+  MoreVertical,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -75,8 +76,10 @@ export const Header: React.FC<HeaderProps> = ({
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
+  const [isMoreToolsOpen, setIsMoreToolsOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const themeMenuRef = useRef<HTMLDivElement>(null);
+  const moreToolsRef = useRef<HTMLDivElement>(null);
   const mobileInputRef = useRef<HTMLInputElement>(null);
 
   const isCurrentFavorite = favorites.includes(currentConcept.id);
@@ -99,6 +102,9 @@ export const Header: React.FC<HeaderProps> = ({
       }
       if (themeMenuRef.current && !themeMenuRef.current.contains(event.target as Node)) {
         setIsThemeMenuOpen(false);
+      }
+      if (moreToolsRef.current && !moreToolsRef.current.contains(event.target as Node)) {
+        setIsMoreToolsOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -309,99 +315,11 @@ export const Header: React.FC<HeaderProps> = ({
           <Search className="w-4 h-4 text-cyan-400" />
         </button>
 
-        {onOpenAnalytics && (
-          <button
-            onClick={onOpenAnalytics}
-            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
-              isCyberpunk
-                ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-400/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
-                : isDark
-                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
-            }`}
-            title="Open JEE Physics Weightage & Score Intelligence Hub"
-          >
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden md:inline">Analytics</span>
-          </button>
-        )}
-
-        {onOpenTutorial && (
-          <button
-            id="header-tutorial-btn"
-            onClick={onOpenTutorial}
-            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
-              isCyberpunk
-                ? 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border-indigo-400/40 shadow-[0_0_10px_rgba(99,102,241,0.2)]'
-                : isDark
-                ? 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
-            }`}
-            title="Open Step by Step Tutorial"
-          >
-            <HelpCircle className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="hidden md:inline">Tutorial</span>
-          </button>
-        )}
-
-        {onOpenSpotlightTour && (
-          <button
-            id="header-spotlight-tour-btn"
-            onClick={onOpenSpotlightTour}
-            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
-              isCyberpunk
-                ? 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border-cyan-400/50 shadow-[0_0_12px_rgba(0,240,255,0.25)]'
-                : isDark
-                ? 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-500/40'
-                : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border-cyan-200'
-            }`}
-            title="Start Interactive Spotlight Tour"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-            <span className="hidden md:inline">Guided Tour</span>
-          </button>
-        )}
-
-        {onOpenShortcuts && (
-          <button
-            onClick={onOpenShortcuts}
-            className={`hidden md:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
-              isCyberpunk
-                ? 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-400/40 shadow-[0_0_10px_rgba(0,240,255,0.2)]'
-                : isDark
-                ? 'bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 border-white/[0.12]'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-            }`}
-            title="Open Keyboard Shortcuts Cheat Sheet (Press ?)"
-            aria-label="Keyboard Shortcuts"
-          >
-            <Keyboard className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden lg:inline">Shortcuts</span>
-            <kbd className="hidden xl:inline px-1 py-0.2 rounded text-[10px] font-mono font-bold bg-black/20 border border-current/20">?</kbd>
-          </button>
-        )}
-
-        {onOpenSyllabusDirectory && (
-          <button
-            onClick={onOpenSyllabusDirectory}
-            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
-              isCyberpunk
-                ? 'bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-300 border-fuchsia-400/40 shadow-[0_0_10px_rgba(217,70,239,0.2)]'
-                : isDark
-                ? 'bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30'
-                : 'bg-fuchsia-50 hover:bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200'
-            }`}
-            title="Browse JEE Syllabus & 3D Interactive Specs Directory"
-          >
-            <Layers className="w-3.5 h-3.5 text-fuchsia-400" />
-            <span className="hidden md:inline">Syllabus & 3D Specs</span>
-          </button>
-        )}
-
+        {/* Primary Direct Action Buttons */}
         {onOpenPdfModal && (
           <button
             onClick={() => onOpenPdfModal()}
-            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
+            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 ${
               isCyberpunk
                 ? 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border-cyan-400/40 shadow-[0_0_10px_rgba(0,240,255,0.2)]'
                 : isDark
@@ -419,7 +337,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             id="header-formula-btn"
             onClick={onOpenFormulaHub}
-            className={`hidden md:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
+            className={`hidden md:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 ${
               isCyberpunk
                 ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-400/40 shadow-[0_0_10px_rgba(0,255,157,0.2)]'
                 : isDark
@@ -433,155 +351,229 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {currentView === 'lab' && (
+        {onOpenAnalytics && (
           <button
-            onClick={() => onToggleFavorite(currentConcept.id)}
-            title={isCurrentFavorite ? 'Remove from Saved' : 'Save to Favorites'}
-            className={`p-2 rounded-xl border transition flex items-center justify-center min-h-[38px] min-w-[38px] text-xs font-semibold ${
-              isCurrentFavorite
-                ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+            onClick={onOpenAnalytics}
+            className={`hidden xl:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 ${
+              isCyberpunk
+                ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-400/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                : isDark
+                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+            }`}
+            title="Open JEE Physics Weightage & Score Intelligence Hub"
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Analytics</span>
+          </button>
+        )}
+
+        {/* Consolidated "More Tools" Menu */}
+        <div ref={moreToolsRef} className="relative">
+          <button
+            onClick={() => setIsMoreToolsOpen(!isMoreToolsOpen)}
+            title="More Physics Tools, Syllabus Directory, Guided Tour, Shortcuts & Calibration"
+            aria-label="More Physics Tools"
+            className={`px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-xl border transition-all flex items-center gap-1.5 shadow-xs active:scale-95 min-h-[38px] sm:min-h-[40px] shrink-0 ${
+              isMoreToolsOpen
+                ? isCyberpunk
+                  ? 'bg-cyan-500/25 text-cyan-300 border-cyan-400/50 shadow-[0_0_12px_rgba(0,240,255,0.3)]'
+                  : isDark
+                  ? 'bg-white/[0.12] text-white border-white/[0.2]'
+                  : 'bg-slate-200 text-slate-900 border-slate-300'
                 : isCyberpunk
-                ? 'bg-[#060B18] border-cyan-500/20 text-zinc-400 hover:text-cyan-300 hover:bg-cyan-500/10'
+                ? 'bg-[#060B18] border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/15'
                 : isDark
-                ? 'bg-[#121216] border-white/[0.08] text-zinc-400 hover:text-zinc-200 hover:bg-[#1A1A22]'
-                : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                ? 'bg-[#14141C] border-white/[0.08] text-zinc-300 hover:text-white hover:bg-[#1C1C26]'
+                : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-200'
             }`}
           >
-            <Star className={`w-4 h-4 ${isCurrentFavorite ? 'fill-current text-amber-400' : ''}`} />
-          </button>
-        )}
-
-        {onOpenLoadingScreen && (
-          <button
-            onClick={onOpenLoadingScreen}
-            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs ${
-              isCyberpunk
-                ? 'bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 border-cyan-500/30'
-                : isDark
-                ? 'bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 border-white/[0.12]'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-            }`}
-            title="Open 3D Physics Laboratory Calibration & Loading Screen"
-            aria-label="Calibrate Laboratory"
-          >
-            <Atom className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden xl:inline">Calibrate Lab</span>
-          </button>
-        )}
-
-        {/* Theme Selector Menu (Cyberpunk Synapse / Deep Space Dark / Solar Light) */}
-        <div ref={themeMenuRef} className="relative">
-          <button
-            onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
-            title="Switch Theme (Cyberpunk Synapse, Dark, Light)"
-            aria-label="Theme Selector"
-            className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border transition-all flex items-center gap-1.5 sm:gap-2 shadow-xs active:scale-95 min-h-[38px] sm:min-h-[40px] shrink-0 ${
-              isCyberpunk
-                ? 'bg-gradient-to-r from-cyan-950/80 to-emerald-950/80 hover:from-cyan-900/90 hover:to-emerald-900/90 text-cyan-200 border-cyan-400/50 shadow-[0_0_15px_rgba(0,240,255,0.25)]'
-                : isDark
-                ? 'bg-indigo-950/60 hover:bg-indigo-900/70 text-indigo-300 border-indigo-500/40 shadow-xs'
-                : 'bg-amber-100 hover:bg-amber-200 text-amber-950 border-amber-300 shadow-xs'
-            }`}
-          >
-            {isCyberpunk ? (
-              <>
-                <Zap className="w-4 h-4 text-cyan-400 animate-pulse shrink-0 fill-current" />
-                <span className="text-xs font-extrabold tracking-tight font-mono text-cyan-300">Synapse</span>
-                <ChevronDown className="w-3 h-3 text-cyan-400 opacity-80" />
-              </>
-            ) : isDark ? (
-              <>
-                <Moon className="w-4 h-4 text-indigo-400 shrink-0" />
-                <span className="text-xs font-bold tracking-tight text-indigo-200">Space Dark</span>
-                <ChevronDown className="w-3 h-3 text-indigo-400 opacity-80" />
-              </>
-            ) : (
-              <>
-                <Sun className="w-4 h-4 text-amber-600 shrink-0" />
-                <span className="text-xs font-bold tracking-tight text-amber-900">Light</span>
-                <ChevronDown className="w-3 h-3 text-amber-600 opacity-80" />
-              </>
-            )}
+            <MoreVertical className="w-4 h-4 sm:hidden text-cyan-400" />
+            <Layers className="w-3.5 h-3.5 hidden sm:block text-cyan-400" />
+            <span className="hidden sm:inline text-xs font-bold">Tools</span>
+            <ChevronDown className={`w-3 h-3 transition-transform ${isMoreToolsOpen ? 'rotate-180 text-cyan-400' : 'opacity-70'}`} />
           </button>
 
-          {/* Theme Dropdown */}
-          {isThemeMenuOpen && (
-            <div className={`absolute right-0 top-full mt-2 w-48 rounded-2xl border shadow-2xl backdrop-blur-xl p-1.5 z-50 flex flex-col gap-1 ${
+          {/* More Tools Dropdown */}
+          {isMoreToolsOpen && (
+            <div className={`absolute right-0 top-full mt-2 w-64 rounded-2xl border shadow-2xl backdrop-blur-2xl p-1.5 z-50 flex flex-col gap-1 max-h-[85vh] overflow-y-auto animate-in fade-in zoom-in-95 ${
               isCyberpunk
-                ? 'bg-[#030712]/98 border-cyan-500/35 shadow-[0_10px_40px_rgba(0,0,0,0.8)] divide-y divide-cyan-950/40'
+                ? 'bg-[#040816]/98 border-cyan-500/40 text-zinc-100 shadow-[0_10px_40px_rgba(0,0,0,0.85)] divide-y divide-cyan-950/40'
                 : isDark
-                ? 'bg-[#121218]/98 border-white/[0.12] shadow-2xl'
-                : 'bg-white/98 border-slate-200 shadow-xl'
+                ? 'bg-[#121218]/98 border-white/[0.14] text-zinc-100 shadow-2xl divide-y divide-white/[0.05]'
+                : 'bg-white/98 border-slate-200 text-slate-900 shadow-2xl divide-y divide-slate-100'
             }`}>
-              <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400 font-mono">
-                Select Theme
+              <div className="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-cyan-400 font-mono flex items-center justify-between">
+                <span>Physics Resources & Labs</span>
+                <span className="text-[9px] text-zinc-500 font-sans">Quick Access</span>
               </div>
 
-              {/* Option 1: Cyberpunk Synapse */}
-              <button
-                onClick={() => {
-                  setTheme('cyberpunk');
-                  setIsThemeMenuOpen(false);
-                }}
-                className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-bold transition flex items-center justify-between ${
-                  isCyberpunk
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-[0_0_10px_rgba(0,240,255,0.2)]'
-                    : 'text-zinc-300 hover:bg-white/[0.05]'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-cyan-400 fill-current" />
-                  <div>
-                    <div className="font-extrabold text-cyan-300 font-mono">Cyberpunk Synapse</div>
-                    <div className="text-[9px] text-cyan-400/70 font-normal">Neon HUD & Laser Energy</div>
-                  </div>
-                </div>
-                {isCyberpunk && <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#00f0ff]" />}
-              </button>
+              <div className="flex flex-col gap-0.5 pt-1">
+                {onOpenPdfModal && (
+                  <button
+                    onClick={() => {
+                      onOpenPdfModal();
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
+                      isCyberpunk ? 'hover:bg-cyan-500/15 text-cyan-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0">
+                      <Download className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs">Chapter PDF Sheets</div>
+                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>High-yield revision notes & formulas</div>
+                    </div>
+                  </button>
+                )}
 
-              {/* Option 2: Deep Space Dark */}
-              <button
-                onClick={() => {
-                  setTheme('dark');
-                  setIsThemeMenuOpen(false);
-                }}
-                className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-bold transition flex items-center justify-between ${
-                  theme === 'dark'
-                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-400/40'
-                    : isDark ? 'text-zinc-300 hover:bg-white/[0.05]' : 'text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Moon className="w-4 h-4 text-indigo-400" />
-                  <div>
-                    <div className="font-bold">Deep Space Dark</div>
-                    <div className="text-[9px] text-zinc-400 font-normal">Classic Dark UI</div>
-                  </div>
-                </div>
-                {theme === 'dark' && <span className="w-2 h-2 rounded-full bg-indigo-400" />}
-              </button>
+                {onOpenFormulaHub && (
+                  <button
+                    onClick={() => {
+                      onOpenFormulaHub();
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
+                      isCyberpunk ? 'hover:bg-cyan-500/15 text-cyan-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                      <BookOpen className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs">Formula & Law Hub</div>
+                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>150+ master formulas & boundary cases</div>
+                    </div>
+                  </button>
+                )}
 
-              {/* Option 3: Solar Light */}
-              <button
-                onClick={() => {
-                  setTheme('light');
-                  setIsThemeMenuOpen(false);
-                }}
-                className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-bold transition flex items-center justify-between ${
-                  theme === 'light'
-                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                    : isDark ? 'text-zinc-300 hover:bg-white/[0.05]' : 'text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Sun className="w-4 h-4 text-amber-500" />
-                  <div>
-                    <div className="font-bold">Solar Light</div>
-                    <div className="text-[9px] text-zinc-400 font-normal">High contrast day mode</div>
-                  </div>
-                </div>
-                {theme === 'light' && <span className="w-2 h-2 rounded-full bg-amber-500" />}
-              </button>
+                {onOpenAnalytics && (
+                  <button
+                    onClick={() => {
+                      onOpenAnalytics();
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
+                      isCyberpunk ? 'hover:bg-emerald-500/15 text-emerald-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                      <TrendingUp className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs">JEE Weightage Analytics</div>
+                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>10-year exam trend intelligence</div>
+                    </div>
+                  </button>
+                )}
+
+                {onOpenSyllabusDirectory && (
+                  <button
+                    onClick={() => {
+                      onOpenSyllabusDirectory();
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
+                      isCyberpunk ? 'hover:bg-fuchsia-500/15 text-fuchsia-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-fuchsia-500/20 text-fuchsia-400 flex items-center justify-center shrink-0">
+                      <Layers className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs">Syllabus & 3D Specs</div>
+                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Full curriculum matrix & parameters</div>
+                    </div>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-0.5 pt-1">
+                {onOpenSpotlightTour && (
+                  <button
+                    onClick={() => {
+                      onOpenSpotlightTour();
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
+                      isCyberpunk ? 'hover:bg-cyan-500/15 text-cyan-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs">Interactive Spotlight Tour</div>
+                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Guided walk-through of 3D features</div>
+                    </div>
+                  </button>
+                )}
+
+                {onOpenTutorial && (
+                  <button
+                    onClick={() => {
+                      onOpenTutorial();
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
+                      isCyberpunk ? 'hover:bg-indigo-500/15 text-indigo-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                      <HelpCircle className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs">Step-by-Step Tutorial</div>
+                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Learn how to experiment effectively</div>
+                    </div>
+                  </button>
+                )}
+
+                {onOpenShortcuts && (
+                  <button
+                    onClick={() => {
+                      onOpenShortcuts();
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
+                      isCyberpunk ? 'hover:bg-cyan-500/15 text-cyan-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-white/10 text-zinc-300 flex items-center justify-center shrink-0">
+                      <Keyboard className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0 flex-1 flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-xs">Keyboard Shortcuts</div>
+                        <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Hotkeys for power users</div>
+                      </div>
+                      <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-black/30 border border-white/10">?</kbd>
+                    </div>
+                  </button>
+                )}
+
+                {onOpenLoadingScreen && (
+                  <button
+                    onClick={() => {
+                      onOpenLoadingScreen();
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
+                      isCyberpunk ? 'hover:bg-cyan-500/15 text-cyan-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0">
+                      <Atom className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs">Calibrate Laboratory</div>
+                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Reset shaders & stage physics engine</div>
+                    </div>
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>

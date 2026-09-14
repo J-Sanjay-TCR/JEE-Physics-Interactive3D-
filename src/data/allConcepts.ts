@@ -148,5 +148,50 @@ export const getConceptsByCategory = (categoryId: string): PhysicsConcept[] => {
   return ALL_CONCEPTS.filter((c) => c.category === categoryId);
 };
 
+export const CLASS_11_CHAPTER_IDS = new Set<string>([
+  'units-dimensions',
+  'vectors-math',
+  'kinematics',
+  'laws-of-motion',
+  'work-energy-power',
+  'com-momentum',
+  'rotational-motion',
+  'gravitation',
+  'properties-matter',
+  'fluid-mechanics',
+  'thermodynamics',
+  'heat-transfer',
+  'oscillations',
+  'waves',
+]);
+
+export const CLASS_12_CHAPTER_IDS = new Set<string>([
+  'electrostatics',
+  'magnetism',
+  'emi-ac',
+  'ray-optics',
+  'wave-optics',
+  'modern-physics',
+  'nuclear-physics',
+]);
+
+export const isClass11Chapter = (idOrChapterId: string): boolean => {
+  if (CLASS_11_CHAPTER_IDS.has(idOrChapterId)) return true;
+  const concept = ALL_CONCEPTS.find((c) => c.id === idOrChapterId || c.chapterId === idOrChapterId);
+  if (concept && CLASS_11_CHAPTER_IDS.has(concept.chapterId)) return true;
+  return false;
+};
+
+export const isClass12Chapter = (idOrChapterId: string): boolean => {
+  if (CLASS_12_CHAPTER_IDS.has(idOrChapterId)) return true;
+  const concept = ALL_CONCEPTS.find((c) => c.id === idOrChapterId || c.chapterId === idOrChapterId);
+  if (concept && CLASS_12_CHAPTER_IDS.has(concept.chapterId)) return true;
+  return false;
+};
+
+export const getChapterClass = (idOrChapterId: string): 'Class 11' | 'Class 12' => {
+  return isClass12Chapter(idOrChapterId) ? 'Class 12' : 'Class 11';
+};
+
 export { CHAPTERS, CATEGORIES };
 

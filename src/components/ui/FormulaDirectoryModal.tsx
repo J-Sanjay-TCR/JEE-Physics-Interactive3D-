@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ALL_CONCEPTS } from '../../data/allConcepts';
+import { ALL_CONCEPTS, isClass11Chapter, isClass12Chapter } from '../../data/allConcepts';
 import { PhysicsConcept, CategoryId, SpecialCase } from '../../types';
 import { Latex } from './Latex';
 import { generateChapterPdf, generateMasterCompendiumPdf } from '../../utils/pdfGenerator';
@@ -44,6 +44,7 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
   const [viewMode, setViewMode] = useState<'formulas' | 'cases'>('formulas');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedClass, setSelectedClass] = useState<'all' | 'class-11' | 'class-12'>('all');
   const [copiedIndex, setCopiedIndex] = useState<string | null>(null);
   const [downloadingChapterId, setDownloadingChapterId] = useState<string | null>(null);
   const [downloadToast, setDownloadToast] = useState<{ fileName: string } | null>(null);
@@ -129,14 +130,20 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
   // Category list with accurate counts
   const categories = useMemo(() => {
     const getCount = (catId: string) => {
+      const matchClass = (chapterId: string) => {
+        if (selectedClass === 'class-11') return isClass11Chapter(chapterId);
+        if (selectedClass === 'class-12') return isClass12Chapter(chapterId);
+        return true;
+      };
+
       if (viewMode === 'formulas') {
         return catId === 'all'
-          ? allFormulas.length
-          : allFormulas.filter((f) => f.concept.category === catId).length;
+          ? allFormulas.filter((f) => matchClass(f.concept.chapterId)).length
+          : allFormulas.filter((f) => f.concept.category === catId && matchClass(f.concept.chapterId)).length;
       } else {
         return catId === 'all'
-          ? allCases.length
-          : allCases.filter((c) => c.concept.category === catId).length;
+          ? allCases.filter((c) => matchClass(c.concept.chapterId)).length
+          : allCases.filter((c) => c.concept.category === catId && matchClass(c.concept.chapterId)).length;
       }
     };
 
@@ -150,7 +157,7 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
       { id: 'modern', label: 'Modern Physics', count: getCount('modern'), icon: Sparkles },
       { id: 'experimental', label: 'Experimental', count: getCount('experimental'), icon: Ruler },
     ];
-  }, [allFormulas, allCases, viewMode]);
+  }, [allFormulas, allCases, viewMode, selectedClass]);
 
   // Quick filter tags
   const quickTags = [
@@ -170,8 +177,12 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
       const matchesCat =
         selectedCategory === 'all' || item.concept.category === selectedCategory;
 
+      let matchesClass = true;
+      if (selectedClass === 'class-11') matchesClass = isClass11Chapter(item.concept.chapterId);
+      else if (selectedClass === 'class-12') matchesClass = isClass12Chapter(item.concept.chapterId);
+
       const q = searchQuery.toLowerCase().trim();
-      if (!q) return matchesCat;
+      if (!q) return matchesCat && matchesClass;
 
       const matchesSearch =
         item.formula.name.toLowerCase().includes(q) ||
@@ -181,9 +192,9 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
         item.concept.chapterId.toLowerCase().includes(q) ||
         item.concept.topic.toLowerCase().includes(q);
 
-      return matchesCat && matchesSearch;
+      return matchesCat && matchesClass && matchesSearch;
     });
-  }, [allFormulas, selectedCategory, searchQuery]);
+  }, [allFormulas, selectedCategory, selectedClass, searchQuery]);
 
   // Group filtered formulas by Concept for structured hierarchy
   const groupedFormulas = useMemo(() => {
@@ -216,8 +227,12 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
       const matchesCat =
         selectedCategory === 'all' || item.concept.category === selectedCategory;
 
+      let matchesClass = true;
+      if (selectedClass === 'class-11') matchesClass = isClass11Chapter(item.concept.chapterId);
+      else if (selectedClass === 'class-12') matchesClass = isClass12Chapter(item.concept.chapterId);
+
       const q = searchQuery.toLowerCase().trim();
-      if (!q) return matchesCat;
+      if (!q) return matchesCat && matchesClass;
 
       const matchesSearch =
         item.caseItem.title.toLowerCase().includes(q) ||
@@ -227,9 +242,9 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
         item.concept.title.toLowerCase().includes(q) ||
         item.concept.topic.toLowerCase().includes(q);
 
-      return matchesCat && matchesSearch;
+      return matchesCat && matchesClass && matchesSearch;
     });
-  }, [allCases, selectedCategory, searchQuery]);
+  }, [allCases, selectedCategory, selectedClass, searchQuery]);
 
   // Group filtered cases by Concept
   const groupedCases = useMemo(() => {
@@ -374,6 +389,42 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                   </div>
                 </div>
 
+                {/* Portion Selector (All / Class 11 / Class 12) */}
+                <div className="p-2 border-b border-white/[0.06] bg-[#07090F]">
+                  <div className="flex items-center gap-1 p-0.5 rounded-lg bg-black/40 border border-white/[0.05]">
+                    <button
+                      onClick={() => setSelectedClass('all')}
+                      className={`flex-1 py-1 px-1 rounded-md text-[10px] font-bold transition text-center min-h-[26px] ${
+                        selectedClass === 'all'
+                          ? 'bg-cyan-500 text-slate-950 font-black shadow-xs'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setSelectedClass('class-11')}
+                      className={`flex-1 py-1 px-1 rounded-md text-[10px] font-bold transition text-center min-h-[26px] ${
+                        selectedClass === 'class-11'
+                          ? 'bg-blue-500 text-white font-black shadow-xs'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      Class 11
+                    </button>
+                    <button
+                      onClick={() => setSelectedClass('class-12')}
+                      className={`flex-1 py-1 px-1 rounded-md text-[10px] font-bold transition text-center min-h-[26px] ${
+                        selectedClass === 'class-12'
+                          ? 'bg-purple-500 text-white font-black shadow-xs'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      Class 12
+                    </button>
+                  </div>
+                </div>
+
                 {/* Categories / Chapters Nav List */}
                 <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin">
                   <div className="px-2 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
@@ -484,6 +535,7 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                           onClick={() => {
                             setSearchQuery('');
                             setSelectedCategory('all');
+                            setSelectedClass('all');
                           }}
                           className="px-4 py-2 rounded-xl bg-cyan-500/20 text-cyan-300 text-xs font-bold border border-cyan-500/40 hover:bg-cyan-500 hover:text-slate-950 transition"
                         >
@@ -491,21 +543,30 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                         </button>
                       </div>
                     ) : (
-                      groupedFormulas.map((group) => (
-                        <div key={group.concept.id} className="space-y-3">
-                          {/* Structured Section Header for each Topic */}
-                          <div className="flex items-center justify-between pb-2 border-b border-white/[0.08] flex-wrap gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                                {group.concept.topic}
-                              </span>
-                              <h3 className="text-sm font-bold text-white tracking-wide truncate">
-                                {group.concept.title}
-                              </h3>
-                              <span className="text-[11px] text-zinc-500 font-mono hidden sm:inline">
-                                ({group.concept.subtitle})
-                              </span>
-                            </div>
+                      groupedFormulas.map((group) => {
+                        const isC11 = isClass11Chapter(group.concept.chapterId);
+                        return (
+                          <div key={group.concept.id} className="space-y-3">
+                            {/* Structured Section Header for each Topic */}
+                            <div className="flex items-center justify-between pb-2 border-b border-white/[0.08] flex-wrap gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-black border ${
+                                  isC11
+                                    ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                    : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                                }`}>
+                                  {isC11 ? 'Class 11' : 'Class 12'}
+                                </span>
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                                  {group.concept.topic}
+                                </span>
+                                <h3 className="text-sm font-bold text-white tracking-wide truncate">
+                                  {group.concept.title}
+                                </h3>
+                                <span className="text-[11px] text-zinc-500 font-mono hidden sm:inline">
+                                  ({group.concept.subtitle})
+                                </span>
+                              </div>
 
                             <div className="flex items-center gap-2 shrink-0">
                               <button
@@ -620,7 +681,8 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                             })}
                           </div>
                         </div>
-                      ))
+                        );
+                      })
                     )
                   ) : (
                     /* Special Cases & Limits View */
@@ -629,13 +691,32 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                         <Sparkles className="w-12 h-12 text-zinc-600 mx-auto" />
                         <p className="text-zinc-300 font-semibold text-sm">No special cases match your criteria</p>
                         <p className="text-xs text-zinc-500">Try choosing a different chapter or clearing filters</p>
+                        <button
+                          onClick={() => {
+                            setSearchQuery('');
+                            setSelectedCategory('all');
+                            setSelectedClass('all');
+                          }}
+                          className="px-4 py-2 rounded-xl bg-amber-500/20 text-amber-300 text-xs font-bold border border-amber-500/40 hover:bg-amber-500 hover:text-slate-950 transition"
+                        >
+                          Show All Cases
+                        </button>
                       </div>
                     ) : (
-                      groupedCases.map((group) => (
+                      groupedCases.map((group) => {
+                        const isC11 = isClass11Chapter(group.concept.chapterId);
+                        return (
                         <div key={group.concept.id} className="space-y-3">
                           {/* Topic Section Header */}
                           <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
                             <div className="flex items-center gap-2 min-w-0">
+                              <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-black border ${
+                                isC11
+                                  ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                  : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                              }`}>
+                                {isC11 ? 'Class 11' : 'Class 12'}
+                              </span>
                               <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                                 {group.concept.topic}
                               </span>
@@ -715,7 +796,8 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                             ))}
                           </div>
                         </div>
-                      ))
+                        );
+                      })
                     )
                   )}
                 </div>

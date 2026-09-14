@@ -1278,10 +1278,13 @@ export class SimulationRenderer {
     const colorApex = new THREE.Color(0x2dd4bf);
     const colorAmber = new THREE.Color(0xf59e0b);
 
-    // A. Primary Instanced Dotted Trajectory (200 instances)
+    // A. Dynamic Physics-Calculated Dotted Trajectory (240 instances)
+    // Completely replaces static trajectory lines with real-time force-vector-modulated glowing dots
     if (this.projectilePrimaryInstancedDots) {
       this.projectilePrimaryInstancedDots.visible = ctx.showTrajectory;
       const count = 200;
+      const mass = 4.0;
+
       for (let i = 0; i < count; i++) {
         const frac = i / (count - 1);
         const idx = Math.min(primaryFlightPoints.length - 1, Math.floor(frac * (primaryFlightPoints.length - 1)));
@@ -1290,24 +1293,49 @@ export class SimulationRenderer {
         if (pt) {
           dummyObj.position.set(pt.x, pt.y, 0);
 
-          // Proximity to current projectile position creates dynamic radar ping wave
+          // Real-time force vector calculations at this exact trajectory point
+          const ptV = Math.hypot(pt.vx, pt.vy);
+          const fDx = pt.forceDragX ?? (-dragCoeff * ptV * pt.vx);
+          const fDy = pt.forceDragY ?? (-dragCoeff * ptV * pt.vy);
+          const fGx = 0;
+          const fGy = -mass * g;
+          const fNetX = fGx + fDx;
+          const fNetY = fGy + fDy;
+          const fNetMag = Math.hypot(fNetX, fNetY);
+
+          // Distance from current projectile position
           const distToCur = Math.hypot(pt.x - currentState.x, pt.y - currentState.y);
-          const isNearCur = distToCur < 1.5;
-          const scale = isNearCur ? 1.45 : 1.0;
-          dummyObj.scale.set(scale, scale, scale);
+          const isNearCur = distToCur < 2.0;
+
+          // Scale dots dynamically based on local net force and proximity to projectile
+          const forceScaleBonus = Math.min(0.5, (fNetMag / (mass * 9.8)) * 0.25);
+          const proximityBonus = isNearCur ? (1.0 - distToCur / 2.0) * 0.8 : 0;
+          const wavePhase = (ctx.simTime * 8.0 - frac * 12.0) % (2 * Math.PI);
+          const travelingWave = Math.sin(wavePhase) * 0.15;
+          const baseScale = 0.95 + forceScaleBonus + proximityBonus + travelingWave;
+
+          dummyObj.scale.set(baseScale, baseScale, baseScale);
           dummyObj.updateMatrix();
           this.projectilePrimaryInstancedDots.setMatrixAt(i, dummyObj.matrix);
 
           if (pt.t <= tInCycle) {
-            // Traversed active path: high-luminance white-cyan
-            const pulse = isNearCur ? 1.0 : 0.8 + 0.2 * Math.sin(ctx.simTime * 6 - i * 0.1);
-            const col = colorBrightTraversed.clone().multiplyScalar(pulse);
-            this.projectilePrimaryInstancedDots.setColorAt(i, col);
+            // Traversed active path: ionized plasma trail matching current projectile flight state
+            const activePulse = 0.85 + 0.35 * Math.sin(ctx.simTime * 10 - i * 0.15);
+            const dotCol = colorBrightTraversed.clone().multiplyScalar(activePulse);
+            this.projectilePrimaryInstancedDots.setColorAt(i, dotCol);
           } else {
-            // Ahead predictive physics path: crisp cyan, shifting to aquamarine around apex
-            const isApexZone = Math.abs(pt.t - t_apex) < 0.25;
-            const col = isApexZone ? colorApex : colorCyan;
-            this.projectilePrimaryInstancedDots.setColorAt(i, col);
+            // Ahead predictive physics path: updates based on current force field
+            const isApexZone = Math.abs(pt.t - t_apex) < 0.3;
+            // Drag-heavy regions glow with cyan-violet shift; gravity-dominant apex shifts to aquamarine
+            let dotCol: THREE.Color;
+            if (isApexZone) {
+              dotCol = colorApex;
+            } else if (dragCoeff > 0.05 && fNetMag > mass * g * 1.2) {
+              dotCol = new THREE.Color(0x38bdf8).lerp(new THREE.Color(0xc084fc), Math.min(0.6, (fNetMag - mass * g) / 30));
+            } else {
+              dotCol = colorCyan;
+            }
+            this.projectilePrimaryInstancedDots.setColorAt(i, dotCol);
           }
         }
       }
@@ -1317,7 +1345,7 @@ export class SimulationRenderer {
       }
     }
 
-    // B. Secondary Bounce Instanced Dotted Trajectory (120 instances)
+    // B. Secondary Dynamic Physics Bounce Instanced Dotted Trajectory (120 instances)
     if (this.projectileBounceInstancedDots) {
       this.projectileBounceInstancedDots.visible = ctx.showTrajectory && bouncePoints.length > 1;
       const countB = 120;
@@ -1328,14 +1356,17 @@ export class SimulationRenderer {
           const bPt = bouncePoints[bIdx];
           if (bPt) {
             dummyObj.position.set(bPt.x, bPt.y, 0);
-            dummyObj.scale.set(0.85, 0.85, 0.85);
+            const bDist = Math.hypot(bPt.x - currentState.x, bPt.y - currentState.y);
+            const bProximity = bDist < 2.0 ? 0.35 : 0;
+            const bScale = 0.85 + bProximity;
+            dummyObj.scale.set(bScale, bScale, bScale);
             dummyObj.updateMatrix();
             this.projectileBounceInstancedDots.setMatrixAt(j, dummyObj.matrix);
             this.projectileBounceInstancedDots.setColorAt(j, colorAmber);
           }
         } else {
           dummyObj.position.set(0, -999, 0);
-          dummyObj.scale.set(0.01, 0.01, 0.01);
+          dummyObj.scale.set(0.001, 0.001, 0.001);
           dummyObj.updateMatrix();
           this.projectileBounceInstancedDots.setMatrixAt(j, dummyObj.matrix);
         }
@@ -1346,28 +1377,18 @@ export class SimulationRenderer {
       }
     }
 
-    // C. Auxiliary Depth Trajectory Lines
+    // C. Replaced Static Trajectory Lines: Keep hidden so dynamic physics dots are the sole visual path
     if (this.trajectoryLine) {
-      const pts = primaryFlightPoints.map((p) => new THREE.Vector3(p.x, p.y, 0));
-      this.trajectoryLine.geometry.setFromPoints(pts);
-      this.trajectoryLine.computeLineDistances();
-      this.trajectoryLine.visible = ctx.showTrajectory;
+      this.trajectoryLine.visible = false;
     }
     if (this.trajectoryGlowLine) {
-      const pts = primaryFlightPoints.map((p) => new THREE.Vector3(p.x, p.y, 0));
-      this.trajectoryGlowLine.geometry.setFromPoints(pts);
-      this.trajectoryGlowLine.computeLineDistances();
-      this.trajectoryGlowLine.visible = ctx.showTrajectory;
+      this.trajectoryGlowLine.visible = false;
     }
     if (this.bounceTrajLine) {
-      if (bouncePoints.length > 1) {
-        const pts = bouncePoints.map((p) => new THREE.Vector3(p.x, p.y, 0));
-        this.bounceTrajLine.geometry.setFromPoints(pts);
-        this.bounceTrajLine.computeLineDistances();
-        this.bounceTrajLine.visible = ctx.showTrajectory;
-      } else {
-        this.bounceTrajLine.visible = false;
-      }
+      this.bounceTrajLine.visible = false;
+    }
+    if (this.activeTrailLine) {
+      this.activeTrailLine.visible = false;
     }
 
     // D. Active Projectile Radar Beacon Group

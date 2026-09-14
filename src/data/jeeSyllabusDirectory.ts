@@ -1,6 +1,6 @@
 export interface JeeChapterSyllabusItem {
   id: string;
-  unit_name: 'Mechanics' | 'Thermal Physics' | 'Electricity & Magnetism' | 'Optics' | 'Modern Physics';
+  unit_name: 'Mechanics' | 'Thermal Physics' | 'Electricity & Magnetism' | 'Waves & Oscillations' | 'Optics' | 'Modern Physics' | 'Experimental Physics';
   chapter_name: string;
   conceptId: string;
   core_explanation: string;
@@ -13,6 +13,32 @@ export interface JeeChapterSyllabusItem {
 }
 
 export const JEE_SYLLABUS_DIRECTORY: JeeChapterSyllabusItem[] = [
+  {
+    id: 'syl-units-dimensions',
+    unit_name: 'Experimental Physics',
+    chapter_name: 'Units, Dimensions & Errors',
+    conceptId: 'vernier-caliper',
+    core_explanation:
+      'Covers fundamental and derived SI units, dimensional analysis for checking formula validity and deriving scaling relations, least count determination, Vernier calipers, screw gauge zero errors, and fractional/percentage error propagation.',
+    important_cases: [
+      'Positive and negative zero error correction for Vernier calliper and micrometer screw gauge',
+      'Maximum permissible percentage error calculation in compound quantities (Z = A^p * B^q / C^r)',
+      'Dimensional homogenization and deduction of empirical formulas using dimensionless constants',
+      'Significant figures and scientific rounding rules in experimental observations',
+    ],
+    '3d_model_spec': {
+      visual_description:
+        'A high-precision 3D Vernier Caliper and Micrometer Screw Gauge with interactive movable jaws, thimble ratchet, pitch scale markings, and live digital readout comparison.',
+      interactive_variables: [
+        'Main Scale Reading (MSR)',
+        'Vernier Coincidence / Circular Scale Reading (CSR)',
+        'Zero Error Calibration Offset',
+        'Object Diameter/Thickness Preset',
+      ],
+      expected_behavior:
+        'Dragging the slider or object simulates real physical contact, demonstrates parallax-free alignment of scale graduation marks, and computes total measured dimension with least count precision.',
+    },
+  },
   {
     id: 'syl-kinematics',
     unit_name: 'Mechanics',
@@ -547,7 +573,7 @@ export const JEE_SYLLABUS_DIRECTORY: JeeChapterSyllabusItem[] = [
   },
   {
     id: 'syl-mechanical-waves',
-    unit_name: 'Modern Physics',
+    unit_name: 'Waves & Oscillations',
     chapter_name: 'Mechanical Waves',
     conceptId: 'standing-waves-acoustics',
     core_explanation:

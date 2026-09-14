@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { PhysicsConcept } from '../../types';
 import { ALL_CONCEPTS, CHAPTERS, CATEGORIES } from '../../data/allConcepts';
 import { useTheme } from '../../context/ThemeContext';
@@ -29,6 +29,17 @@ import {
   Printer,
   Sun,
   Moon,
+  Eye,
+  Ruler,
+  Quote,
+  Cpu,
+  ShieldCheck,
+  ExternalLink,
+  RefreshCw,
+  Copy,
+  Check,
+  Code,
+  Terminal,
 } from 'lucide-react';
 
 interface HomePageProps {
@@ -44,6 +55,78 @@ interface HomePageProps {
   onToggleFavorite: (id: string) => void;
 }
 
+const CLASS_11_CHAPTER_IDS = new Set([
+  'units-dimensions',
+  'vectors-math',
+  'kinematics',
+  'laws-of-motion',
+  'work-energy-power',
+  'com-momentum',
+  'rotational-motion',
+  'gravitation',
+  'properties-matter',
+  'fluid-mechanics',
+  'thermodynamics',
+  'heat-transfer',
+  'oscillations',
+  'waves',
+]);
+
+const CLASS_12_CHAPTER_IDS = new Set([
+  'electrostatics',
+  'magnetism',
+  'emi-ac',
+  'ray-optics',
+  'wave-optics',
+  'modern-physics',
+  'nuclear-physics',
+]);
+
+const CATEGORY_META: Record<string, { label: string; icon: React.ReactNode; color: string; badge: string }> = {
+  mechanics: {
+    label: 'Mechanics & Fluids',
+    icon: <Atom className="w-3.5 h-3.5" />,
+    color: 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10',
+    badge: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+  },
+  electromagnetism: {
+    label: 'Electrodynamics',
+    icon: <Zap className="w-3.5 h-3.5" />,
+    color: 'text-amber-400 border-amber-500/30 bg-amber-500/10',
+    badge: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  },
+  thermal: {
+    label: 'Thermal & Heat',
+    icon: <Flame className="w-3.5 h-3.5" />,
+    color: 'text-orange-400 border-orange-500/30 bg-orange-500/10',
+    badge: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+  },
+  'waves-oscillations': {
+    label: 'Waves & SHM',
+    icon: <Activity className="w-3.5 h-3.5" />,
+    color: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10',
+    badge: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  },
+  optics: {
+    label: 'Ray & Wave Optics',
+    icon: <Eye className="w-3.5 h-3.5" />,
+    color: 'text-purple-400 border-purple-500/30 bg-purple-500/10',
+    badge: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  },
+  modern: {
+    label: 'Modern Physics',
+    icon: <Sun className="w-3.5 h-3.5" />,
+    color: 'text-rose-400 border-rose-500/30 bg-rose-500/10',
+    badge: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+  },
+  experimental: {
+    label: 'Experimental',
+    icon: <Ruler className="w-3.5 h-3.5" />,
+    color: 'text-blue-400 border-blue-500/30 bg-blue-500/10',
+    badge: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+  },
+};
+
 export const HomePage: React.FC<HomePageProps> = ({
   onSelectConcept,
   onOpenFormulaHub,
@@ -58,6 +141,9 @@ export const HomePage: React.FC<HomePageProps> = ({
 }) => {
   const { isDark, isCyberpunk, theme, cycleTheme } = useTheme();
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
+  const [selectedClass, setSelectedClass] = useState<'all' | 'class-11' | 'class-12'>('all');
+  const [showFounderManifesto, setShowFounderManifesto] = useState<boolean>(false);
+  const [copiedManifesto, setCopiedManifesto] = useState<boolean>(false);
 
   // Featured flagship 3D concepts for hero showcase
   const featuredConcepts = [
@@ -103,14 +189,91 @@ export const HomePage: React.FC<HomePageProps> = ({
     },
   ];
 
-  const filteredChapters = CHAPTERS.filter((ch) => {
-    if (selectedBranch === 'all') return true;
-    if (selectedBranch === 'mechanics') return ch.category === 'mechanics';
-    if (selectedBranch === 'electrodynamics') return ch.category === 'electromagnetism';
-    if (selectedBranch === 'optics') return ch.category === 'optics' || ch.category === 'waves-oscillations';
-    if (selectedBranch === 'modern') return ch.category === 'modern' || ch.category === 'thermal';
-    return true;
-  });
+  const filteredChapters = useMemo(() => {
+    return CHAPTERS.filter((ch) => {
+      let matchesCategory = true;
+      if (selectedBranch !== 'all') {
+        matchesCategory = ch.category === selectedBranch;
+      }
+
+      let matchesClass = true;
+      if (selectedClass === 'class-11') {
+        matchesClass = CLASS_11_CHAPTER_IDS.has(ch.id);
+      } else if (selectedClass === 'class-12') {
+        matchesClass = CLASS_12_CHAPTER_IDS.has(ch.id);
+      }
+
+      return matchesCategory && matchesClass;
+    });
+  }, [selectedBranch, selectedClass]);
+
+  const totalCategoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: CHAPTERS.length };
+    CHAPTERS.forEach((ch) => {
+      counts[ch.category] = (counts[ch.category] || 0) + 1;
+    });
+    return counts;
+  }, []);
+
+  const handleToggleCategory = (catId: string) => {
+    if (selectedBranch === catId) {
+      setSelectedBranch('all');
+    } else {
+      setSelectedBranch(catId);
+      if (selectedClass !== 'all' && catId !== 'all') {
+        const hasChaptersInClass = CHAPTERS.some((ch) => {
+          if (ch.category !== catId) return false;
+          return selectedClass === 'class-11'
+            ? CLASS_11_CHAPTER_IDS.has(ch.id)
+            : CLASS_12_CHAPTER_IDS.has(ch.id);
+        });
+        if (!hasChaptersInClass) {
+          const inC11 = CHAPTERS.some((ch) => ch.category === catId && CLASS_11_CHAPTER_IDS.has(ch.id));
+          const inC12 = CHAPTERS.some((ch) => ch.category === catId && CLASS_12_CHAPTER_IDS.has(ch.id));
+          if (inC11 && !inC12) {
+            setSelectedClass('class-11');
+          } else if (inC12 && !inC11) {
+            setSelectedClass('class-12');
+          } else {
+            setSelectedClass('all');
+          }
+        }
+      }
+    }
+  };
+
+  const handleToggleClass = (classId: 'all' | 'class-11' | 'class-12') => {
+    const nextClass = selectedClass === classId && classId !== 'all' ? 'all' : classId;
+    setSelectedClass(nextClass);
+    if (selectedBranch !== 'all' && nextClass !== 'all') {
+      const hasChaptersInCategory = CHAPTERS.some((ch) => {
+        if (ch.category !== selectedBranch) return false;
+        return nextClass === 'class-11'
+          ? CLASS_11_CHAPTER_IDS.has(ch.id)
+          : CLASS_12_CHAPTER_IDS.has(ch.id);
+      });
+      if (!hasChaptersInCategory) {
+        setSelectedBranch('all');
+      }
+    }
+  };
+
+  const classCounts = useMemo(() => {
+    let c11 = 0;
+    let c12 = 0;
+    CHAPTERS.forEach((ch) => {
+      const matchesCategory = selectedBranch === 'all' || ch.category === selectedBranch;
+      if (matchesCategory) {
+        if (CLASS_11_CHAPTER_IDS.has(ch.id)) c11++;
+        if (CLASS_12_CHAPTER_IDS.has(ch.id)) c12++;
+      }
+    });
+    return {
+      all: selectedBranch === 'all' ? CHAPTERS.length : CHAPTERS.filter((c) => c.category === selectedBranch).length,
+      class11: c11,
+      class12: c12,
+    };
+  }, [selectedBranch]);
 
   return (
     <div className={`w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-10 pb-28 lg:pb-10 space-y-8 sm:space-y-10 transition-colors ${
@@ -420,147 +583,287 @@ export const HomePage: React.FC<HomePageProps> = ({
 
       {/* Physics Syllabus Chapters Roadmap */}
       <section id="home-chapters-grid" className="space-y-5 scroll-mt-20">
-        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4 ${
+        <div className={`flex flex-col gap-3.5 border-b pb-4 ${
           isDark ? 'border-white/[0.08]' : 'border-slate-200'
         }`}>
-          <div>
-            <h2 className={`text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2 ${
-              isDark ? 'text-white' : 'text-slate-900'
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className={`text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2 ${
+                isDark ? 'text-white' : 'text-slate-900'
+              }`}>
+                <BookOpen className="w-5 h-5 text-blue-500" />
+                Complete JEE Physics Syllabus Modules
+              </h2>
+              <p className={`text-xs ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
+                Filter by syllabus category portion or class level to enter dedicated 3D apparatuses, real-time vector solvers, and coaching synopsis.
+              </p>
+            </div>
+
+            {/* Class Portion Toggle */}
+            <div className={`inline-flex items-center p-1 rounded-xl border self-start sm:self-auto shrink-0 ${
+              isDark ? 'bg-[#101017] border-white/[0.08]' : 'bg-slate-100 border-slate-200'
             }`}>
-              <BookOpen className="w-5 h-5 text-blue-500" />
-              Complete JEE Physics Syllabus Modules
-            </h2>
-            <p className={`text-xs ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
-              Select any chapter module to enter its dedicated 3D laboratory, dynamic parameter controls, and coaching synopsis.
-            </p>
+              {[
+                { id: 'all', label: 'All Classes', count: classCounts.all },
+                { id: 'class-11', label: 'Class 11', count: classCounts.class11 },
+                { id: 'class-12', label: 'Class 12', count: classCounts.class12 },
+              ].map((cTab) => (
+                <button
+                  key={cTab.id}
+                  onClick={() => handleToggleClass(cTab.id as any)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 min-h-[32px] ${
+                    selectedClass === cTab.id
+                      ? isDark
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-500/30'
+                        : 'bg-blue-600 text-white shadow-sm'
+                      : isDark
+                      ? 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                  }`}
+                >
+                  <span>{cTab.label}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    selectedClass === cTab.id
+                      ? 'bg-white/20 text-white'
+                      : isDark
+                      ? 'bg-white/[0.06] text-zinc-400'
+                      : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {cTab.count}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Branch filter tabs */}
-          <div className={`flex flex-wrap gap-1.5 p-1 rounded-xl border self-start sm:self-auto ${
-            isDark ? 'bg-[#101017] border-white/[0.08]' : 'bg-slate-200/80 border-slate-300'
-          }`}>
+          {/* Category Portion Filter Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             {[
-              { id: 'all', label: 'All Chapters' },
-              { id: 'mechanics', label: 'Mechanics' },
-              { id: 'electrodynamics', label: 'Electrodynamics' },
-              { id: 'optics', label: 'Optics' },
-              { id: 'modern', label: 'Modern & Heat' },
-            ].map((tab) => (
+              { id: 'all', label: 'All Categories', count: totalCategoryCounts.all || 0, icon: <Layers className="w-3.5 h-3.5" /> },
+              { id: 'mechanics', label: 'Mechanics & Fluids', count: totalCategoryCounts.mechanics || 0, icon: <Atom className="w-3.5 h-3.5" /> },
+              { id: 'electromagnetism', label: 'Electrodynamics', count: totalCategoryCounts.electromagnetism || 0, icon: <Zap className="w-3.5 h-3.5" /> },
+              { id: 'thermal', label: 'Thermal & Heat', count: totalCategoryCounts.thermal || 0, icon: <Flame className="w-3.5 h-3.5" /> },
+              { id: 'waves-oscillations', label: 'Waves & SHM', count: totalCategoryCounts['waves-oscillations'] || 0, icon: <Activity className="w-3.5 h-3.5" /> },
+              { id: 'optics', label: 'Ray & Wave Optics', count: totalCategoryCounts.optics || 0, icon: <Eye className="w-3.5 h-3.5" /> },
+              { id: 'modern', label: 'Modern Physics', count: totalCategoryCounts.modern || 0, icon: <Sun className="w-3.5 h-3.5" /> },
+              { id: 'experimental', label: 'Experimental', count: totalCategoryCounts.experimental || 0, icon: <Ruler className="w-3.5 h-3.5" /> },
+            ].map((tab) => {
+              const isActive = selectedBranch === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => handleToggleCategory(tab.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 flex items-center gap-1.5 border min-h-[36px] ${
+                    isActive
+                      ? isCyberpunk
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/60 shadow-[0_0_12px_rgba(0,240,255,0.25)] font-bold'
+                        : isDark
+                        ? 'bg-cyan-500/20 text-cyan-200 border-cyan-500/50 shadow-xs font-bold'
+                        : 'bg-cyan-50 text-cyan-900 border-cyan-400 shadow-xs font-bold'
+                      : isDark
+                      ? 'bg-[#101017] text-zinc-400 border-white/[0.06] hover:text-zinc-200 hover:border-white/[0.12]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300'
+                  }`}
+                >
+                  <span className={isActive ? 'text-cyan-400' : 'text-zinc-400'}>{tab.icon}</span>
+                  <span>{tab.label}</span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                    isActive
+                      ? isDark
+                        ? 'bg-cyan-500/30 text-cyan-200'
+                        : 'bg-cyan-200 text-cyan-900'
+                      : isDark
+                      ? 'bg-white/[0.06] text-zinc-500'
+                      : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Active Category Filter Status Bar */}
+          {selectedBranch !== 'all' && (
+            <div className={`px-4 py-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs flex-wrap ${
+              isDark ? 'bg-[#101018] border-cyan-500/30 text-zinc-300' : 'bg-cyan-50/80 border-cyan-200 text-cyan-950'
+            }`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-zinc-400 font-medium">Category Filter Active:</span>
+                <span className={`px-2 py-0.5 rounded-md font-bold text-xs flex items-center gap-1.5 border ${
+                  CATEGORY_META[selectedBranch]?.badge || 'bg-cyan-500/20 text-cyan-300 border-cyan-400/40'
+                }`}>
+                  {CATEGORY_META[selectedBranch]?.icon}
+                  {CATEGORY_META[selectedBranch]?.label || selectedBranch}
+                </span>
+                <span className="text-zinc-500">&bull;</span>
+                <span className="font-semibold text-cyan-400">{filteredChapters.length} Chapters in this category</span>
+              </div>
               <button
-                key={tab.id}
-                onClick={() => setSelectedBranch(tab.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition min-h-[32px] ${
-                  selectedBranch === tab.id
-                    ? 'bg-cyan-500 text-slate-950 font-bold shadow-xs'
-                    : isDark
-                    ? 'text-zinc-400 hover:text-zinc-200'
-                    : 'text-slate-600 hover:text-slate-900'
+                onClick={() => setSelectedBranch('all')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 border shrink-0 ${
+                  isDark
+                    ? 'bg-white/10 hover:bg-white/20 text-zinc-200 border-white/10'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
                 }`}
               >
-                {tab.label}
+                <span>Clear Category</span>
+                <span className="text-xs">&times;</span>
               </button>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
 
-        {/* Chapters Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredChapters.map((chapter) => {
-            const chapterConcepts = ALL_CONCEPTS.filter((c) => c.chapterId === chapter.id);
-            if (chapterConcepts.length === 0) return null;
+        {/* Empty state if no chapters match */}
+        {filteredChapters.length === 0 ? (
+          <div className={`p-10 rounded-2xl border text-center space-y-3 ${
+            isDark ? 'bg-[#0E0E14] border-white/[0.08]' : 'bg-slate-50 border-slate-200'
+          }`}>
+            <p className={`text-sm ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+              No chapters match the selected category &amp; class filter combination.
+            </p>
+            <button
+              onClick={() => {
+                setSelectedBranch('all');
+                setSelectedClass('all');
+              }}
+              className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 text-xs font-bold hover:bg-cyan-400 transition"
+            >
+              Reset Filters
+            </button>
+          </div>
+        ) : (
+          /* Chapters Grid */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredChapters.map((chapter) => {
+              const chapterConcepts = ALL_CONCEPTS.filter((c) => c.chapterId === chapter.id);
+              if (chapterConcepts.length === 0) return null;
+              const isC11 = CLASS_11_CHAPTER_IDS.has(chapter.id);
+              const catMeta = CATEGORY_META[chapter.category];
 
-            return (
-              <div
-                key={chapter.id}
-                id={`chapter-section-${chapter.id}`}
-                className={`rounded-2xl border overflow-hidden flex flex-col justify-between transition shadow-lg scroll-mt-20 ${
-                  isDark
-                    ? 'bg-[#0E0E14] border-white/[0.08] hover:border-white/[0.16]'
-                    : 'bg-white border-slate-200 hover:border-slate-300 shadow-slate-200'
-                }`}
-              >
-                {/* Category Header */}
-                <div className={`p-4 border-b flex items-center justify-between ${
-                  isDark ? 'bg-[#14141E] border-white/[0.06]' : 'bg-slate-100 border-slate-200'
-                }`}>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-cyan-500" />
-                    <h3 className={`font-bold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>{chapter.name}</h3>
-                  </div>
-                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-                    isDark ? 'text-zinc-400 bg-black/40 border-white/[0.04]' : 'text-slate-600 bg-white border-slate-200'
+              return (
+                <div
+                  key={chapter.id}
+                  id={`chapter-section-${chapter.id}`}
+                  className={`rounded-2xl border overflow-hidden flex flex-col justify-between transition shadow-lg scroll-mt-20 ${
+                    isDark
+                      ? 'bg-[#0E0E14] border-white/[0.08] hover:border-white/[0.16]'
+                      : 'bg-white border-slate-200 hover:border-slate-300 shadow-slate-200'
+                  }`}
+                >
+                  {/* Category Header */}
+                  <div className={`p-4 border-b flex flex-col gap-2 ${
+                    isDark ? 'bg-[#14141E] border-white/[0.06]' : 'bg-slate-100 border-slate-200'
                   }`}>
-                    {chapterConcepts.length} Labs
-                  </span>
-                </div>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* Particular Category of Chapter Badge */}
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border flex items-center gap-1 ${
+                          catMeta?.badge || (isDark ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20' : 'bg-cyan-50 text-cyan-800 border-cyan-200')
+                        }`}>
+                          {catMeta?.icon}
+                          <span>{catMeta?.label || chapter.category}</span>
+                        </span>
 
-                {/* Concepts in this chapter */}
-                <div className={`p-4 space-y-2.5 flex-1 divide-y ${
-                  isDark ? 'divide-white/[0.04]' : 'divide-slate-100'
-                }`}>
-                  {chapterConcepts.map((concept) => {
-                    const isDone = completedConcepts.includes(concept.id);
-                    return (
-                      <div
-                        key={`ch-${chapter.id}-${concept.id}`}
-                        id={`concept-${concept.id}`}
-                        onClick={() => onSelectConcept(concept)}
-                        className={`pt-2.5 first:pt-0 group/item cursor-pointer flex items-start justify-between gap-3 -mx-2 px-2 py-2 rounded-xl transition min-h-[44px] scroll-mt-20 ${
-                          isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="space-y-1 min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`text-xs font-bold group-hover/item:text-cyan-500 transition truncate ${
-                              isDark ? 'text-zinc-200' : 'text-slate-800'
-                            }`}>
-                              {concept.title}
-                            </span>
-                            {isDone && (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                            )}
-                          </div>
-                          <p className={`text-[11px] line-clamp-1 ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
-                            {concept.subtitle}
-                          </p>
-                        </div>
+                        {/* Class Badge */}
+                        <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
+                          isC11
+                            ? isDark
+                              ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                              : 'bg-blue-50 text-blue-700 border-blue-200'
+                            : isDark
+                            ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                            : 'bg-purple-50 text-purple-700 border-purple-200'
+                        }`}>
+                          {isC11 ? 'Class 11' : 'Class 12'}
+                        </span>
+                      </div>
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectConcept(concept);
-                          }}
-                          className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition shrink-0 flex items-center gap-1 min-h-[32px] ${
-                            isDark
-                              ? 'bg-[#181824] group-hover/item:bg-cyan-500 group-hover/item:text-slate-950 text-cyan-300 border-cyan-500/20'
-                              : 'bg-slate-100 group-hover/item:bg-cyan-500 group-hover/item:text-slate-950 text-cyan-800 border-cyan-200'
+                      <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md border ${
+                        isDark ? 'text-zinc-400 bg-black/40 border-white/[0.04]' : 'text-slate-600 bg-white border-slate-200'
+                      }`}>
+                        {chapterConcepts.length} {chapterConcepts.length === 1 ? 'Lab' : 'Labs'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${
+                        isC11 ? 'bg-blue-400 shadow-[0_0_6px_#60a5fa]' : 'bg-purple-400 shadow-[0_0_6px_#c084fc]'
+                      }`} />
+                      <h3 className={`font-bold text-sm tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {chapter.name}
+                      </h3>
+                    </div>
+                  </div>
+
+                  {/* Concepts in this chapter */}
+                  <div className={`p-4 space-y-2.5 flex-1 divide-y ${
+                    isDark ? 'divide-white/[0.04]' : 'divide-slate-100'
+                  }`}>
+                    {chapterConcepts.map((concept) => {
+                      const isDone = completedConcepts.includes(concept.id);
+                      return (
+                        <div
+                          key={`ch-${chapter.id}-${concept.id}`}
+                          id={`concept-${concept.id}`}
+                          onClick={() => onSelectConcept(concept)}
+                          className={`pt-2.5 first:pt-0 group/item cursor-pointer flex items-start justify-between gap-3 -mx-2 px-2 py-2 rounded-xl transition min-h-[44px] scroll-mt-20 ${
+                            isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'
                           }`}
                         >
-                          <span>Open 3D</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-xs font-bold group-hover/item:text-cyan-500 transition truncate ${
+                                isDark ? 'text-zinc-200' : 'text-slate-800'
+                              }`}>
+                                {concept.title}
+                              </span>
+                              {isDone && (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              )}
+                            </div>
+                            <p className={`text-[11px] line-clamp-1 ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
+                              {concept.subtitle}
+                            </p>
+                          </div>
 
-                {/* Card Footer */}
-                <div className={`px-4 py-2.5 border-t text-[11px] flex items-center justify-between ${
-                  isDark ? 'bg-black/30 border-white/[0.04] text-zinc-400' : 'bg-slate-50 border-slate-200 text-slate-500'
-                }`}>
-                  <span>JEE Weightage: High Yield</span>
-                  <button
-                    onClick={() => onSelectConcept(chapterConcepts[0])}
-                    className="text-cyan-500 hover:text-cyan-600 font-semibold flex items-center gap-1 min-h-[32px]"
-                  >
-                    <span>Explore Chapter</span>
-                    <ArrowRight className="w-3 h-3" />
-                  </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectConcept(concept);
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition shrink-0 flex items-center gap-1 min-h-[32px] ${
+                              isDark
+                                ? 'bg-[#181824] group-hover/item:bg-cyan-500 group-hover/item:text-slate-950 text-cyan-300 border-cyan-500/20'
+                                : 'bg-slate-100 group-hover/item:bg-cyan-500 group-hover/item:text-slate-950 text-cyan-800 border-cyan-200'
+                            }`}
+                          >
+                            <span>Open 3D</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Card Footer */}
+                  <div className={`px-4 py-2.5 border-t text-[11px] flex items-center justify-between ${
+                    isDark ? 'bg-black/30 border-white/[0.04] text-zinc-400' : 'bg-slate-50 border-slate-200 text-slate-500'
+                  }`}>
+                    <span>JEE Weightage: High Yield</span>
+                    <button
+                      onClick={() => onSelectConcept(chapterConcepts[0])}
+                      className="text-cyan-500 hover:text-cyan-600 font-semibold flex items-center gap-1 min-h-[32px]"
+                    >
+                      <span>Explore Chapter</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Dedicated Downloadable PDF Formula Sheets Section */}
@@ -569,78 +872,352 @@ export const HomePage: React.FC<HomePageProps> = ({
         onOpenPdfModal={onOpenPdfModal}
       />
 
-      {/* About Founder & Architecture Mission Card (Enlarged & Highlighted) */}
-      <section id="home-founder-section" className={`rounded-3xl border-2 p-6 sm:p-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-8 relative overflow-hidden transition-all shadow-2xl scroll-mt-20 ${
-        isDark
-          ? 'bg-gradient-to-br from-[#101220] via-[#0C0D17] to-[#0A0B12] border-cyan-500/30 shadow-cyan-950/40 ring-1 ring-cyan-500/20'
-          : 'bg-gradient-to-br from-cyan-50/90 via-white to-blue-50/80 border-cyan-300 shadow-xl shadow-cyan-100/80 ring-1 ring-cyan-400/30'
-      }`}>
-        {/* Glow ambient background */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+      {/* ================= ULTRA-ELEVATED FOUNDED BY SANJAY PANEL ================= */}
+      <section
+        id="home-founder-section"
+        className={`relative overflow-hidden rounded-3xl border p-6 sm:p-10 transition-all shadow-2xl scroll-mt-20 ${
+          isCyberpunk
+            ? 'bg-gradient-to-br from-[#030714] via-[#06142e] to-[#02050f] border-cyan-400/40 shadow-[0_0_50px_rgba(0,240,255,0.18)]'
+            : isDark
+            ? 'bg-gradient-to-br from-[#0d1224] via-[#090d1a] to-[#05070e] border-cyan-500/30 shadow-[0_0_50px_rgba(0,0,0,0.7)]'
+            : 'bg-gradient-to-br from-cyan-50/95 via-sky-50/70 to-indigo-50/90 border-cyan-300/80 shadow-2xl shadow-cyan-100'
+        }`}
+      >
+        {/* Glow ambient background mesh & Cyber scanlines */}
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-500/10 via-transparent to-transparent pointer-events-none" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#00f0ff08_1px,transparent_1px),linear-gradient(to_bottom,#00f0ff08_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none opacity-40" />
 
-        <div className="flex flex-col sm:flex-row items-start gap-5 sm:gap-6 relative z-10">
-          {/* Glowing Founder Avatar & Badge */}
-          <div className="relative shrink-0">
-            <div className="w-18 h-18 sm:w-22 sm:h-22 rounded-2xl bg-gradient-to-tr from-cyan-400 via-blue-600 to-indigo-600 flex items-center justify-center text-slate-950 font-black text-2xl sm:text-3xl shadow-xl shadow-cyan-500/30 ring-4 ring-cyan-500/20">
-              SJ
+        <div className="relative z-10 space-y-8">
+          {/* Header & Founder Monogram */}
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 pb-6 border-b border-cyan-500/20">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 sm:gap-6">
+              {/* Orbital Ring Avatar */}
+              <div className="relative shrink-0 group">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-gradient-to-tr from-cyan-400 via-blue-600 to-indigo-600 flex items-center justify-center text-slate-950 font-black text-2xl sm:text-3xl shadow-xl shadow-cyan-500/40 ring-4 ring-cyan-400/30 group-hover:ring-cyan-300 transition-all duration-300 relative">
+                  SJ
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full border-2 border-slate-950 animate-ping" />
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full border-2 border-slate-950" />
+                </div>
+                <div className="absolute -bottom-2 -right-2 bg-emerald-500 text-slate-950 p-1.5 rounded-xl shadow-md flex items-center justify-center ring-2 ring-slate-950" title="Verified Creator & Physics Architect">
+                  <ShieldCheck className="w-4 h-4 text-slate-950 fill-current" />
+                </div>
+              </div>
+
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border flex items-center gap-1.5 ${
+                    isCyberpunk
+                      ? 'bg-cyan-500/25 text-cyan-300 border-cyan-400/50 shadow-[0_0_12px_rgba(0,240,255,0.3)]'
+                      : isDark
+                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                      : 'bg-cyan-100 text-cyan-800 border-cyan-300 shadow-xs'
+                  }`}>
+                    <Sparkles className="w-3 h-3 text-cyan-400 animate-spin" />
+                    Founded by Sanjay
+                  </span>
+                  <h3 className={`text-2xl sm:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    Sanjay.J
+                  </h3>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
+                    isDark ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 shadow-xs' : 'bg-emerald-100 text-emerald-900 border-emerald-300 shadow-xs'
+                  }`}>
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    Chief Physics Architect &amp; Simulation Engineer
+                  </span>
+                </div>
+
+                <p className={`text-xs sm:text-sm font-medium ${isDark ? 'text-cyan-200/90' : 'text-cyan-900'}`}>
+                  JEE Main &amp; Advanced 3D Spatial Interactive Framework • Conceived &amp; Engineered by Sanjay.J
+                </p>
+
+                {/* Micro Tech Tags */}
+                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                  {[
+                    { label: 'Three.js WebGL', icon: '🌐' },
+                    { label: 'Rapier Physics WASM', icon: '⚡' },
+                    { label: 'KaTeX MathML Engine', icon: '📐' },
+                    { label: '60 FPS Vector Resolvers', icon: '🎯' },
+                    { label: '2014-2026 PYQ Shift Intelligence', icon: '📊' },
+                  ].map((tech) => (
+                    <span
+                      key={tech.label}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border flex items-center gap-1 transition-all hover:scale-105 ${
+                        isCyberpunk
+                          ? 'bg-[#061026] text-zinc-300 border-cyan-500/25 hover:border-cyan-400 hover:text-cyan-300'
+                          : isDark
+                          ? 'bg-[#121422] text-zinc-300 border-white/10 hover:border-white/20'
+                          : 'bg-white text-slate-700 border-slate-200 shadow-2xs hover:border-cyan-400'
+                      }`}
+                    >
+                      <span>{tech.icon}</span>
+                      <span>{tech.label}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="absolute -bottom-2 -right-2 bg-emerald-500 text-slate-950 p-1.5 rounded-xl shadow-md flex items-center justify-center" title="Verified Creator & Physics Architect">
-              <Award className="w-4 h-4 text-slate-950 fill-current" />
+
+            {/* Quick Action Triggers */}
+            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 w-full lg:w-auto shrink-0">
+              <button
+                onClick={() => onSelectConcept(ALL_CONCEPTS[0])}
+                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-600 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-black text-xs shadow-lg shadow-cyan-500/30 transition-all flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] min-h-[42px]"
+              >
+                <Compass className="w-4 h-4" />
+                <span>Launch 3D Lab</span>
+              </button>
+
+              <button
+                onClick={onOpenAnalytics}
+                className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl border font-bold text-xs transition-all flex items-center justify-center gap-2 min-h-[42px] ${
+                  isDark
+                    ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/30 shadow-xs'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                }`}
+              >
+                <TrendingUp className="w-4 h-4 text-emerald-400" />
+                <span>Weightage Hub</span>
+              </button>
+
+              <button
+                onClick={() => (onOpenPdfModal ? onOpenPdfModal() : onOpenFormulaHub())}
+                className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl border font-bold text-xs transition-all flex items-center justify-center gap-2 min-h-[42px] ${
+                  isDark
+                    ? 'bg-white/[0.05] hover:bg-white/[0.1] text-zinc-200 border-white/[0.1]'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-2xs'
+                }`}
+              >
+                <Download className="w-4 h-4 text-cyan-400" />
+                <span>PDF Sheets</span>
+              </button>
+
+              <button
+                onClick={() => setShowFounderManifesto(!showFounderManifesto)}
+                className={`flex-1 sm:flex-initial px-3.5 py-2.5 rounded-xl border font-bold text-xs transition-all flex items-center justify-center gap-1.5 min-h-[42px] ${
+                  showFounderManifesto
+                    ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-500/20'
+                    : isDark
+                    ? 'bg-cyan-950/30 hover:bg-cyan-900/40 text-cyan-300 border-cyan-500/30'
+                    : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border-cyan-300'
+                }`}
+                title="View Sanjay's Architectural Blueprint & Physics Thesis"
+              >
+                <Code className="w-4 h-4" />
+                <span>{showFounderManifesto ? 'Hide Blueprint' : 'Architect Manifesto'}</span>
+              </button>
             </div>
           </div>
 
-          <div className="space-y-2.5">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <span className={`px-2.5 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider border ${
-                isDark ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' : 'bg-cyan-100 text-cyan-800 border-cyan-300'
-              }`}>
-                About the Founder
-              </span>
-              <h3 className={`text-xl sm:text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                Sanjay.J
-              </h3>
-              <span className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
-                isDark ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 shadow-sm' : 'bg-emerald-100 text-emerald-900 border-emerald-300 shadow-sm'
-              }`}>
-                <Sparkles className="w-3 h-3 text-emerald-500" />
-                Founder & Chief Physics Architect
-              </span>
-            </div>
+          {/* Key Metrics Strip (4 Live Highlights) */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+            {[
+              { label: 'Interactive 3D Syllabus', val: '21 / 21 Modules', sub: '100% Complete Coverage', color: 'text-cyan-400' },
+              { label: 'Client Physics Simulation', val: '60 FPS WASM', sub: 'Zero Lag Euler Integrators', color: 'text-emerald-400' },
+              { label: 'Parametric Solvers', val: '150+ Calculators', sub: 'Live KaTeX LaTeX Evaluation', color: 'text-purple-400' },
+              { label: 'Historical Exam Depth', val: '12-Year PYQs', sub: '2014-2026 NTA Shift Matrix', color: 'text-amber-400' },
+            ].map((m) => (
+              <div
+                key={m.label}
+                className={`p-3.5 sm:p-4 rounded-2xl border transition-all ${
+                  isCyberpunk
+                    ? 'bg-[#050c1e]/90 border-cyan-500/25 shadow-xs'
+                    : isDark
+                    ? 'bg-[#101322]/80 border-white/[0.08]'
+                    : 'bg-white/90 border-cyan-200/80 shadow-xs'
+                }`}
+              >
+                <div className={`text-base sm:text-lg font-black tracking-tight ${m.color}`}>
+                  {m.val}
+                </div>
+                <div className={`text-xs font-bold mt-0.5 ${isDark ? 'text-zinc-200' : 'text-slate-800'}`}>
+                  {m.label}
+                </div>
+                <div className="text-[10px] text-zinc-400 mt-0.5">
+                  {m.sub}
+                </div>
+              </div>
+            ))}
+          </div>
 
-            <p className={`text-sm sm:text-base max-w-3xl leading-relaxed font-normal ${isDark ? 'text-zinc-300' : 'text-slate-700'}`}>
-              Conceived, designed, and engineered by <strong className={isDark ? 'text-white' : 'text-slate-950'}>Sanjay.J</strong> to revolutionize JEE Main & Advanced preparation. Replaces static 2D textbook sketches with high-precision, 360° tactile 3D simulations, real-life mechanical apparatus dynamics, instant parametric solvers, and step-by-step coaching derivations.
+          {/* Vision Quote Block */}
+          <div className={`p-4 sm:p-5 rounded-2xl border relative ${
+            isDark ? 'bg-black/50 border-white/[0.08]' : 'bg-white/90 border-cyan-200/80 shadow-xs'
+          }`}>
+            <Quote className="w-8 h-8 text-cyan-400/30 absolute top-3 right-3 pointer-events-none" />
+            <p className={`text-sm sm:text-base leading-relaxed italic ${isDark ? 'text-zinc-200' : 'text-slate-800'}`}>
+              &ldquo;When you can visualize vectors rotating in 3D space, feel momentum transfers through real-time collisions, and inspect the phase lag in an AC circuit dynamically, physics transforms from an intimidating test into pure intuition.&rdquo;
             </p>
-
-            {/* Architecture Highlights Pill Badges */}
-            <div className="flex flex-wrap gap-2 pt-1">
-              <span className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${
-                isDark ? 'bg-white/[0.04] text-zinc-300 border-white/[0.08]' : 'bg-slate-100 text-slate-700 border-slate-200'
-              }`}>
-                ⚡ 14 Real-Time 3D Apparatuses
-              </span>
-              <span className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${
-                isDark ? 'bg-white/[0.04] text-zinc-300 border-white/[0.08]' : 'bg-slate-100 text-slate-700 border-slate-200'
-              }`}>
-                📐 150+ Dynamic Formula Solvers
-              </span>
-              <span className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${
-                isDark ? 'bg-white/[0.04] text-zinc-300 border-white/[0.08]' : 'bg-slate-100 text-slate-700 border-slate-200'
-              }`}>
-                🎯 JEE Main & Advanced High-Yield Coaching
-              </span>
+            <div className="mt-2.5 text-xs font-black text-cyan-400 flex items-center gap-2">
+              <span>— Sanjay.J, Founder &amp; Chief Physics Architect</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
             </div>
           </div>
-        </div>
 
-        <div className="flex sm:flex-col items-center gap-3 shrink-0 relative z-10 w-full sm:w-auto">
-          <button
-            onClick={() => onSelectConcept(ALL_CONCEPTS[0])}
-            className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs sm:text-sm shadow-xl shadow-cyan-500/25 transition-all flex items-center justify-center gap-2 hover:scale-105 active:scale-95"
-          >
-            <Compass className="w-4 h-4" />
-            <span>Launch 3D Laboratory</span>
-          </button>
+          {/* Expandable Architect Manifesto / Pedagogical Blueprint */}
+          {showFounderManifesto && (
+            <div
+              className={`p-5 sm:p-6 rounded-2xl border space-y-4 animate-in fade-in zoom-in-95 duration-200 ${
+                isCyberpunk
+                  ? 'bg-[#040a1c] border-cyan-500/40 shadow-[0_0_30px_rgba(0,240,255,0.15)]'
+                  : isDark
+                  ? 'bg-[#0e111e] border-cyan-500/30 shadow-xl'
+                  : 'bg-white border-cyan-300 shadow-xl'
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-300 flex items-center justify-center font-bold">
+                    <Terminal className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white flex items-center gap-2">
+                      Sanjay's Engineering Blueprint &amp; Pedagogical Thesis
+                    </h4>
+                    <p className="text-[11px] text-zinc-400">
+                      Foundational design patterns behind the 3D WebGL physics engine and JEE coaching syllabus
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    const manifestoText = `JEE Main & Advanced 3D Interactive Lab Directory
+Founded and Engineered by Sanjay.J
+Architectural Principles:
+1. Spatial 3D Calculus: Transforming 2D static diagrams into tactile 360° orbital manifolds.
+2. Numerical Precision: Client-side Verlet & Euler solvers executing at 60 FPS without server latency.
+3. Parametric LaTeX Grounding: Real-time LaTeX re-rendering with dynamic boundary conditions.
+4. PYQ Intelligence: Grounded on 12-year shift trends (2014-2026).`;
+                    navigator.clipboard.writeText(manifestoText);
+                    setCopiedManifesto(true);
+                    setTimeout(() => setCopiedManifesto(false), 2500);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition self-start sm:self-auto ${
+                    copiedManifesto
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : 'bg-white/10 hover:bg-white/15 text-zinc-200 border-white/10'
+                  }`}
+                >
+                  {copiedManifesto ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedManifesto ? 'Copied Specs!' : 'Copy Architecture Specs'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div className={`p-4 rounded-xl border ${isDark ? 'bg-black/30 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                  <h5 className="font-bold text-cyan-400 mb-1.5 flex items-center gap-1.5">
+                    <span>1. Why 2D Chalkboards Fail</span>
+                  </h5>
+                  <p className={`text-[11px] leading-relaxed ${isDark ? 'text-zinc-300' : 'text-slate-600'}`}>
+                    JEE Advanced problems rarely live in 1D. Concepts like rolling with slipping, angular momentum conservation about moving axes, and 3D electromagnetic induction demand dynamic visualization of coordinate frames and non-orthogonal vector projections.
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-xl border ${isDark ? 'bg-black/30 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                  <h5 className="font-bold text-emerald-400 mb-1.5 flex items-center gap-1.5">
+                    <span>2. 60 FPS Numerical Integration</span>
+                  </h5>
+                  <p className={`text-[11px] leading-relaxed ${isDark ? 'text-zinc-300' : 'text-slate-600'}`}>
+                    Rather than relying on static formulas, every simulation runs numerical integration (Euler/Verlet algorithms). Dragging a friction slider dynamically adjusts contact impulses, normal reaction dissipation, and damping curves in real-time.
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-xl border ${isDark ? 'bg-black/30 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                  <h5 className="font-bold text-purple-400 mb-1.5 flex items-center gap-1.5">
+                    <span>3. PYQ Shift Alignment</span>
+                  </h5>
+                  <p className={`text-[11px] leading-relaxed ${isDark ? 'text-zinc-300' : 'text-slate-600'}`}>
+                    Every apparatus is matched against high-yield questions from the past 12 years of NTA Main and IIT Advanced papers, highlighting trap answers, boundary pitfalls, and quick dimensional verification techniques.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 4 Architectural Pillars Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className={`p-4 rounded-2xl border transition-all hover:scale-[1.02] ${
+              isCyberpunk
+                ? 'bg-[#050e22] border-cyan-500/25 hover:border-cyan-400/50 hover:shadow-[0_0_20px_rgba(0,240,255,0.15)]'
+                : isDark
+                ? 'bg-[#111320] border-cyan-500/20 hover:border-cyan-500/40'
+                : 'bg-white border-cyan-200/80 shadow-xs hover:border-cyan-400'
+            }`}>
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-sm shadow-xs">
+                  🌐
+                </div>
+                <h4 className={`text-xs font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Tactile 3D Calculus
+                </h4>
+              </div>
+              <p className={`text-[11px] leading-relaxed ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                360° orbital control, vector resolution (v&#8407;&#7522;, v&#8407;&#7523;, a&#8407;&#8345;, a&#8407;&#7524;), curvature radius &rho;, and dynamic force vectors.
+              </p>
+            </div>
+
+            <div className={`p-4 rounded-2xl border transition-all hover:scale-[1.02] ${
+              isCyberpunk
+                ? 'bg-[#050e22] border-emerald-500/25 hover:border-emerald-400/50 hover:shadow-[0_0_20px_rgba(16,185,129,0.15)]'
+                : isDark
+                ? 'bg-[#111320] border-emerald-500/20 hover:border-emerald-500/40'
+                : 'bg-white border-emerald-200/80 shadow-xs hover:border-emerald-400'
+            }`}>
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-sm shadow-xs">
+                  ⚡
+                </div>
+                <h4 className={`text-xs font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Rapier WASM Engine
+                </h4>
+              </div>
+              <p className={`text-[11px] leading-relaxed ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                True 60 FPS numerical physics with ragdoll kinematics, impulse collision dynamics, and kinetic friction dissipation.
+              </p>
+            </div>
+
+            <div className={`p-4 rounded-2xl border transition-all hover:scale-[1.02] ${
+              isCyberpunk
+                ? 'bg-[#050e22] border-indigo-500/25 hover:border-indigo-400/50 hover:shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                : isDark
+                ? 'bg-[#111320] border-indigo-500/20 hover:border-indigo-500/40'
+                : 'bg-white border-indigo-200/80 shadow-xs hover:border-indigo-400'
+            }`}>
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm shadow-xs">
+                  📐
+                </div>
+                <h4 className={`text-xs font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  150+ Parametric Solvers
+                </h4>
+              </div>
+              <p className={`text-[11px] leading-relaxed ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                Live parametric formula solvers with dynamic LaTeX rendering, unit dimensional verification, and negative-marking trap alerts.
+              </p>
+            </div>
+
+            <div className={`p-4 rounded-2xl border transition-all hover:scale-[1.02] ${
+              isCyberpunk
+                ? 'bg-[#050e22] border-amber-500/25 hover:border-amber-400/50 hover:shadow-[0_0_20px_rgba(245,158,11,0.15)]'
+                : isDark
+                ? 'bg-[#111320] border-amber-500/20 hover:border-amber-500/40'
+                : 'bg-white border-amber-200/80 shadow-xs hover:border-amber-400'
+            }`}>
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-sm shadow-xs">
+                  🎯
+                </div>
+                <h4 className={`text-xs font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  12-Yr PYQ Intelligence
+                </h4>
+              </div>
+              <p className={`text-[11px] leading-relaxed ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                12-year PYQ frequency heatmaps, priority scoring tiers (Tiers 1-3), and personalized target score planners.
+              </p>
+            </div>
+          </div>
         </div>
       </section>
     </div>

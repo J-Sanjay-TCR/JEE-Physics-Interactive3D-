@@ -4,7 +4,7 @@ import {
   X, PieChart as PieChartIcon, BarChart2, TrendingUp, BookOpen, Layers, 
   Target, AlertCircle, Award, CheckCircle2, Search, Filter, Sparkles, 
   HelpCircle, Compass, Zap, Flame, ArrowRight, Sliders, Brain, Activity, 
-  ChevronRight, BarChart3, Clock, Bookmark, Grid, Info
+  ChevronRight, BarChart3, Clock, Bookmark, Grid, Info, ShieldCheck
 } from 'lucide-react';
 import { 
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
@@ -42,7 +42,28 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
   const [chapterSearch, setChapterSearch] = useState('');
   const [selectedClassFilter, setSelectedClassFilter] = useState<'ALL' | 'Class 11' | 'Class 12'>('ALL');
   const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<string>('ALL');
+  const [selectedUnitFilter, setSelectedUnitFilter] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'weightage' | 'roi' | 'difficulty'>('weightage');
+
+  // Unit Options & Category Counts
+  const UNIT_OPTIONS = [
+    { id: 'ALL', label: 'All Units' },
+    { id: 'Mechanics & Fluids', label: 'Mechanics & Fluids' },
+    { id: 'Electrodynamics & Magnetism', label: 'Electrodynamics' },
+    { id: 'Modern & Nuclear Physics', label: 'Modern Physics' },
+    { id: 'Thermal Physics & Radiation', label: 'Thermal & Heat' },
+    { id: 'Optics & Wave Phenomena', label: 'Optics' },
+    { id: 'Oscillations & Waves', label: 'Waves & SHM' },
+    { id: 'Experimental Physics & Errors', label: 'Experimental' },
+  ];
+
+  const unitCounts = useMemo(() => {
+    const counts: Record<string, number> = { ALL: CHAPTER_WEIGHTAGE_DATA.length };
+    CHAPTER_WEIGHTAGE_DATA.forEach(c => {
+      counts[c.unit] = (counts[c.unit] || 0) + 1;
+    });
+    return counts;
+  }, []);
 
   // Target Score Planner State
   const [targetScore, setTargetScore] = useState<number>(75);
@@ -173,7 +194,8 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                             c.questionArchetypes.some(q => q.toLowerCase().includes(chapterSearch.toLowerCase()));
       const matchesClass = selectedClassFilter === 'ALL' || c.classLevel === selectedClassFilter;
       const matchesPriority = selectedPriorityFilter === 'ALL' || c.priorityTier === selectedPriorityFilter;
-      return matchesSearch && matchesClass && matchesPriority;
+      const matchesUnit = selectedUnitFilter === 'ALL' || c.unit === selectedUnitFilter;
+      return matchesSearch && matchesClass && matchesPriority && matchesUnit;
     }).sort((a, b) => {
       if (sortBy === 'weightage') {
         const valA = examType === 'MAIN' ? a.mainPct : a.advPct;
@@ -189,7 +211,23 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
       }
       return 0;
     });
-  }, [chapterSearch, selectedClassFilter, selectedPriorityFilter, sortBy, examType]);
+  }, [chapterSearch, selectedClassFilter, selectedPriorityFilter, selectedUnitFilter, sortBy, examType]);
+
+  // Heatmap Chapters Filtered by Unit and Class
+  const heatmapChapters = useMemo(() => {
+    return CHAPTER_WEIGHTAGE_DATA.filter(c => {
+      const matchesUnit = selectedUnitFilter === 'ALL' || c.unit === selectedUnitFilter;
+      const matchesClass = selectedClassFilter === 'ALL' || c.classLevel === selectedClassFilter;
+      return matchesUnit && matchesClass;
+    }).sort((a, b) => {
+      if (heatmapSort === 'roi') {
+        return b.roiIndex - a.roiIndex;
+      }
+      const valA = examType === 'MAIN' ? a.mainPct : a.advPct;
+      const valB = examType === 'MAIN' ? b.mainPct : b.advPct;
+      return valB - valA;
+    });
+  }, [selectedUnitFilter, selectedClassFilter, heatmapSort, examType]);
 
   // Target Score Planner Recommendation Engine
   const plannerRecommendations = useMemo(() => {
@@ -303,37 +341,43 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
           animate={{ y: 0, scale: 1, opacity: 1 }}
           exit={{ y: 20, scale: 0.96, opacity: 0 }}
           transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-          className="w-full max-w-6xl h-[94vh] max-h-[900px] bg-[#0A0A0E] border border-cyan-500/20 rounded-2xl sm:rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
+          className="w-full max-w-6xl h-[94vh] max-h-[900px] bg-[#060812] border border-cyan-500/30 rounded-2xl sm:rounded-3xl shadow-[0_0_70px_rgba(0,240,255,0.16)] overflow-hidden flex flex-col relative"
         >
+          {/* Subtle Cyber scanline background texture */}
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#00f0ff05_1px,transparent_1px),linear-gradient(to_bottom,#00f0ff05_1px,transparent_1px)] bg-[size:28px_28px] pointer-events-none opacity-50" />
+          <div className="absolute top-0 right-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
           {/* Header Bar */}
-          <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-white/[0.08] flex items-center justify-between bg-gradient-to-r from-[#0E1018] via-[#0A0A0E] to-[#0E1018] shrink-0">
+          <div className="relative z-10 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-white/[0.08] flex items-center justify-between bg-gradient-to-r from-[#0C0F1D] via-[#070913] to-[#0C0F1D] shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-cyan-500/20 to-blue-600/20 border border-cyan-500/40 flex items-center justify-center shadow-[0_0_15px_rgba(0,240,255,0.2)]">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-cyan-500/20 via-blue-600/20 to-indigo-600/20 border border-cyan-400/40 flex items-center justify-center shadow-[0_0_20px_rgba(0,240,255,0.3)] ring-1 ring-cyan-400/20">
                 <BarChart3 className="w-5 h-5 text-cyan-400" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-base sm:text-lg font-black text-white tracking-tight flex items-center gap-2">
-                    JEE Physics Exam Intelligence & Weightage Hub
+                    JEE Physics Exam Intelligence &amp; Weightage Hub
                   </h2>
-                  <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     2014 - 2026 Live Grounding
                   </span>
                 </div>
                 <p className="text-[11px] sm:text-xs text-zinc-400">
-                  Precision statistics, chapter high-yield tiers, historical trends & score planners
+                  Precision statistics, chapter high-yield tiers, historical trends &amp; score planners
                 </p>
               </div>
             </div>
 
             {/* Exam Toggle & Close Button */}
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className="inline-flex bg-[#12131A] p-1 rounded-xl border border-white/[0.08]">
+              <div className="inline-flex bg-[#101322] p-1 rounded-xl border border-white/[0.1] shadow-inner">
                 <button
                   onClick={() => setExamType('MAIN')}
                   className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-black transition-all ${
                     examType === 'MAIN' 
-                      ? 'bg-blue-600 text-white shadow-[0_0_12px_rgba(37,99,235,0.4)]' 
+                      ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-[0_0_16px_rgba(37,99,235,0.5)] ring-1 ring-cyan-400/50' 
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
@@ -343,7 +387,7 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                   onClick={() => setExamType('ADVANCED')}
                   className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-black transition-all ${
                     examType === 'ADVANCED' 
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-[0_0_12px_rgba(16,185,129,0.4)]' 
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-[0_0_16px_rgba(16,185,129,0.5)] ring-1 ring-emerald-400/50' 
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
@@ -362,89 +406,95 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
           </div>
 
           {/* Navigation Sub-Tabs */}
-          <div className="px-4 sm:px-6 py-2 bg-[#0E0E14] border-b border-white/[0.06] flex items-center justify-between gap-2 overflow-x-auto scrollbar-none shrink-0">
-            <div className="flex items-center gap-1 sm:gap-2">
+          <div className="relative z-10 px-4 sm:px-6 py-2 bg-[#090C16] border-b border-white/[0.08] flex items-center justify-between gap-2 overflow-x-auto scrollbar-none shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button
                 onClick={() => setActiveTab('overview')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 border ${
                   activeTab === 'overview'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    ? 'bg-gradient-to-r from-cyan-500/25 to-blue-500/25 text-cyan-200 border-cyan-400/50 shadow-[0_0_14px_rgba(0,240,255,0.25)] ring-1 ring-cyan-400/30'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04] border-transparent'
                 }`}
               >
                 <PieChartIcon className="w-3.5 h-3.5" />
-                <span>Unit Breakdown & Competency</span>
+                <span>Unit Breakdown &amp; Competency</span>
+                {activeTab === 'overview' && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />}
               </button>
 
               <button
                 onClick={() => setActiveTab('chapters')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 border ${
                   activeTab === 'chapters'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    ? 'bg-gradient-to-r from-cyan-500/25 to-blue-500/25 text-cyan-200 border-cyan-400/50 shadow-[0_0_14px_rgba(0,240,255,0.25)] ring-1 ring-cyan-400/30'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04] border-transparent'
                 }`}
               >
                 <BarChart2 className="w-3.5 h-3.5" />
                 <span>Chapter Weightage Matrix</span>
+                {activeTab === 'chapters' && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />}
               </button>
 
               <button
                 onClick={() => setActiveTab('heatmap')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 border ${
                   activeTab === 'heatmap'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    ? 'bg-gradient-to-r from-emerald-500/25 to-teal-500/25 text-emerald-200 border-emerald-400/50 shadow-[0_0_14px_rgba(16,185,129,0.25)] ring-1 ring-emerald-400/30'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04] border-transparent'
                 }`}
               >
                 <Grid className="w-3.5 h-3.5" />
                 <span>High-Yield Heatmap</span>
+                {activeTab === 'heatmap' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
               </button>
 
               <button
                 onClick={() => setActiveTab('questions')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 border ${
                   activeTab === 'questions'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    ? 'bg-gradient-to-r from-purple-500/25 to-indigo-500/25 text-purple-200 border-purple-400/50 shadow-[0_0_14px_rgba(168,85,247,0.25)] ring-1 ring-purple-400/30'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04] border-transparent'
                 }`}
               >
                 <Target className="w-3.5 h-3.5" />
-                <span>Question Formats & Rigor</span>
+                <span>Question Formats &amp; Rigor</span>
+                {activeTab === 'questions' && <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />}
               </button>
 
               <button
                 onClick={() => setActiveTab('strategy')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 border ${
                   activeTab === 'strategy'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    ? 'bg-gradient-to-r from-cyan-500/25 to-teal-500/25 text-cyan-200 border-cyan-400/50 shadow-[0_0_14px_rgba(6,182,212,0.25)] ring-1 ring-cyan-400/30'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04] border-transparent'
                 }`}
               >
                 <Compass className="w-3.5 h-3.5" />
                 <span>4-Quadrant Strategy</span>
+                {activeTab === 'strategy' && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />}
               </button>
 
               <button
                 onClick={() => setActiveTab('planner')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 border ${
                   activeTab === 'planner'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    ? 'bg-gradient-to-r from-amber-500/25 to-yellow-500/25 text-amber-200 border-amber-400/50 shadow-[0_0_14px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/30'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04] border-transparent'
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                 <span>Target Score Planner</span>
+                {activeTab === 'planner' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
               </button>
             </div>
 
             <div className="hidden md:flex items-center gap-3 text-[11px] text-zinc-400">
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                Class 11: <strong>{classSplit.class11}%</strong>
+              <span className="flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-lg border border-white/[0.06]">
+                <span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.5)]"></span>
+                <span>Class 11: <strong>{classSplit.class11}%</strong></span>
               </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                Class 12: <strong>{classSplit.class12}%</strong>
+              <span className="flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-lg border border-white/[0.06]">
+                <span className="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_6px_rgba(168,85,247,0.5)]"></span>
+                <span>Class 12: <strong>{classSplit.class12}%</strong></span>
               </span>
             </div>
           </div>
@@ -457,62 +507,78 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
               <div className="space-y-6">
                 {/* Top Summary KPI Cards */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                  <div className="bg-[#111116] p-4 rounded-2xl border border-white/[0.06] flex items-center justify-between">
-                    <div>
-                      <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Exam Questions</span>
-                      <div className="text-xl sm:text-2xl font-black text-white mt-1">
+                  <div className="group relative overflow-hidden bg-gradient-to-br from-[#101830] via-[#0B1024] to-[#070914] p-4 rounded-2xl border border-blue-500/30 hover:border-blue-400/60 shadow-[0_4px_24px_rgba(59,130,246,0.12)] hover:shadow-[0_4px_32px_rgba(59,130,246,0.25)] transition-all duration-300 flex items-center justify-between">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-full blur-xl pointer-events-none group-hover:bg-blue-500/20 transition-all" />
+                    <div className="relative z-10">
+                      <span className="text-[10px] font-black text-blue-300 uppercase tracking-widest flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(59,130,246,0.8)]" />
+                        Exam Questions
+                      </span>
+                      <div className="text-xl sm:text-2xl font-black text-white mt-1 tracking-tight">
                         {examType === 'MAIN' ? '30 Qs' : '36 Qs'}
                       </div>
-                      <span className="text-[10px] text-cyan-400 font-semibold">
+                      <span className="text-[10px] text-cyan-300 font-semibold flex items-center gap-1 mt-0.5">
                         {examType === 'MAIN' ? '100 Marks Total' : '~120 Marks Avg'}
                       </span>
                     </div>
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                    <div className="w-11 h-11 rounded-xl bg-blue-500/15 border border-blue-400/40 flex items-center justify-center text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.2)] group-hover:scale-110 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.4)] transition-all shrink-0">
                       <HelpCircle className="w-5 h-5" />
                     </div>
                   </div>
 
-                  <div className="bg-[#111116] p-4 rounded-2xl border border-white/[0.06] flex items-center justify-between">
-                    <div>
-                      <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Top Scoring Unit</span>
-                      <div className="text-xl sm:text-2xl font-black text-emerald-400 mt-1">
+                  <div className="group relative overflow-hidden bg-gradient-to-br from-[#0F2620] via-[#0A1A17] to-[#06110F] p-4 rounded-2xl border border-emerald-500/30 hover:border-emerald-400/60 shadow-[0_4px_24px_rgba(16,185,129,0.12)] hover:shadow-[0_4px_32px_rgba(16,185,129,0.25)] transition-all duration-300 flex items-center justify-between">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-xl pointer-events-none group-hover:bg-emerald-500/20 transition-all" />
+                    <div className="relative z-10">
+                      <span className="text-[10px] font-black text-emerald-300 uppercase tracking-widest flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
+                        Top Scoring Unit
+                      </span>
+                      <div className="text-xl sm:text-2xl font-black text-emerald-300 mt-1 tracking-tight">
                         Modern Physics
                       </div>
-                      <span className="text-[10px] text-zinc-400 font-semibold">
+                      <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1 mt-0.5">
                         9.8 / 10 ROI Yield
                       </span>
                     </div>
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <div className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)] group-hover:scale-110 group-hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-all shrink-0">
                       <Zap className="w-5 h-5" />
                     </div>
                   </div>
 
-                  <div className="bg-[#111116] p-4 rounded-2xl border border-white/[0.06] flex items-center justify-between">
-                    <div>
-                      <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Heavyweight Domain</span>
-                      <div className="text-xl sm:text-2xl font-black text-blue-400 mt-1">
-                        Mechanics & Fluids
+                  <div className="group relative overflow-hidden bg-gradient-to-br from-[#102038] via-[#0A1526] to-[#060D17] p-4 rounded-2xl border border-cyan-500/30 hover:border-cyan-400/60 shadow-[0_4px_24px_rgba(6,182,212,0.12)] hover:shadow-[0_4px_32px_rgba(6,182,212,0.25)] transition-all duration-300 flex items-center justify-between">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-cyan-500/10 rounded-full blur-xl pointer-events-none group-hover:bg-cyan-500/20 transition-all" />
+                    <div className="relative z-10">
+                      <span className="text-[10px] font-black text-cyan-300 uppercase tracking-widest flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.8)]" />
+                        Heavyweight Domain
+                      </span>
+                      <div className="text-xl sm:text-2xl font-black text-cyan-200 mt-1 tracking-tight">
+                        Mechanics &amp; Fluids
                       </div>
-                      <span className="text-[10px] text-zinc-400 font-semibold">
+                      <span className="text-[10px] text-cyan-400 font-semibold flex items-center gap-1 mt-0.5">
                         {examType === 'MAIN' ? '31.5% Weightage' : '35.0% Weightage'}
                       </span>
                     </div>
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                    <div className="w-11 h-11 rounded-xl bg-cyan-500/15 border border-cyan-400/40 flex items-center justify-center text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.2)] group-hover:scale-110 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all shrink-0">
                       <Layers className="w-5 h-5" />
                     </div>
                   </div>
 
-                  <div className="bg-[#111116] p-4 rounded-2xl border border-white/[0.06] flex items-center justify-between">
-                    <div>
-                      <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">99 %ile Target</span>
-                      <div className="text-xl sm:text-2xl font-black text-amber-400 mt-1">
+                  <div className="group relative overflow-hidden bg-gradient-to-br from-[#2D2012] via-[#1C140C] to-[#100B06] p-4 rounded-2xl border border-amber-500/30 hover:border-amber-400/60 shadow-[0_4px_24px_rgba(245,158,11,0.12)] hover:shadow-[0_4px_32px_rgba(245,158,11,0.25)] transition-all duration-300 flex items-center justify-between">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full blur-xl pointer-events-none group-hover:bg-amber-500/20 transition-all" />
+                    <div className="relative z-10">
+                      <span className="text-[10px] font-black text-amber-300 uppercase tracking-widest flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(245,158,11,0.8)]" />
+                        99 %ile Target
+                      </span>
+                      <div className="text-xl sm:text-2xl font-black text-amber-300 mt-1 tracking-tight">
                         {examType === 'MAIN' ? '78+ Marks' : '62+ Marks'}
                       </div>
-                      <span className="text-[10px] text-zinc-400 font-semibold">
+                      <span className="text-[10px] text-amber-400 font-semibold flex items-center gap-1 mt-0.5">
                         {examType === 'MAIN' ? 'Top 1% in Country' : 'Under 2,500 AIR'}
                       </span>
                     </div>
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)] group-hover:scale-110 group-hover:shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all shrink-0">
                       <Award className="w-5 h-5" />
                     </div>
                   </div>
@@ -521,13 +587,13 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                 {/* Interactive Donut & Unit Intelligence Detail */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Left Donut Pie Chart (5 Cols) */}
-                  <div className="lg:col-span-5 bg-[#111116] p-5 rounded-2xl border border-white/[0.06] flex flex-col">
+                  <div className="lg:col-span-5 bg-[#090C18] p-5 rounded-2xl border border-cyan-500/20 shadow-[0_4px_25px_rgba(0,240,255,0.06)] flex flex-col relative overflow-hidden">
                     <div className="flex items-center justify-between mb-2">
                       <h3 className="text-sm font-bold text-white flex items-center gap-2">
                         <PieChartIcon className="w-4 h-4 text-cyan-400" />
                         Interactive Unit-Wise Share
                       </h3>
-                      <span className="text-[10px] font-semibold text-zinc-400 bg-white/5 px-2 py-0.5 rounded-md">
+                      <span className="text-[10px] font-semibold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 rounded-md">
                         Click slice to pin
                       </span>
                     </div>
@@ -839,6 +905,32 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                   </div>
                 </div>
 
+                {/* Category & Unit Portion Filter Toggles */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  {UNIT_OPTIONS.map((uTab) => {
+                    const isActive = selectedUnitFilter === uTab.id;
+                    const count = unitCounts[uTab.id] ?? 0;
+                    return (
+                      <button
+                        key={uTab.id}
+                        onClick={() => setSelectedUnitFilter(uTab.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 flex items-center gap-1.5 border min-h-[32px] ${
+                          isActive
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/50 shadow-[0_0_12px_rgba(0,240,255,0.25)] font-bold'
+                            : 'bg-[#15151F] text-zinc-400 border-white/[0.06] hover:text-zinc-200 hover:border-white/[0.12]'
+                        }`}
+                      >
+                        <span>{uTab.label}</span>
+                        <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                          isActive ? 'bg-cyan-500/30 text-cyan-200' : 'bg-white/[0.06] text-zinc-500'
+                        }`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {/* Chapter Comparison Bar Chart */}
                 <div className="bg-[#111116] p-5 rounded-2xl border border-white/[0.06]">
                   <div className="flex items-center justify-between mb-4">
@@ -953,6 +1045,24 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                             </td>
                           </tr>
                         ))}
+                        {filteredChapters.length === 0 && (
+                          <tr>
+                            <td colSpan={8} className="py-12 text-center">
+                              <p className="text-zinc-400 text-sm font-semibold mb-2">No chapters found matching your filter criteria</p>
+                              <button
+                                onClick={() => {
+                                  setChapterSearch('');
+                                  setSelectedClassFilter('ALL');
+                                  setSelectedPriorityFilter('ALL');
+                                  setSelectedUnitFilter('ALL');
+                                }}
+                                className="px-3.5 py-1.5 rounded-xl bg-cyan-500 text-slate-950 font-bold text-xs hover:bg-cyan-400 transition"
+                              >
+                                Reset All Chapter Filters
+                              </button>
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -981,6 +1091,24 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                     </div>
                     
                     <div className="flex items-center gap-3 flex-wrap">
+                      {/* Class Filter for Heatmap */}
+                      <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/10 text-[11px]">
+                        <span className="text-zinc-500 text-[10px] uppercase font-bold pl-1">Class:</span>
+                        {(['ALL', 'Class 11', 'Class 12'] as const).map((cls) => (
+                          <button
+                            key={cls}
+                            onClick={() => setSelectedClassFilter(cls)}
+                            className={`px-2 py-0.5 rounded-lg font-bold text-[10px] transition-all ${
+                              selectedClassFilter === cls
+                                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                            {cls === 'ALL' ? 'All' : cls.replace('Class ', 'C')}
+                          </button>
+                        ))}
+                      </div>
+
                       {/* Sort Switch */}
                       <div className="flex items-center gap-1.5 bg-black/40 p-1 rounded-xl border border-white/10 text-[11px]">
                         <span className="text-zinc-500 text-[10px] uppercase font-bold pl-1">Sort:</span>
@@ -1020,6 +1148,32 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                     </div>
                   </div>
 
+                  {/* Heatmap Category/Unit Portion Toggles */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-2 scrollbar-none shrink-0 border-b border-white/[0.06]">
+                    {UNIT_OPTIONS.map((uTab) => {
+                      const isActive = selectedUnitFilter === uTab.id;
+                      const count = unitCounts[uTab.id] ?? 0;
+                      return (
+                        <button
+                          key={`hm-${uTab.id}`}
+                          onClick={() => setSelectedUnitFilter(uTab.id)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition shrink-0 flex items-center gap-1.5 border min-h-[30px] ${
+                            isActive
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50 shadow-[0_0_10px_rgba(16,185,129,0.25)] font-bold'
+                              : 'bg-[#15151F] text-zinc-400 border-white/[0.06] hover:text-zinc-200 hover:border-white/[0.12]'
+                          }`}
+                        >
+                          <span>{uTab.label}</span>
+                          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                            isActive ? 'bg-emerald-500/30 text-emerald-200' : 'bg-white/[0.06] text-zinc-500'
+                          }`}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   <div 
                     className="overflow-x-auto overflow-y-auto flex-1 scrollbar-thin scrollbar-thumb-white/[0.1] pr-2 pb-2"
                     onScroll={() => setHoveredRoiData(null)}
@@ -1043,16 +1197,23 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                         </div>
                       </div>
 
-                      {/* Heatmap Rows */}
-                      <div className="space-y-1">
-                        {CHAPTER_WEIGHTAGE_DATA.slice().sort((a, b) => {
-                          if (heatmapSort === 'roi') {
-                            return b.roiIndex - a.roiIndex;
-                          }
-                          const valA = examType === 'MAIN' ? a.mainPct : a.advPct;
-                          const valB = examType === 'MAIN' ? b.mainPct : b.advPct;
-                          return valB - valA; // Sort top yielders to top
-                        }).map((ch) => {
+                      {/* Heatmap Rows or Empty State */}
+                      {heatmapChapters.length === 0 ? (
+                        <div className="p-8 text-center bg-black/30 rounded-xl border border-white/[0.06] space-y-2 my-4">
+                          <p className="text-xs text-zinc-400">No chapters match the selected unit or class portion filter.</p>
+                          <button
+                            onClick={() => {
+                              setSelectedUnitFilter('ALL');
+                              setSelectedClassFilter('ALL');
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-950 font-bold text-xs hover:bg-emerald-400 transition"
+                          >
+                            Reset Heatmap Filters
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {heatmapChapters.map((ch) => {
                           const roiBadgeColor = ch.roiIndex >= 9.0 
                             ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
                             : ch.roiIndex >= 8.0 
@@ -1136,6 +1297,7 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                           );
                         })}
                       </div>
+                    )}
                     </div>
                   </div>
                 </div>
@@ -1523,7 +1685,7 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
             {/* ================= TAB 4: 4-QUADRANT STRATEGY ================= */}
             {activeTab === 'strategy' && (
               <div className="space-y-6">
-                <div className="bg-[#111116] p-4 rounded-2xl border border-white/[0.06] mb-2">
+                <div className="bg-[#111116] p-4 rounded-2xl border border-white/[0.06]">
                   <h3 className="text-sm font-bold text-white mb-1 flex items-center gap-2">
                     <Compass className="w-4 h-4 text-amber-400" />
                     Physics 4-Quadrant High-Yield Preparation Matrix
@@ -1531,6 +1693,67 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                   <p className="text-[11px] text-zinc-400">
                     Chapters categorized by time investment effort vs marks yield
                   </p>
+                </div>
+
+                {/* Founder's Tactical Edge & Score Acceleration Protocol */}
+                <div className="relative overflow-hidden rounded-2xl border border-cyan-500/30 bg-gradient-to-br from-[#0D1224] via-[#0B0F1C] to-[#070913] p-5 shadow-[0_0_25px_rgba(6,182,212,0.12)]">
+                  <div className="absolute top-0 right-0 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+                  <div className="absolute bottom-0 left-0 w-60 h-60 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -ml-20 -mb-20" />
+                  
+                  <div className="relative z-10">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-white/[0.08]">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-cyan-500/25 shrink-0">
+                          <ShieldCheck className="w-5 h-5 text-slate-950" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-cyan-400 uppercase tracking-widest">Founder's Tactical Edge</span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              Verified Protocol
+                            </span>
+                          </div>
+                          <h4 className="text-sm sm:text-base font-black text-white">Curated by Sanjay.J • Physics Intuition Architecture</h4>
+                        </div>
+                      </div>
+                      <div className="text-[11px] text-zinc-400 sm:text-right">
+                        <span>Target: </span>
+                        <strong className="text-amber-400">99.5+ Percentile in Physics</strong>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                      <div className="bg-white/[0.03] border border-white/[0.06] p-3.5 rounded-xl hover:border-cyan-500/40 transition-colors">
+                        <div className="flex items-center gap-2 mb-2 text-cyan-300 font-bold text-xs">
+                          <Target className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                          <span>Rule 1: Spatial Triage First</span>
+                        </div>
+                        <p className="text-xs text-zinc-300 leading-relaxed">
+                          Spend the first 35 seconds visualizing rotation vectors or field lines in 3D before applying formulas. 80% of algebraic dead-ends are prevented by correct initial vector orientation.
+                        </p>
+                      </div>
+
+                      <div className="bg-white/[0.03] border border-white/[0.06] p-3.5 rounded-xl hover:border-emerald-500/40 transition-colors">
+                        <div className="flex items-center gap-2 mb-2 text-emerald-300 font-bold text-xs">
+                          <Zap className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>Rule 2: Modern Physics Blitz</span>
+                        </div>
+                        <p className="text-xs text-zinc-300 leading-relaxed">
+                          Secure 100% of Modern Physics + Current Electricity in the opening 25 minutes. These 24-28 marks require zero heavy integration and generate unstoppable early confidence.
+                        </p>
+                      </div>
+
+                      <div className="bg-white/[0.03] border border-white/[0.06] p-3.5 rounded-xl hover:border-amber-500/40 transition-colors">
+                        <div className="flex items-center gap-2 mb-2 text-amber-300 font-bold text-xs">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>Rule 3: Partial Mark Discipline</span>
+                        </div>
+                        <p className="text-xs text-zinc-300 leading-relaxed">
+                          In JEE Advanced Multi-Correct questions, locking in two verified options guarantees +2 marks without risk. Never hazard a blind guess on the 3rd or 4th option.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

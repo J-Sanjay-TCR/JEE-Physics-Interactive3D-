@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { JEE_SYLLABUS_DIRECTORY, JeeChapterSyllabusItem } from '../../data/jeeSyllabusDirectory';
-import { ALL_CONCEPTS } from '../../data/allConcepts';
+import { ALL_CONCEPTS, isClass11Chapter, isClass12Chapter, getChapterClass } from '../../data/allConcepts';
 import { PhysicsConcept } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
 import {
@@ -24,6 +24,7 @@ import {
   Eye,
   Activity,
   Check,
+  Ruler,
 } from 'lucide-react';
 
 interface JeeSyllabusDirectoryModalProps {
@@ -39,16 +40,77 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
 }) => {
   const { isDark, isCyberpunk } = useTheme();
   const [selectedUnit, setSelectedUnit] = useState<string>('All');
+  const [selectedClass, setSelectedClass] = useState<'all' | 'class-11' | 'class-12'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedType, setCopiedType] = useState<string | null>(null);
 
-  const units = ['All', 'Mechanics', 'Thermal Physics', 'Electricity & Magnetism', 'Optics', 'Modern Physics'] as const;
+  const units = [
+    'All',
+    'Mechanics',
+    'Thermal Physics',
+    'Electricity & Magnetism',
+    'Waves & Oscillations',
+    'Optics',
+    'Modern Physics',
+    'Experimental Physics',
+  ] as const;
+
+  const handleToggleUnit = (unit: string) => {
+    if (selectedUnit === unit) {
+      setSelectedUnit('All');
+    } else {
+      setSelectedUnit(unit);
+      if (selectedClass !== 'all' && unit !== 'All') {
+        const hasChaptersInClass = JEE_SYLLABUS_DIRECTORY.some((item) => {
+          if (item.unit_name !== unit) return false;
+          return selectedClass === 'class-11'
+            ? isClass11Chapter(item.conceptId)
+            : isClass12Chapter(item.conceptId);
+        });
+        if (!hasChaptersInClass) {
+          const in11 = JEE_SYLLABUS_DIRECTORY.some((item) => item.unit_name === unit && isClass11Chapter(item.conceptId));
+          const in12 = JEE_SYLLABUS_DIRECTORY.some((item) => item.unit_name === unit && isClass12Chapter(item.conceptId));
+          if (in11 && !in12) setSelectedClass('class-11');
+          else if (in12 && !in11) setSelectedClass('class-12');
+          else setSelectedClass('all');
+        }
+      }
+    }
+  };
+
+  const handleToggleClass = (cls: 'all' | 'class-11' | 'class-12') => {
+    const nextClass = selectedClass === cls && cls !== 'all' ? 'all' : cls;
+    setSelectedClass(nextClass);
+    if (selectedUnit !== 'All' && nextClass !== 'all') {
+      const hasChaptersInUnit = JEE_SYLLABUS_DIRECTORY.some((item) => {
+        if (item.unit_name !== selectedUnit) return false;
+        return nextClass === 'class-11'
+          ? isClass11Chapter(item.conceptId)
+          : isClass12Chapter(item.conceptId);
+      });
+      if (!hasChaptersInUnit) {
+        setSelectedUnit('All');
+      }
+    }
+  };
+
+  const unitTotalCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: JEE_SYLLABUS_DIRECTORY.length };
+    JEE_SYLLABUS_DIRECTORY.forEach((item) => {
+      counts[item.unit_name] = (counts[item.unit_name] || 0) + 1;
+    });
+    return counts;
+  }, []);
 
   const filteredList = useMemo(() => {
     return JEE_SYLLABUS_DIRECTORY.filter((item) => {
       const matchesUnit = selectedUnit === 'All' || item.unit_name === selectedUnit;
+      let matchesClass = true;
+      if (selectedClass === 'class-11') matchesClass = isClass11Chapter(item.conceptId);
+      else if (selectedClass === 'class-12') matchesClass = isClass12Chapter(item.conceptId);
+
       const query = searchQuery.toLowerCase().trim();
-      if (!query) return matchesUnit;
+      if (!query) return matchesUnit && matchesClass;
 
       const matchesSearch =
         item.chapter_name.toLowerCase().includes(query) ||
@@ -56,9 +118,9 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
         item.important_cases.some((c) => c.toLowerCase().includes(query)) ||
         item['3d_model_spec'].interactive_variables.some((v) => v.toLowerCase().includes(query));
 
-      return matchesUnit && matchesSearch;
+      return matchesUnit && matchesClass && matchesSearch;
     });
-  }, [selectedUnit, searchQuery]);
+  }, [selectedUnit, selectedClass, searchQuery]);
 
   const handleLaunch = (conceptId: string) => {
     const target = ALL_CONCEPTS.find((c) => c.id === conceptId) || ALL_CONCEPTS[0];
@@ -101,10 +163,14 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
         return <Flame className="w-3.5 h-3.5 text-amber-400" />;
       case 'Electricity & Magnetism':
         return <Zap className="w-3.5 h-3.5 text-yellow-400" />;
+      case 'Waves & Oscillations':
+        return <Activity className="w-3.5 h-3.5 text-rose-400" />;
       case 'Optics':
         return <Eye className="w-3.5 h-3.5 text-fuchsia-400" />;
       case 'Modern Physics':
-        return <Activity className="w-3.5 h-3.5 text-emerald-400" />;
+        return <Boxes className="w-3.5 h-3.5 text-emerald-400" />;
+      case 'Experimental Physics':
+        return <Ruler className="w-3.5 h-3.5 text-cyan-400" />;
       default:
         return <Boxes className="w-3.5 h-3.5 text-cyan-400" />;
     }
@@ -124,6 +190,10 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
         return isCyberpunk
           ? 'bg-yellow-500/20 text-yellow-300 border-yellow-400/40'
           : 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30';
+      case 'Waves & Oscillations':
+        return isCyberpunk
+          ? 'bg-rose-500/20 text-rose-300 border-rose-400/40'
+          : 'bg-rose-500/15 text-rose-400 border-rose-500/30';
       case 'Optics':
         return isCyberpunk
           ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-400/40'
@@ -132,6 +202,10 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
         return isCyberpunk
           ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
           : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+      case 'Experimental Physics':
+        return isCyberpunk
+          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/40'
+          : 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30';
       default:
         return 'bg-zinc-800 text-zinc-300 border-zinc-700';
     }
@@ -256,7 +330,7 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
 
         {/* Filter & Search Bar */}
         <div
-          className={`p-4 border-b flex flex-col md:flex-row items-center justify-between gap-3 ${
+          className={`p-3.5 sm:p-4 border-b flex flex-col gap-3 ${
             isCyberpunk
               ? 'bg-[#030712] border-cyan-500/20'
               : isDark
@@ -264,14 +338,94 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
               : 'bg-slate-100/70 border-slate-200'
           }`}
         >
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+            {/* Class Portion Buttons */}
+            <div className="flex items-center gap-1.5 p-1 rounded-xl border bg-black/40 border-white/[0.06] overflow-x-auto no-scrollbar shrink-0">
+              <button
+                onClick={() => handleToggleClass('all')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap min-h-[28px] ${
+                  selectedClass === 'all'
+                    ? 'bg-cyan-500 text-slate-950 font-black shadow-xs'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <span>All Classes</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                  selectedClass === 'all' ? 'bg-slate-950/25 text-slate-950' : 'bg-white/10 text-zinc-400'
+                }`}>
+                  {JEE_SYLLABUS_DIRECTORY.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => handleToggleClass('class-11')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap min-h-[28px] ${
+                  selectedClass === 'class-11'
+                    ? 'bg-blue-500 text-white font-black shadow-xs'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <span>Class 11 Portion</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                  selectedClass === 'class-11' ? 'bg-white/25 text-white' : 'bg-white/10 text-zinc-400'
+                }`}>
+                  {JEE_SYLLABUS_DIRECTORY.filter((i) => isClass11Chapter(i.conceptId)).length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => handleToggleClass('class-12')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap min-h-[28px] ${
+                  selectedClass === 'class-12'
+                    ? 'bg-purple-500 text-white font-black shadow-xs'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <span>Class 12 Portion</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                  selectedClass === 'class-12' ? 'bg-white/25 text-white' : 'bg-white/10 text-zinc-400'
+                }`}>
+                  {JEE_SYLLABUS_DIRECTORY.filter((i) => isClass12Chapter(i.conceptId)).length}
+                </span>
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative w-full md:w-72 shrink-0">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="Search chapters, cases, sliders..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`w-full pl-9 pr-8 py-1.5 rounded-xl text-xs border outline-none transition-all ${
+                  isCyberpunk
+                    ? 'bg-cyan-950/20 border-cyan-500/30 text-cyan-100 placeholder-zinc-500 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400'
+                    : isDark
+                    ? 'bg-zinc-900 border-white/10 text-zinc-200 placeholder-zinc-500 focus:border-blue-500'
+                    : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-blue-500'
+                }`}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 text-xs"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Unit selector pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 scrollbar-none">
+          <div className="flex items-center gap-1.5 overflow-x-auto w-full pb-0.5 scrollbar-none">
             {units.map((unit) => {
               const active = selectedUnit === unit;
+              const count = unitTotalCounts[unit] || 0;
               return (
                 <button
                   key={unit}
-                  onClick={() => setSelectedUnit(unit)}
+                  onClick={() => handleToggleUnit(unit)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 border ${
                     active
                       ? isCyberpunk
@@ -288,35 +442,14 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
                 >
                   {unit !== 'All' && getUnitIcon(unit)}
                   <span>{unit}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                    active ? 'bg-black/20 text-current' : 'bg-white/10 text-zinc-400'
+                  }`}>
+                    {count}
+                  </span>
                 </button>
               );
             })}
-          </div>
-
-          {/* Search Input */}
-          <div className="relative w-full md:w-72">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-            <input
-              type="text"
-              placeholder="Search chapters, cases, sliders..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full pl-9 pr-8 py-1.5 rounded-xl text-xs border outline-none transition-all ${
-                isCyberpunk
-                  ? 'bg-cyan-950/20 border-cyan-500/30 text-cyan-100 placeholder-zinc-500 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400'
-                  : isDark
-                  ? 'bg-zinc-900 border-white/10 text-zinc-200 placeholder-zinc-500 focus:border-blue-500'
-                  : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-blue-500'
-              }`}
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 text-xs"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
         </div>
 
@@ -329,16 +462,19 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
               <button
                 onClick={() => {
                   setSelectedUnit('All');
+                  setSelectedClass('all');
                   setSearchQuery('');
                 }}
-                className="text-xs text-blue-400 hover:underline"
+                className="px-3 py-1 bg-cyan-500/20 text-cyan-300 rounded-lg text-xs font-bold border border-cyan-500/30 hover:bg-cyan-500/30 transition"
               >
-                Reset filters
+                Reset all filters
               </button>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {filteredList.map((item) => (
+              {filteredList.map((item) => {
+                const isC11 = isClass11Chapter(item.conceptId);
+                return (
                 <div
                   key={item.id}
                   className={`rounded-2xl border p-5 flex flex-col justify-between gap-4 transition-all hover:shadow-xl ${
@@ -353,7 +489,7 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
                     {/* Top Row: Unit & Chapter Title */}
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="flex items-center gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 ${getUnitBadgeColor(
                               item.unit_name
@@ -361,6 +497,15 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
                           >
                             {getUnitIcon(item.unit_name)}
                             {item.unit_name}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-black border ${
+                              isC11
+                                ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                            }`}
+                          >
+                            {isC11 ? 'Class 11' : 'Class 12'}
                           </span>
                         </div>
                         <h3 className="text-base sm:text-lg font-bold tracking-tight text-zinc-100 flex items-center gap-2">
@@ -482,7 +627,8 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
