@@ -636,6 +636,31 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     updateCameraTransform();
   }, [updateCameraTransform]);
 
+  // Global event listeners for decoupled camera reset, preset views, and zoom controls
+  useEffect(() => {
+    const handleResetCam = () => resetCamera();
+    const handleCamPreset = (e: Event) => {
+      const custom = e as CustomEvent<'3d' | 'front' | 'top' | 'side'>;
+      if (custom.detail) {
+        setCameraPresetView(custom.detail);
+      }
+    };
+    const handleZoomEvent = (e: Event) => {
+      const custom = e as CustomEvent<number>;
+      if (typeof custom.detail === 'number') {
+        handleZoom(custom.detail);
+      }
+    };
+    window.addEventListener('physics-canvas-reset-camera', handleResetCam);
+    window.addEventListener('physics-canvas-camera-preset', handleCamPreset);
+    window.addEventListener('physics-canvas-zoom', handleZoomEvent);
+    return () => {
+      window.removeEventListener('physics-canvas-reset-camera', handleResetCam);
+      window.removeEventListener('physics-canvas-camera-preset', handleCamPreset);
+      window.removeEventListener('physics-canvas-zoom', handleZoomEvent);
+    };
+  }, [resetCamera, setCameraPresetView, handleZoom]);
+
   // Initialize Three.js Scene
   useEffect(() => {
     if (!containerRef.current) return;
@@ -1134,8 +1159,9 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         onTouchCancel={handleTouchEnd}
       />
 
-      {/* Floating Top Controls Bar */}
-      <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none gap-2">
+      {/* Floating Top Controls Bar - Hidden in Focus Mode so FocusModeOverlay is uncluttered */}
+      {!isFocusMode && (
+        <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none gap-2">
         {/* Left Badges */}
         <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
           {isARMode ? (
@@ -1473,43 +1499,46 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </button>
         </div>
       </div>
+      )}
 
-      {/* Floating Canvas Labels (Legend) & Trajectory Details Toggles */}
-      <div className="absolute top-14 left-3 z-10 pointer-events-auto flex items-center gap-2">
-        <button
-          onClick={onToggleLabels}
-          title="Quickly hide or show the descriptive physics parameter labels directly on the canvas"
-          aria-label="Toggle Canvas Legend"
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg backdrop-blur-md border transition-all ${
-            showLabels
-              ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-              : 'bg-[#111114]/90 text-zinc-400 border-white/[0.08] hover:text-zinc-200 hover:bg-[#1C1C22]/90'
-          }`}
-        >
-          <Tag className="w-3.5 h-3.5" />
-          <span>Legend</span>
-        </button>
-
-        {simulationType === 'projectile-motion' && showTrajectory && (
+      {/* Floating Canvas Labels (Legend) & Trajectory Details Toggles - Hidden in Focus Mode */}
+      {!isFocusMode && (
+        <div className="absolute top-14 left-3 z-10 pointer-events-auto flex items-center gap-2">
           <button
-            onClick={() => setIsTrajectoryHudExpanded(prev => !prev)}
-            title="Toggle Trajectory Details & Telemetry Overlay"
-            aria-label="Toggle Trajectory Details"
+            onClick={onToggleLabels}
+            title="Quickly hide or show the descriptive physics parameter labels directly on the canvas"
+            aria-label="Toggle Canvas Legend"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg backdrop-blur-md border transition-all ${
-              isTrajectoryHudExpanded
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+              showLabels
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
                 : 'bg-[#111114]/90 text-zinc-400 border-white/[0.08] hover:text-zinc-200 hover:bg-[#1C1C22]/90'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Trajectory Details</span>
+            <Tag className="w-3.5 h-3.5" />
+            <span>Legend</span>
           </button>
-        )}
-      </div>
+
+          {simulationType === 'projectile-motion' && showTrajectory && (
+            <button
+              onClick={() => setIsTrajectoryHudExpanded(prev => !prev)}
+              title="Toggle Trajectory Details & Telemetry Overlay"
+              aria-label="Toggle Trajectory Details"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg backdrop-blur-md border transition-all ${
+                isTrajectoryHudExpanded
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                  : 'bg-[#111114]/90 text-zinc-400 border-white/[0.08] hover:text-zinc-200 hover:bg-[#1C1C22]/90'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Trajectory Details</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Projectile Trajectory Flight Analytics & Telemetry HUD */}
       {simulationType === 'projectile-motion' && showTrajectory && projectileTrajectoryData && (
-        <div className="absolute top-24 left-3 max-w-[calc(100%-24px)] sm:max-w-[340px] pointer-events-auto z-10 select-none">
+        <div className={`absolute ${isFocusMode ? 'top-20 sm:top-24 left-3 sm:left-5' : 'top-24 left-3'} max-w-[calc(100%-24px)] sm:max-w-[340px] pointer-events-auto z-10 select-none`}>
           {!isTrajectoryHudExpanded ? (
             /* Micro-Capsule Summary */
             <div className="flex items-center gap-1.5 p-1 sm:p-1.5 rounded-xl bg-[#0c0d14]/85 hover:bg-[#0c0d14]/95 backdrop-blur-xl border border-emerald-500/30 shadow-xl text-xs transition-all">
@@ -1659,53 +1688,55 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         </div>
       )}
 
-      {/* Floating Right Side Zoom Controller (Compatible with Android & Computer) */}
-      <div className="absolute right-3 bottom-14 sm:bottom-12 flex flex-col items-center gap-1.5 bg-[#111114]/95 backdrop-blur-md p-1.5 rounded-2xl border border-white/[0.12] shadow-2xl z-10 pointer-events-auto">
-        {/* Zoom In Button */}
-        <button
-          onClick={() => handleZoom(0.82)}
-          title="Zoom In (or Scroll Up / Pinch Open on Android)"
-          aria-label="Zoom In"
-          className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-200 hover:text-cyan-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
-        >
-          <ZoomIn className="w-4 h-4" />
-        </button>
+      {/* Floating Right Side Zoom Controller (Compatible with Android & Computer) - Hidden in Focus Mode */}
+      {!isFocusMode && (
+        <div className="absolute right-3 bottom-14 sm:bottom-12 flex flex-col items-center gap-1.5 bg-[#111114]/95 backdrop-blur-md p-1.5 rounded-2xl border border-white/[0.12] shadow-2xl z-10 pointer-events-auto">
+          {/* Zoom In Button */}
+          <button
+            onClick={() => handleZoom(0.82)}
+            title="Zoom In (or Scroll Up / Pinch Open on Android)"
+            aria-label="Zoom In"
+            className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-200 hover:text-cyan-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
+          >
+            <ZoomIn className="w-4 h-4" />
+          </button>
 
-        {/* Zoom Percentage Badge */}
-        <button
-          onClick={resetCamera}
-          title="Reset Camera Zoom"
-          className="px-1.5 py-0.5 text-[10px] font-mono font-bold text-zinc-400 hover:text-cyan-300 transition"
-        >
-          {zoomPercent}%
-        </button>
+          {/* Zoom Percentage Badge */}
+          <button
+            onClick={resetCamera}
+            title="Reset Camera Zoom"
+            className="px-1.5 py-0.5 text-[10px] font-mono font-bold text-zinc-400 hover:text-cyan-300 transition"
+          >
+            {zoomPercent}%
+          </button>
 
-        {/* Zoom Out Button */}
-        <button
-          onClick={() => handleZoom(1.22)}
-          title="Zoom Out (or Scroll Down / Pinch Close on Android)"
-          aria-label="Zoom Out"
-          className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-200 hover:text-cyan-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
-        >
-          <ZoomOut className="w-4 h-4" />
-        </button>
+          {/* Zoom Out Button */}
+          <button
+            onClick={() => handleZoom(1.22)}
+            title="Zoom Out (or Scroll Down / Pinch Close on Android)"
+            aria-label="Zoom Out"
+            className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-200 hover:text-cyan-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
+          >
+            <ZoomOut className="w-4 h-4" />
+          </button>
 
-        <div className="w-5 h-px bg-white/[0.1]"></div>
+          <div className="w-5 h-px bg-white/[0.1]"></div>
 
-        {/* Fit / Recenter Button */}
-        <button
-          onClick={resetCamera}
-          title="Recenter Camera & Reset View"
-          aria-label="Recenter Camera"
-          className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
-        >
-          <Move3d className="w-4 h-4" />
-        </button>
-      </div>
+          {/* Fit / Recenter Button */}
+          <button
+            onClick={resetCamera}
+            title="Recenter Camera & Reset View"
+            aria-label="Recenter Camera"
+            className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
+          >
+            <Move3d className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Floating Bottom Left Vector Legend HUD (Names & Representation of All Colored Arrows) */}
       {showVectors && currentVectors.length > 0 && (
-        <div className="absolute bottom-3 left-3 max-w-[calc(100%-80px)] sm:max-w-sm pointer-events-auto z-10 select-none">
+        <div className={`absolute ${isFocusMode ? 'bottom-20 left-3 sm:left-5' : 'bottom-3 left-3'} max-w-[calc(100%-80px)] sm:max-w-sm pointer-events-auto z-10 select-none`}>
           {!isLegendExpanded ? (
             /* Compact Collapsed Micro-Capsule (Non-intrusive, never covers 3D models) */
             <div className="flex items-center gap-1.5 p-1 sm:p-1.5 rounded-xl bg-[#0c0d14]/80 hover:bg-[#0c0d14]/95 backdrop-blur-xl border border-white/[0.12] shadow-xl text-xs transition-all">

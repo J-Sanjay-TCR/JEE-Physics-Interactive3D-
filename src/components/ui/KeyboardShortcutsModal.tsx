@@ -146,7 +146,7 @@ export const SHORTCUTS_LIST: ShortcutItem[] = [
   {
     id: 'toggle-axes',
     category: 'canvas',
-    keys: ['A'],
+    keys: ['X'],
     label: 'Toggle Spatial Axes',
     description: 'Show/hide orthogonal 3D coordinate frame (X-Red, Y-Green, Z-Blue).',
     icon: <Compass className="w-4 h-4 text-rose-400" />,

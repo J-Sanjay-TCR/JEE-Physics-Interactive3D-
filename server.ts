@@ -244,8 +244,8 @@ $$F_{\\text{net}} = m \\cdot a, \\quad W = \\int \\vec{F} \\cdot d\\vec{r}, \\qu
 }
 
 // 1. Health check & Cloud Run readiness probes
-app.get(['/healthz', '/ping', '/api/health'], (req, res) => {
-  res.json({
+app.get(['/healthz', '/ping', '/api/health', '/_ah/health', '/ready', '/health'], (req, res) => {
+  res.status(200).json({
     status: 'ok',
     service: 'jee-3d-physics-lab',
     primaryModel: PRIMARY_FLASH_MODEL,
@@ -254,6 +254,10 @@ app.get(['/healthz', '/ping', '/api/health'], (req, res) => {
     ttsModel: TTS_MODEL,
     timestamp: new Date().toISOString(),
   });
+});
+
+app.head(['/healthz', '/ping', '/api/health', '/_ah/health', '/ready', '/health', '/'], (req, res) => {
+  res.status(200).end();
 });
 
 // 2. Advanced AI Physics Tutor Doubt Solver (with Thinking Mode & Web Search Grounding)
@@ -1096,23 +1100,52 @@ async function startServer() {
     }
   }
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`JEE 3D Physics Lab Server running on port ${PORT} with Gemini 3.7 Flash & TTS`);
+  const isDev = process.env.NODE_ENV === 'development';
+  // In development, the AI Studio dev environment routes traffic to port 3000 via nginx.
+  // In production (Cloud Run), traffic is routed to process.env.PORT (typically 8080).
+  const primaryPort = isDev ? 3000 : (process.env.PORT ? parseInt(process.env.PORT, 10) : 8080);
+  const secondaryPort = primaryPort === 3000 ? (process.env.PORT ? parseInt(process.env.PORT, 10) : 8080) : 3000;
+
+  const server = app.listen(primaryPort, '0.0.0.0', () => {
+    console.log(`JEE 3D Physics Lab Server running on port ${primaryPort} with Gemini 3.7 Flash & TTS`);
+  });
+  server.on('error', (err: any) => {
+    console.warn(`Primary server notice on port ${primaryPort}:`, err.code || err.message);
   });
 
-  process.on('SIGTERM', () => {
-    console.log('SIGTERM received: closing HTTP server gracefully');
-    server.close(() => {
-      console.log('HTTP server closed');
-      process.exit(0);
-    });
-  });
+  // Dual-port listening for seamless Cloud Run deployment rollout and health checks:
+  let secondaryServer: any = null;
+  if (secondaryPort !== primaryPort && !isNaN(secondaryPort)) {
+    try {
+      secondaryServer = app.listen(secondaryPort, '0.0.0.0', () => {
+        console.log(`JEE 3D Physics Lab also listening on secondary port ${secondaryPort} for deployment rollout`);
+      });
+      secondaryServer.on('error', (err: any) => {
+        // In local development sandbox where nginx already occupies port 8080, log notice and continue safely on primary port
+        console.log(`Notice: Secondary port ${secondaryPort} (${err.code || err.message}) - primary server active on port ${primaryPort}`);
+      });
+    } catch (err: any) {
+      console.log(`Notice: Could not bind secondary port ${secondaryPort}:`, err);
+    }
+  }
 
-  process.on('SIGINT', () => {
+  const closeServers = (signal: string) => {
+    console.log(`${signal} received: closing HTTP servers gracefully`);
     server.close(() => {
-      process.exit(0);
+      if (secondaryServer && secondaryServer.listening) {
+        secondaryServer.close(() => {
+          console.log('All HTTP servers closed');
+          process.exit(0);
+        });
+      } else {
+        console.log('HTTP server closed');
+        process.exit(0);
+      }
     });
-  });
+  };
+
+  process.on('SIGTERM', () => closeServers('SIGTERM'));
+  process.on('SIGINT', () => closeServers('SIGINT'));
 }
 
 startServer();

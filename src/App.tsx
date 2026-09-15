@@ -278,6 +278,15 @@ export default function App() {
         return;
       }
 
+      // If in Focus Mode, let FocusModeOverlay exclusively handle shortcut keys to avoid dual-event conflicts
+      if (isFocusMode) {
+        if (e.key === 'Escape' || e.key === 'f' || e.key === 'F') {
+          e.preventDefault();
+          setIsFocusMode(false);
+        }
+        return;
+      }
+
       // 'A' or 'a' to toggle AR Mode (Camera Physical Environment Overlay)
       if (e.key === 'a' || e.key === 'A') {
         e.preventDefault();
@@ -361,7 +370,7 @@ export default function App() {
         setShowGrid((prev) => !prev);
         return;
       }
-      if (e.key === 'a' || e.key === 'A') {
+      if (e.key === 'x' || e.key === 'X') {
         e.preventDefault();
         setShowAxes((prev) => !prev);
         return;

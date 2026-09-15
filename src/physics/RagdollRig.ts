@@ -133,6 +133,9 @@ export interface RagdollSimParams {
   inclineAngleDeg?: number; // terrain slope angle in degrees
   isStandingStance?: boolean; // standing poised on ground/pedestal until impacted
   impactImpulse?: { time: number; force: [number, number, number]; boneId?: string };
+  dragCoeff?: number; // aerodynamic air drag coefficient
+  restitution?: number; // ground & body collision restitution (0 to 0.95)
+  friction?: number; // surface friction (0 to 1.0)
 }
 
 export interface RagdollCOMState {
@@ -228,11 +231,14 @@ export class RagdollPhysicsSimulator {
     // Ground plane collider (supports flat or inclined plane)
     const inclineDeg = params.inclineAngleDeg ?? 0;
     const slopeRad = (inclineDeg * Math.PI) / 180;
+    const restitutionVal = params.restitution !== undefined ? Math.min(0.95, Math.max(0.05, params.restitution)) : 0.35;
+    const frictionVal = params.friction !== undefined ? Math.min(1.0, Math.max(0.05, params.friction)) : 0.65;
+
     const groundDesc = this.rapierInstance.ColliderDesc.cuboid(80.0, 0.5, 30.0)
       .setTranslation(30.0 * Math.cos(slopeRad), 30.0 * Math.sin(slopeRad) - 0.5, 0.0)
       .setRotation({ x: 0, y: 0, z: Math.sin(slopeRad / 2), w: Math.cos(slopeRad / 2) })
-      .setRestitution(0.35)
-      .setFriction(0.65);
+      .setRestitution(restitutionVal)
+      .setFriction(frictionVal);
     this.groundCollider = this.world.createCollider(groundDesc);
 
     const isStanding = params.isStandingStance ?? false;
@@ -244,8 +250,8 @@ export class RagdollPhysicsSimulator {
     if (isStanding) {
       const standDesc = this.rapierInstance.ColliderDesc.cylinder(0.2, 1.6)
         .setTranslation(startX, Math.max(0.1, startY - 1.8), startZ)
-        .setRestitution(0.3)
-        .setFriction(0.7);
+        .setRestitution(restitutionVal)
+        .setFriction(frictionVal);
       this.world.createCollider(standDesc);
     }
 
@@ -289,8 +295,8 @@ export class RagdollPhysicsSimulator {
       }
 
       colDesc.setMass(bone.mass);
-      colDesc.setRestitution(0.3);
-      colDesc.setFriction(0.5);
+      colDesc.setRestitution(restitutionVal);
+      colDesc.setFriction(frictionVal);
 
       this.world.createCollider(colDesc, body);
       this.bodies.set(bone.id, body);
@@ -431,7 +437,7 @@ export class RagdollPhysicsSimulator {
     if (!this.rapierInstance) return;
 
     // Check if configuration parameters changed
-    const key = `${params.dropHeight}_${params.v0x}_${params.v0y}_${params.gravityPreset}_${params.freezeJoints}_${params.initialSpin}_${params.customGravity}_${params.startX}_${params.startY}_${params.inclineAngleDeg}_${params.isStandingStance}`;
+    const key = `${params.dropHeight}_${params.v0x}_${params.v0y}_${params.gravityPreset}_${params.freezeJoints}_${params.initialSpin}_${params.customGravity}_${params.startX}_${params.startY}_${params.inclineAngleDeg}_${params.isStandingStance}_${params.dragCoeff}_${params.restitution}_${params.friction}`;
     if (key !== this.paramsKey || !this.world) {
       this.paramsKey = key;
       this.reset(params);
@@ -449,6 +455,28 @@ export class RagdollPhysicsSimulator {
     let stepsCount = 0;
 
     while (this.simulatedTime + this.fixedDt <= targetTime && stepsCount < maxStepsPerFrame) {
+      // Apply physical aerodynamic air resistance to each airborne segment
+      if (params.dragCoeff && params.dragCoeff > 0) {
+        const cd = params.dragCoeff;
+        this.bodies.forEach((body) => {
+          const vel = body.linvel();
+          const spd = Math.hypot(vel.x, vel.y, vel.z);
+          if (spd > 0.05) {
+            const dragForceX = -cd * spd * vel.x;
+            const dragForceY = -cd * spd * vel.y;
+            const dragForceZ = -cd * spd * vel.z;
+            body.applyImpulse(
+              new this.rapierInstance!.Vector3(
+                dragForceX * this.fixedDt,
+                dragForceY * this.fixedDt,
+                dragForceZ * this.fixedDt
+              ),
+              true
+            );
+          }
+        });
+      }
+
       // Apply physical impact impulse if collision time has arrived
       if (params.impactImpulse && this.simulatedTime >= params.impactImpulse.time && !this.impulseApplied) {
         const targetBody = this.bodies.get(params.impactImpulse.boneId || 'torso');
@@ -480,7 +508,7 @@ export class RagdollPhysicsSimulator {
           this.comTrajectory.length === 0 ||
           curCOM.distanceTo(this.comTrajectory[this.comTrajectory.length - 1]) > 0.08
         ) {
-          if (this.comTrajectory.length < 150) {
+          if (this.comTrajectory.length < 250) {
             this.comTrajectory.push(curCOM.clone());
           }
         }
@@ -641,6 +669,10 @@ export class RagdollPhysicsSimulator {
       analyticTrajectoryPoints: this.analyticTrajectory,
       segments: segmentData,
     };
+  }
+
+  public getCOMTrajectory(): THREE.Vector3[] {
+    return [...this.comTrajectory];
   }
 
   public getBodyTransform(boneId: string): { position: THREE.Vector3; rotation: THREE.Quaternion } | null {

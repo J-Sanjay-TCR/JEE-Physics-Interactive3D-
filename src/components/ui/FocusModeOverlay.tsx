@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { PhysicsConcept, RealtimeQuantity } from '../../types';
 import {
   Minimize2,
+  Maximize2,
   Play,
   Pause,
   RotateCcw,
@@ -20,13 +21,17 @@ import {
   FastForward,
   Eye,
   Info,
-  Maximize2,
   Keyboard,
   Camera,
+  ZoomIn,
+  ZoomOut,
+  Target,
+  AlertTriangle,
+  Flame,
+  CheckCircle2,
 } from 'lucide-react';
 import { Latex } from './Latex';
 import { LiveGraphPanel } from './LiveGraphPanel';
-import { EquationPanel } from './EquationPanel';
 
 interface FocusModeOverlayProps {
   concept: PhysicsConcept;
@@ -86,11 +91,46 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
   onToggleAR,
 }) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
-  const [drawerTab, setDrawerTab] = useState<'params' | 'graphs' | 'equations'>('params');
-  const [showTelemetryBar, setShowTelemetryBar] = useState(true);
+  const [drawerTab, setDrawerTab] = useState<'params' | 'graphs' | 'equations' | 'jee'>('params');
+  const [activeCamPreset, setActiveCamPreset] = useState<'3d' | 'front' | 'top' | 'side'>('3d');
+  const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && !!document.fullscreenElement);
 
   // Speed levels available in simulation
   const SPEEDS = [0.25, 0.5, 1.0, 1.5, 2.0];
+
+  const handleCameraPreset = (view: '3d' | 'front' | 'top' | 'side') => {
+    setActiveCamPreset(view);
+    window.dispatchEvent(new CustomEvent('physics-canvas-camera-preset', { detail: view }));
+  };
+
+  const handleResetCamera = () => {
+    setActiveCamPreset('3d');
+    window.dispatchEvent(new CustomEvent('physics-canvas-reset-camera'));
+  };
+
+  const handleZoom = (factor: number) => {
+    window.dispatchEvent(new CustomEvent('physics-canvas-zoom', { detail: factor }));
+  };
+
+  const toggleFullscreen = () => {
+    if (typeof document === 'undefined') return;
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+      setIsFullscreen(false);
+    }
+  };
+
+  // Synchronize fullscreen state if changed externally
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
 
   // Global hotkeys for immersive lab experience
   useEffect(() => {
@@ -103,15 +143,12 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
         return;
       }
 
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' || e.key === 'f' || e.key === 'F') {
         e.preventDefault();
         onExitFocusMode();
       } else if (e.key === '?' || (e.shiftKey && e.key === '/')) {
         e.preventDefault();
         onOpenShortcuts?.();
-      } else if (e.key === 'f' || e.key === 'F') {
-        e.preventDefault();
-        onExitFocusMode();
       } else if (e.key === ' ' || e.key === 'p' || e.key === 'P') {
         e.preventDefault();
         onTogglePlay();
@@ -142,12 +179,40 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
       } else if (e.key === 'g' || e.key === 'G') {
         e.preventDefault();
         onToggleGrid();
-      } else if (e.key === 'a' || e.key === 'A') {
+      } else if (e.key === 'x' || e.key === 'X') {
         e.preventDefault();
         onToggleAxes();
+      } else if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        onToggleAR?.();
       } else if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
         setIsDrawerOpen((prev) => !prev);
+      } else if (e.key === '1') {
+        e.preventDefault();
+        setDrawerTab('params');
+        setIsDrawerOpen(true);
+      } else if (e.key === '2') {
+        e.preventDefault();
+        setDrawerTab('graphs');
+        setIsDrawerOpen(true);
+      } else if (e.key === '3') {
+        e.preventDefault();
+        setDrawerTab('equations');
+        setIsDrawerOpen(true);
+      } else if (e.key === '4') {
+        e.preventDefault();
+        setDrawerTab('jee');
+        setIsDrawerOpen(true);
+      } else if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        handleZoom(0.82);
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        handleZoom(1.22);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        handleResetCamera();
       }
     };
 
@@ -164,6 +229,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
     onToggleTrajectory,
     onToggleGrid,
     onToggleAxes,
+    onToggleAR,
     onOpenShortcuts,
   ]);
 
@@ -193,12 +259,57 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
           </div>
         </div>
 
-        {/* Center/Right: Visual Layer Toggles & Controls */}
-        <div className="flex items-center gap-1.5 bg-[#0C0D14]/90 backdrop-blur-xl p-1.5 rounded-2xl border border-white/[0.12] shadow-2xl">
+        {/* Center/Right: Visual Layer Toggles, Camera Presets, and Lab Controls */}
+        <div className="flex items-center gap-1.5 bg-[#0C0D14]/90 backdrop-blur-xl p-1.5 rounded-2xl border border-white/[0.12] shadow-2xl flex-wrap">
+          {/* Camera View Angle Presets */}
+          <div className="flex items-center gap-0.5 bg-[#14141E] p-1 rounded-xl border border-white/[0.08]">
+            {(['3d', 'front', 'top', 'side'] as const).map((view) => (
+              <button
+                key={view}
+                onClick={() => handleCameraPreset(view)}
+                title={`Switch camera to ${view.toUpperCase()} angle`}
+                className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase transition ${
+                  activeCamPreset === view
+                    ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06]'
+                }`}
+              >
+                {view}
+              </button>
+            ))}
+            <button
+              onClick={handleResetCamera}
+              title="Reset Camera & Recenter View (0)"
+              className="p-1 rounded-lg text-zinc-400 hover:text-emerald-300 hover:bg-white/[0.06] transition"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Quick Canvas Zoom Controls */}
+          <div className="flex items-center gap-0.5 bg-[#14141E] p-1 rounded-xl border border-white/[0.08]">
+            <button
+              onClick={() => handleZoom(0.82)}
+              title="Zoom In (+ or Scroll Up)"
+              className="p-1 rounded-lg text-zinc-400 hover:text-cyan-300 hover:bg-white/[0.06] transition"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => handleZoom(1.22)}
+              title="Zoom Out (- or Scroll Down)"
+              className="p-1 rounded-lg text-zinc-400 hover:text-cyan-300 hover:bg-white/[0.06] transition"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="h-5 w-px bg-white/[0.12] mx-0.5 hidden sm:block" />
+
           {/* Vectors */}
           <button
             onClick={onToggleVectors}
-            title="Toggle Vectors"
+            title="Toggle Vectors (V)"
             className={`p-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
               showVectors
                 ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 shadow-xs'
@@ -212,7 +323,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
           {/* Labels */}
           <button
             onClick={onToggleLabels}
-            title="Toggle Labels"
+            title="Toggle Labels (L)"
             className={`p-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
               showLabels
                 ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-xs'
@@ -226,7 +337,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
           {/* Trajectory Path */}
           <button
             onClick={onToggleTrajectory}
-            title="Toggle Trajectory Path"
+            title="Toggle Trajectory Path (O)"
             className={`p-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
               showTrajectory
                 ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 shadow-xs'
@@ -240,7 +351,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
           {/* Grid */}
           <button
             onClick={onToggleGrid}
-            title="Toggle Grid"
+            title="Toggle Floor Grid (G)"
             className={`p-2 rounded-xl text-xs transition ${
               showGrid
                 ? 'bg-white/15 text-zinc-100 border border-white/20'
@@ -253,7 +364,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
           {/* Axes */}
           <button
             onClick={onToggleAxes}
-            title="Toggle Coordinate Axes"
+            title="Toggle Coordinate Axes (X)"
             className={`p-2 rounded-xl text-xs transition ${
               showAxes
                 ? 'bg-white/15 text-zinc-100 border border-white/20'
@@ -281,7 +392,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
           {onToggleAR && (
             <button
               onClick={onToggleAR}
-              title={isARMode ? "Exit AR View" : "Enter AR View (Camera Overlay in Physical Room)"}
+              title={isARMode ? "Exit AR View (A)" : "Enter AR View (A) - Camera Overlay in Physical Room"}
               className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
                 isARMode
                   ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)] border border-emerald-400'
@@ -292,6 +403,16 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
               <span>{isARMode ? 'Exit AR' : 'AR View'}</span>
             </button>
           )}
+
+          {/* Fullscreen Toggle */}
+          <button
+            onClick={toggleFullscreen}
+            title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+            className="p-2 rounded-xl text-xs text-zinc-300 hover:text-white hover:bg-white/10 transition border border-transparent hover:border-white/15"
+            aria-label="Toggle Fullscreen"
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
 
           {/* Drawer Toggle */}
           <button
@@ -329,11 +450,11 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
       >
         <div className="h-full bg-[#0C0D14]/95 backdrop-blur-2xl rounded-3xl border border-white/[0.12] shadow-2xl flex flex-col overflow-hidden text-zinc-100">
           {/* Drawer Header & Tabs */}
-          <div className="p-3.5 border-b border-white/[0.08] flex items-center justify-between gap-2 shrink-0 bg-[#12131C]">
-            <div className="flex items-center gap-1 bg-[#08080C] p-1 rounded-xl border border-white/[0.08]">
+          <div className="p-3 border-b border-white/[0.08] flex items-center justify-between gap-2 shrink-0 bg-[#12131C]">
+            <div className="flex items-center gap-1 bg-[#08080C] p-1 rounded-xl border border-white/[0.08] overflow-x-auto no-scrollbar">
               <button
                 onClick={() => setDrawerTab('params')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                   drawerTab === 'params'
                     ? 'bg-cyan-500 text-slate-950 shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200'
@@ -344,7 +465,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
               </button>
               <button
                 onClick={() => setDrawerTab('graphs')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                   drawerTab === 'graphs'
                     ? 'bg-cyan-500 text-slate-950 shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200'
@@ -355,7 +476,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
               </button>
               <button
                 onClick={() => setDrawerTab('equations')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                   drawerTab === 'equations'
                     ? 'bg-cyan-500 text-slate-950 shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200'
@@ -364,12 +485,23 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
                 <BookOpen className="w-3.5 h-3.5" />
                 <span>Formulas</span>
               </button>
+              <button
+                onClick={() => setDrawerTab('jee')}
+                className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                  drawerTab === 'jee'
+                    ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 shadow-sm font-extrabold'
+                    : 'text-amber-400 hover:text-amber-300'
+                }`}
+              >
+                <Flame className="w-3.5 h-3.5 text-amber-400" />
+                <span>JEE Insights</span>
+              </button>
             </div>
 
             <button
               onClick={() => setIsDrawerOpen(false)}
-              className="p-1.5 rounded-xl text-zinc-400 hover:text-white bg-white/[0.06] hover:bg-white/[0.12] transition"
-              title="Minimize Overlay Drawer (P)"
+              className="p-1.5 rounded-xl text-zinc-400 hover:text-white bg-white/[0.06] hover:bg-white/[0.12] transition shrink-0"
+              title="Minimize Overlay Drawer (D)"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -495,6 +627,106 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
                 </div>
               </div>
             )}
+
+            {drawerTab === 'jee' && (
+              <div className="space-y-4">
+                {/* Weightage & Frequency */}
+                <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-transparent border border-amber-500/30 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+                      <Flame className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-extrabold text-amber-200">JEE Exam Weightage</div>
+                      <div className="text-[10px] text-zinc-400">Past 10 Years Question Frequency</div>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-xl bg-amber-400 text-slate-950 font-black text-xs">
+                    {concept.jeeMain.weightage}
+                  </span>
+                </div>
+
+                {/* Key Shortcuts */}
+                {concept.jeeMain.keyShortcuts && concept.jeeMain.keyShortcuts.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Speed Tricks & Shortcuts</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {concept.jeeMain.keyShortcuts.map((sc, i) => (
+                        <div
+                          key={i}
+                          className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-200"
+                        >
+                          {sc}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Trap Alerts */}
+                {concept.jeeMain.trapAlerts && concept.jeeMain.trapAlerts.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-rose-400 uppercase tracking-wider">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span>Trap Alerts & Negative Marks</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {concept.jeeMain.trapAlerts.map((trap, i) => (
+                        <div
+                          key={i}
+                          className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-200"
+                        >
+                          {trap}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Question Patterns */}
+                {concept.jeeMain.commonPatterns && concept.jeeMain.commonPatterns.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-cyan-400 uppercase tracking-wider">
+                      <Target className="w-3.5 h-3.5" />
+                      <span>Frequent Question Archetypes</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {concept.jeeMain.commonPatterns.map((pat, i) => (
+                        <div
+                          key={i}
+                          className="p-2.5 rounded-xl bg-[#14141E] border border-white/[0.08] text-xs text-zinc-300"
+                        >
+                          {pat}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Advanced Multi-concept Links */}
+                {concept.jeeAdvanced.multiConceptLinks && concept.jeeAdvanced.multiConceptLinks.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-wider">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>JEE Advanced Integrations</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {concept.jeeAdvanced.multiConceptLinks.map((link, i) => (
+                        <span
+                          key={i}
+                          className="px-2.5 py-1 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[11px] font-semibold"
+                        >
+                          {link}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -543,12 +775,12 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
           {/* Speed Selector */}
           <div className="flex items-center gap-1 bg-[#161622] p-1 rounded-xl border border-white/[0.08]">
             <FastForward className="w-3.5 h-3.5 text-zinc-500 ml-1 hidden sm:inline" />
-            {[0.5, 1.0, 2.0].map((s) => (
+            {SPEEDS.map((s) => (
               <button
                 key={s}
                 onClick={() => onChangeSpeed(s)}
-                className={`px-2 py-1 text-xs font-semibold rounded-lg transition ${
-                  speed === s
+                className={`px-1.5 sm:px-2 py-1 text-xs font-semibold rounded-lg transition ${
+                  Math.abs(speed - s) < 0.05
                     ? 'bg-cyan-500 text-slate-950 font-bold'
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
@@ -567,7 +799,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
               <span>Live Telemetry:</span>
             </div>
 
-            {liveQuantities.slice(0, 4).map((q, idx) => (
+            {liveQuantities.map((q, idx) => (
               <div
                 key={idx}
                 className="px-2.5 py-1.5 rounded-xl bg-[#161622] border border-white/[0.08] flex items-center gap-1.5 text-xs shrink-0"

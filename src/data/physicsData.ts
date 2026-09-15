@@ -206,7 +206,11 @@ export const CONCEPTS: PhysicsConcept[] = [
       { id: 'theta', label: 'Launch Angle (θ)', symbol: 'θ', unit: '°', min: 5, max: 85, step: 1, defaultVal: 45, description: 'Elevation angle with respect to horizontal' },
       { id: 'g', label: 'Gravity (g)', symbol: 'g', unit: 'm/s²', min: 1.6, max: 25, step: 0.1, defaultVal: 9.8, description: 'Planetary gravity (9.8: Earth, 1.6: Moon, 24.8: Jupiter)' },
       { id: 'h0', label: 'Initial Height (h₀)', symbol: 'h_0', unit: 'm', min: 0, max: 20, step: 1, defaultVal: 0, description: 'Elevation of the launch platform' },
-      { id: 'planeAngle', label: 'Inclined Plane Angle (α)', symbol: 'α', unit: '°', min: -45, max: 45, step: 1, defaultVal: 0, description: 'Angle of the inclined terrain (positive = uphill launch, negative = downhill launch)' },
+      { id: 'planeAngle', label: 'Terrain Slope (α)', symbol: 'α', unit: '°', min: -35, max: 35, step: 1, defaultVal: 0, description: 'Angle of the inclined terrain runway' },
+      { id: 'launchMode', label: 'Projectile System', symbol: 'Mode', unit: '', min: 0, max: 1, step: 1, defaultVal: 0, description: '0: Heavy Ballistic Shell vs Crash Dummy, 1: Human Cannonball (Articulated Ragdoll)' },
+      { id: 'dragCoeff', label: 'Air Resistance (k)', symbol: 'k', unit: 'kg/m', min: 0, max: 0.12, step: 0.01, defaultVal: 0.03, description: 'Aerodynamic air drag coefficient (0: Ideal vacuum parabola, >0: Real-life atmosphere)' },
+      { id: 'restitution', label: 'Ground Bounciness (e)', symbol: 'e', unit: '', min: 0.1, max: 0.85, step: 0.05, defaultVal: 0.5, description: 'Coefficient of restitution for terrain impact' },
+      { id: 'freezeJoints', label: 'Ragdoll Joints', symbol: 'Rigid', unit: '', min: 0, max: 1, step: 1, defaultVal: 0, description: '0: Anatomical Flailing Joints, 1: Rigid Stiff Mannequin' },
     ],
     formulas: [
       { name: 'Time of Flight (T)', latex: 'T = \\frac{u\\sin\\theta + \\sqrt{(u\\sin\\theta)^2 + 2gh_0}}{g}', explanation: 'Total time the projectile spends in the air before hitting the ground.' },
@@ -328,27 +332,96 @@ export const CONCEPTS: PhysicsConcept[] = [
         },
       },
     ],
+    specialCases: [
+      {
+        id: 'real-atmospheric-drag',
+        title: 'Real Atmospheric Ballistics (Air Drag)',
+        description: 'Quadratic aerodynamic air resistance causing asymmetric trajectory, steep terminal descent, and reduced range.',
+        parameterPreset: { u: 28, theta: 45, g: 9.8, h0: 0, planeAngle: 0, launchMode: 0, dragCoeff: 0.06, restitution: 0.45, freezeJoints: 0 },
+      },
+      {
+        id: 'human-cannonball-ragdoll',
+        title: 'Human Cannonball (Articulated Ragdoll)',
+        description: 'Launch 70kg anatomical crash dummy directly from cannon trunnion with Rapier 3D multi-body joint dynamics.',
+        parameterPreset: { u: 22, theta: 55, g: 9.8, h0: 0, planeAngle: 0, launchMode: 1, dragCoeff: 0.02, restitution: 0.35, freezeJoints: 0 },
+      },
+      {
+        id: 'crash-dummy-target-impact',
+        title: 'Crash-Test Dummy Target Impact',
+        description: 'Artillery shell strikes standing dummy at downrange target stand, transferring 400+ N·s impact momentum.',
+        parameterPreset: { u: 24, theta: 38, g: 9.8, h0: 2, planeAngle: 0, launchMode: 0, dragCoeff: 0.02, restitution: 0.5, freezeJoints: 0 },
+      },
+      {
+        id: 'incline-launch-uphill',
+        title: 'Launch on Inclined Hill (α = 20°)',
+        description: 'Trajectory fired up a 20° incline with realistic oblique plane impact and rolling restitution.',
+        parameterPreset: { u: 26, theta: 55, g: 9.8, h0: 0, planeAngle: 20, launchMode: 0, dragCoeff: 0.02, restitution: 0.45, freezeJoints: 0 },
+      },
+      {
+        id: 'textbook-ideal-vacuum',
+        title: 'Ideal Vacuum Parabola (No Air Drag)',
+        description: 'Zero air drag showing standard symmetric textbook theoretical parabola: R = u²/g at 45° elevation.',
+        parameterPreset: { u: 20, theta: 45, g: 9.8, h0: 0, planeAngle: 0, launchMode: 0, dragCoeff: 0.0, restitution: 0.5, freezeJoints: 0 },
+      },
+    ],
     computeLiveQuantities: (p, simTime) => {
       const rad = (p.theta * Math.PI) / 180;
       const ux = p.u * Math.cos(rad);
       const uy = p.u * Math.sin(rad);
       const h0 = p.h0 || 0;
-      const T = (uy + Math.sqrt(uy * uy + 2 * p.g * h0)) / p.g;
-      const H = h0 + (uy * uy) / (2 * p.g);
-      const R = ux * T;
+      const k = p.dragCoeff || 0;
+      const m = p.launchMode === 1 ? 70.0 : 4.0; // 70kg ragdoll vs 4kg shell
+
+      // Vacuum theoretical quantities
+      const T_vac = (uy + Math.sqrt(uy * uy + 2 * p.g * h0)) / p.g;
+      const H_vac = h0 + (uy * uy) / (2 * p.g);
+      const R_vac = ux * T_vac;
+
+      // When air drag is present, approximate realistic reduction
+      const dragFactor = k > 0 ? 1 / (1 + (k * p.u * T_vac) / (2 * m)) : 1.0;
+      const T = T_vac * (k > 0 ? Math.pow(dragFactor, 0.35) : 1.0);
+      const H = H_vac * (k > 0 ? Math.pow(dragFactor, 0.45) : 1.0);
+      const R = R_vac * dragFactor;
+
       const tClamped = Math.min(simTime, T);
-      const curX = ux * tClamped;
+      const curX = ux * tClamped * (k > 0 ? Math.exp((-k * tClamped) / m) : 1.0);
       const curY = Math.max(0, h0 + uy * tClamped - 0.5 * p.g * tClamped * tClamped);
       const curVy = uy - p.g * tClamped;
       const curSpeed = Math.sqrt(ux * ux + curVy * curVy);
+      const dragForce = k * curSpeed * curSpeed;
+      const kineticEnergy = 0.5 * m * curSpeed * curSpeed;
+      const potentialEnergy = m * p.g * curY;
+      const totalEnergy = kineticEnergy + potentialEnergy;
 
-      return [
+      const quantities = [
         { label: 'Time of Flight', symbol: 'T', unit: 's', value: T, formatted: `${T.toFixed(2)} s`, color: '#38bdf8' },
         { label: 'Max Height', symbol: 'H_{max}', unit: 'm', value: H, formatted: `${H.toFixed(2)} m`, color: '#4ade80' },
         { label: 'Horizontal Range', symbol: 'R', unit: 'm', value: R, formatted: `${R.toFixed(2)} m`, color: '#f43f5e' },
         { label: 'Current Speed', symbol: '|\\vec{v}|', unit: 'm/s', value: curSpeed, formatted: `${curSpeed.toFixed(2)} m/s`, color: '#fbbf24' },
-        { label: 'Current Position (x, y)', symbol: '(x, y)', unit: 'm', value: curX, formatted: `(${curX.toFixed(1)}, ${curY.toFixed(1)}) m`, color: '#a855f7' },
+        { label: 'Position (x, y)', symbol: '(x, y)', unit: 'm', value: curX, formatted: `(${curX.toFixed(1)}, ${curY.toFixed(1)}) m`, color: '#a855f7' },
       ];
+
+      if (k > 0) {
+        quantities.push({
+          label: 'Aerodynamic Drag Force',
+          symbol: 'F_d',
+          unit: 'N',
+          value: dragForce,
+          formatted: `${dragForce.toFixed(1)} N`,
+          color: '#f97316',
+        });
+      }
+
+      quantities.push({
+        label: 'Mechanical Energy',
+        symbol: 'E_{mech}',
+        unit: 'J',
+        value: totalEnergy,
+        formatted: `${Math.round(totalEnergy)} J`,
+        color: '#06b6d4',
+      });
+
+      return quantities;
     },
   },
 

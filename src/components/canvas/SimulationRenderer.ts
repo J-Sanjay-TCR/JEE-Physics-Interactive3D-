@@ -47,9 +47,14 @@ export class SimulationRenderer {
   private projectileRagdollSimulator: RagdollPhysicsSimulator | null = null;
   private projectileRagdollMeshes: Map<string, THREE.Group | THREE.Mesh> = new Map();
   private projectilePrimaryInstancedDots: THREE.InstancedMesh | null = null;
+  private projectileActiveInstancedDots: THREE.InstancedMesh | null = null;
   private projectileBounceInstancedDots: THREE.InstancedMesh | null = null;
+  private idealVacuumTrajectoryLine: THREE.Line | null = null;
+  private projectileSpatialGuidesGroup: THREE.Group | null = null;
   private projectileBeaconGroup: THREE.Group | null = null;
   private projectileImpactReticle: THREE.Group | null = null;
+  private projectileLiveAltitudeLine: THREE.Line | null = null;
+  private projectileGroundTrackLine: THREE.Line | null = null;
 
   // Projectile caching
   private lastProjectileParamsStr: string = '';
@@ -380,9 +385,14 @@ export class SimulationRenderer {
     }
     this.projectileRagdollMeshes.clear();
     this.projectilePrimaryInstancedDots = null;
+    this.projectileActiveInstancedDots = null;
     this.projectileBounceInstancedDots = null;
+    this.idealVacuumTrajectoryLine = null;
+    this.projectileSpatialGuidesGroup = null;
     this.projectileBeaconGroup = null;
     this.projectileImpactReticle = null;
+    this.projectileLiveAltitudeLine = null;
+    this.projectileGroundTrackLine = null;
   }
 
   private disposeObject(obj: THREE.Object3D) {
@@ -694,11 +704,11 @@ export class SimulationRenderer {
 
     // 5. Smart Science Lab Trajectory Systems:
     // A. Dynamic Primary Instanced Dotted Flight Path (Smart Science Lab Theme)
-    const primaryDotGeo = new THREE.SphereGeometry(0.085, 12, 12);
+    const primaryDotGeo = new THREE.SphereGeometry(0.105, 14, 14);
     const primaryDotMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      emissive: 0x0284c7,
-      emissiveIntensity: 1.6,
+      color: isDark ? 0x38bdf8 : 0x0284c7,
+      emissive: isDark ? 0x0284c7 : 0x0369a1,
+      emissiveIntensity: 2.2,
       roughness: 0.15,
       metalness: 0.8,
     });
@@ -707,12 +717,26 @@ export class SimulationRenderer {
     this.projectilePrimaryInstancedDots.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.objectsGroup.add(this.projectilePrimaryInstancedDots);
 
+    // Dynamic Active Flight Path Instanced Glowing Breadcrumbs in Air (80 instances)
+    const activeDotGeo = new THREE.SphereGeometry(0.12, 14, 14);
+    const activeDotMat = new THREE.MeshStandardMaterial({
+      color: 0x10b981,
+      emissive: 0x059669,
+      emissiveIntensity: 2.5,
+      roughness: 0.15,
+      metalness: 0.8,
+    });
+    this.projectileActiveInstancedDots = new THREE.InstancedMesh(activeDotGeo, activeDotMat, 80);
+    this.projectileActiveInstancedDots.name = 'projectile-active-instanced-dots';
+    this.projectileActiveInstancedDots.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.objectsGroup.add(this.projectileActiveInstancedDots);
+
     // B. Dynamic Secondary Bounce Instanced Dotted Path (Warning Amber/Orange)
-    const bounceDotGeo = new THREE.SphereGeometry(0.075, 12, 12);
+    const bounceDotGeo = new THREE.SphereGeometry(0.095, 12, 12);
     const bounceDotMat = new THREE.MeshStandardMaterial({
       color: 0xf59e0b,
       emissive: 0xd97706,
-      emissiveIntensity: 1.4,
+      emissiveIntensity: 1.8,
       roughness: 0.2,
       metalness: 0.7,
     });
@@ -721,50 +745,115 @@ export class SimulationRenderer {
     this.projectileBounceInstancedDots.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.objectsGroup.add(this.projectileBounceInstancedDots);
 
-    // C. Auxiliary Fine Trajectory Lines for Depth & Backwards-Compatibility
+    // C. Dotted Lines Tracing Trajectory in Air
+    // Full theoretical parabolic trajectory dotted line in air
     const trajGeo = new THREE.BufferGeometry();
     const trajMat = new THREE.LineDashedMaterial({
-      color: 0x38bdf8,
-      dashSize: 0.5,
-      gapSize: 0.3,
+      color: isDark ? 0x00f0ff : 0x0284c7,
+      dashSize: 0.38,
+      gapSize: 0.26,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.9,
     });
     this.trajectoryLine = new THREE.Line(trajGeo, trajMat);
     this.trajectoryLine.name = 'trajectory';
     this.objectsGroup.add(this.trajectoryLine);
 
+    // Outer luminous halo dotted line
     const trajGlowMat = new THREE.LineDashedMaterial({
-      color: 0x0284c7,
-      dashSize: 0.5,
-      gapSize: 0.3,
+      color: 0x38bdf8,
+      dashSize: 0.38,
+      gapSize: 0.26,
       transparent: true,
-      opacity: 0.25,
+      opacity: 0.45,
     });
     this.trajectoryGlowLine = new THREE.Line(new THREE.BufferGeometry(), trajGlowMat);
     this.trajectoryGlowLine.name = 'trajectory-glow';
     this.objectsGroup.add(this.trajectoryGlowLine);
 
+    // Ideal Theoretical Vacuum Parabola Reference Line in Air (Amber Dotted Line)
+    const idealTrajGeo = new THREE.BufferGeometry();
+    const idealTrajMat = new THREE.LineDashedMaterial({
+      color: 0xf59e0b,
+      dashSize: 0.45,
+      gapSize: 0.28,
+      transparent: true,
+      opacity: 0.8,
+    });
+    this.idealVacuumTrajectoryLine = new THREE.Line(idealTrajGeo, idealTrajMat);
+    this.idealVacuumTrajectoryLine.name = 'projectile-ideal-vacuum-line';
+    this.objectsGroup.add(this.idealVacuumTrajectoryLine);
+
+    // Bounce trajectory dotted line in air
     const bounceGeo = new THREE.BufferGeometry();
     const bounceMat = new THREE.LineDashedMaterial({
       color: 0xf59e0b,
-      dashSize: 0.5,
+      dashSize: 0.35,
       gapSize: 0.25,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.85,
     });
     this.bounceTrajLine = new THREE.Line(bounceGeo, bounceMat);
     this.bounceTrajLine.name = 'projectile-bounce-path';
     this.objectsGroup.add(this.bounceTrajLine);
 
+    // Active flight dotted tracer (illuminated breadcrumb trail behind projectile in air)
     const activeTrailGeo = new THREE.BufferGeometry();
-    const activeTrailMat = new THREE.LineBasicMaterial({
-      color: 0x10b981,
-      linewidth: 3,
+    const activeTrailMat = new THREE.LineDashedMaterial({
+      color: isDark ? 0x10b981 : 0x059669,
+      dashSize: 0.32,
+      gapSize: 0.2,
+      transparent: true,
+      opacity: 1.0,
     });
     this.activeTrailLine = new THREE.Line(activeTrailGeo, activeTrailMat);
     this.activeTrailLine.name = 'projectile-active-trail';
     this.objectsGroup.add(this.activeTrailLine);
+
+    // Live vertical altitude drop dotted line from projectile in air to ground
+    const liveAltGeo = new THREE.BufferGeometry();
+    const liveAltMat = new THREE.LineDashedMaterial({
+      color: isDark ? 0x00f0ff : 0x0284c7,
+      dashSize: 0.25,
+      gapSize: 0.18,
+      transparent: true,
+      opacity: 0.85,
+    });
+    this.projectileLiveAltitudeLine = new THREE.Line(liveAltGeo, liveAltMat);
+    this.projectileLiveAltitudeLine.name = 'projectile-live-altitude-line';
+    this.objectsGroup.add(this.projectileLiveAltitudeLine);
+
+    // Ground projection horizontal range guideline
+    const groundTrackGeo = new THREE.BufferGeometry();
+    const groundTrackMat = new THREE.LineDashedMaterial({
+      color: isDark ? 0x64748b : 0x94a3b8,
+      dashSize: 0.35,
+      gapSize: 0.25,
+      transparent: true,
+      opacity: 0.45,
+    });
+    this.projectileGroundTrackLine = new THREE.Line(groundTrackGeo, groundTrackMat);
+    this.projectileGroundTrackLine.name = 'projectile-ground-track-line';
+    this.objectsGroup.add(this.projectileGroundTrackLine);
+
+    // Spatial Altitude Guide Lines (Dotted Vertical Drops anchoring trajectory in 3D air)
+    this.projectileSpatialGuidesGroup = new THREE.Group();
+    this.projectileSpatialGuidesGroup.name = 'projectile-spatial-guides-group';
+    for (let k = 0; k < 6; k++) {
+      const guideLine = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineDashedMaterial({
+          color: isDark ? 0x0284c7 : 0x0369a1,
+          dashSize: 0.25,
+          gapSize: 0.2,
+          transparent: true,
+          opacity: 0.55,
+        })
+      );
+      guideLine.name = `spatial-guide-${k}`;
+      this.projectileSpatialGuidesGroup.add(guideLine);
+    }
+    this.objectsGroup.add(this.projectileSpatialGuidesGroup);
 
     // D. Active Projectile Radar Beacon Group (Smart Science Lab Reticle)
     this.projectileBeaconGroup = new THREE.Group();
@@ -1111,6 +1200,7 @@ export class SimulationRenderer {
       dragCoeff = 0,
       restitution = 0.55,
       launchMode = 0,
+      freezeJoints = 0,
     } = ctx.params;
     const rad = (theta * Math.PI) / 180;
     const alpha = (planeAngle * Math.PI) / 180;
@@ -1377,18 +1467,120 @@ export class SimulationRenderer {
       }
     }
 
-    // C. Replaced Static Trajectory Lines: Keep hidden so dynamic physics dots are the sole visual path
+    // C. Dotted Lines Tracing Trajectory in Air
     if (this.trajectoryLine) {
-      this.trajectoryLine.visible = false;
+      if (ctx.showTrajectory && primaryFlightPoints.length > 1) {
+        const fullPts = primaryFlightPoints.map((p) => new THREE.Vector3(p.x, p.y, 0));
+        this.trajectoryLine.geometry.setFromPoints(fullPts);
+        this.trajectoryLine.computeLineDistances();
+        this.trajectoryLine.visible = true;
+      } else {
+        this.trajectoryLine.visible = false;
+      }
     }
     if (this.trajectoryGlowLine) {
-      this.trajectoryGlowLine.visible = false;
+      if (ctx.showTrajectory && primaryFlightPoints.length > 1) {
+        const fullPts = primaryFlightPoints.map((p) => new THREE.Vector3(p.x, p.y, 0.01));
+        this.trajectoryGlowLine.geometry.setFromPoints(fullPts);
+        this.trajectoryGlowLine.computeLineDistances();
+        this.trajectoryGlowLine.visible = true;
+      } else {
+        this.trajectoryGlowLine.visible = false;
+      }
     }
     if (this.bounceTrajLine) {
-      this.bounceTrajLine.visible = false;
+      if (ctx.showTrajectory && bouncePoints.length > 1) {
+        const bPts = bouncePoints.map((p) => new THREE.Vector3(p.x, p.y, 0));
+        this.bounceTrajLine.geometry.setFromPoints(bPts);
+        this.bounceTrajLine.computeLineDistances();
+        this.bounceTrajLine.visible = true;
+      } else {
+        this.bounceTrajLine.visible = false;
+      }
     }
-    if (this.activeTrailLine) {
-      this.activeTrailLine.visible = false;
+    if (this.projectileGroundTrackLine) {
+      if (ctx.showTrajectory && impactPoint) {
+        this.projectileGroundTrackLine.geometry.setFromPoints([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(impactPoint.x, impactPoint.y, 0),
+        ]);
+        this.projectileGroundTrackLine.computeLineDistances();
+        this.projectileGroundTrackLine.visible = true;
+      } else {
+        this.projectileGroundTrackLine.visible = false;
+      }
+    }
+
+    // Ideal Theoretical Vacuum Parabola (Amber Reference Arc)
+    if (this.idealVacuumTrajectoryLine) {
+      if (ctx.showTrajectory && dragCoeff > 0.001) {
+        const v0x = u * Math.cos(rad);
+        const v0y = u * Math.sin(rad);
+        const y0 = h0 + (launchMode === 1 ? 1.5 : 0);
+        const A_quad = 0.5 * g;
+        const B_quad = -(v0y - v0x * Math.tan(alpha));
+        const C_quad = -y0;
+        const disc = B_quad * B_quad - 4 * A_quad * C_quad;
+        const tVac = disc >= 0 ? (-B_quad + Math.sqrt(disc)) / (2 * A_quad) : 2 * (v0y / g);
+        const vacPts: THREE.Vector3[] = [];
+        const stepsVac = 60;
+        for (let s = 0; s <= stepsVac; s++) {
+          const tv = (s / stepsVac) * tVac;
+          const xv = v0x * tv;
+          const yv = y0 + v0y * tv - 0.5 * g * tv * tv;
+          vacPts.push(new THREE.Vector3(xv, yv, -0.05));
+        }
+        this.idealVacuumTrajectoryLine.geometry.setFromPoints(vacPts);
+        this.idealVacuumTrajectoryLine.computeLineDistances();
+        this.idealVacuumTrajectoryLine.visible = true;
+      } else {
+        this.idealVacuumTrajectoryLine.visible = false;
+      }
+    }
+
+    // Spatial Altitude Guide Lines (Technical Dotted Vertical Drops anchoring path in 3D air)
+    if (this.projectileSpatialGuidesGroup) {
+      if (ctx.showTrajectory && primaryFlightPoints.length > 2) {
+        this.projectileSpatialGuidesGroup.visible = true;
+        const guideFracs = [0.15, 0.35, 0.55, 0.72, 0.88, 1.0];
+        guideFracs.forEach((frac, idx) => {
+          const line = this.projectileSpatialGuidesGroup!.getObjectByName(`spatial-guide-${idx}`) as THREE.Line;
+          if (line) {
+            const ptIdx = Math.min(primaryFlightPoints.length - 1, Math.floor(frac * (primaryFlightPoints.length - 1)));
+            const pt = primaryFlightPoints[ptIdx];
+            if (pt) {
+              const planeYAtPt = pt.x * Math.tan(alpha);
+              if (pt.y > planeYAtPt + 0.15) {
+                line.geometry.setFromPoints([
+                  new THREE.Vector3(pt.x, pt.y, 0),
+                  new THREE.Vector3(pt.x, planeYAtPt, 0),
+                ]);
+                line.computeLineDistances();
+                line.visible = true;
+              } else {
+                line.visible = false;
+              }
+            }
+          }
+        });
+      } else {
+        this.projectileSpatialGuidesGroup.visible = false;
+      }
+    }
+
+    if (this.projectileLiveAltitudeLine) {
+      const planeYAtCur = currentState.x * Math.tan(alpha);
+      const heightInAir = currentState.y - planeYAtCur;
+      if (ctx.showTrajectory && tInCycle < this.projectileTotalTime + 0.1 && heightInAir > 0.05) {
+        this.projectileLiveAltitudeLine.geometry.setFromPoints([
+          new THREE.Vector3(currentState.x, currentState.y, 0.02),
+          new THREE.Vector3(currentState.x, planeYAtCur, 0.02),
+        ]);
+        this.projectileLiveAltitudeLine.computeLineDistances();
+        this.projectileLiveAltitudeLine.visible = true;
+      } else {
+        this.projectileLiveAltitudeLine.visible = false;
+      }
     }
 
     // D. Active Projectile Radar Beacon Group
@@ -1463,7 +1655,165 @@ export class SimulationRenderer {
       }
     }
 
-    // 6. Projectile Shell Ballistics & Orientation
+    // 6. Realistic Multi-Body Ragdoll Physics Simulation (Rapier 3D Engine)
+    const ragdoll = this.objectsGroup.getObjectByName('target-ragdoll');
+    const targetStand = ragdoll?.getObjectByName('target-stand-group');
+
+    let activePts: THREE.Vector3[] = [];
+
+    if (this.projectileRagdollSimulator && this.projectileRagdollSimulator.isReady()) {
+      if (launchMode === 0) {
+        // Mode 0: Artillery Shell on Crash-Test Dummy downrange
+        if (targetStand) {
+          targetStand.position.set(impactPoint.x, impactPoint.y, 0);
+          targetStand.rotation.z = alpha;
+          targetStand.visible = true;
+        }
+
+        const mShell = 4.0;
+        const eCoeff = Math.min(0.95, Math.max(0.1, restitution));
+        const impulseX = mShell * (1 + eCoeff) * impactPoint.vx * 0.75;
+        const impulseY = mShell * (1 + eCoeff) * impactPoint.vy * 0.75;
+
+        if (tInCycle < T) {
+          // Standing upright on pedestal awaiting incoming projectile
+          this.projectileRagdollSimulator.stepTo(0, {
+            startX: impactPoint.x,
+            startY: impactPoint.y + 1.85,
+            inclineAngleDeg: planeAngle,
+            customGravity: g,
+            dragCoeff,
+            restitution,
+            freezeJoints,
+            isStandingStance: true,
+          });
+        } else {
+          // Projectile impact delivered! Multi-body physics impulse flails dummy
+          const dtPostImpact = tInCycle - T;
+          this.projectileRagdollSimulator.stepTo(dtPostImpact, {
+            startX: impactPoint.x,
+            startY: impactPoint.y + 1.85,
+            inclineAngleDeg: planeAngle,
+            customGravity: g,
+            dragCoeff,
+            restitution,
+            freezeJoints,
+            isStandingStance: false,
+            flailTorque: 25,
+            impactImpulse: {
+              time: 0,
+              force: [impulseX, impulseY, 0],
+              boneId: 'torso',
+            },
+          });
+        }
+
+        // Synchronize all 10 visual bone meshes with Rapier WASM rigid body transforms
+        this.projectileRagdollMeshes.forEach((mesh, boneId) => {
+          const xform = this.projectileRagdollSimulator!.getBodyTransform(boneId);
+          if (xform) {
+            mesh.position.copy(xform.position);
+            mesh.quaternion.copy(xform.rotation);
+            mesh.visible = true;
+          }
+        });
+
+        this.updateArrowLabel(
+          'target-dummy-label',
+          tInCycle < T
+            ? `Target Dummy [Standing at R = ${range.toFixed(1)}m]`
+            : `Dummy Impact Reaction [J = ${impactImpulse.toFixed(0)} N·s]`,
+          '#f59e0b',
+          new THREE.Vector3(impactPoint.x, impactPoint.y + 2.6, 0),
+          ctx.showTrajectory && ctx.showLabels
+        );
+
+        // Compute traversed path points for artillery shell
+        if (tInCycle <= T) {
+          for (const p of primaryFlightPoints) {
+            if (p.t <= tInCycle) {
+              activePts.push(new THREE.Vector3(p.x, p.y, 0.02));
+            } else {
+              break;
+            }
+          }
+          activePts.push(new THREE.Vector3(currentState.x, currentState.y, 0.02));
+        } else {
+          activePts = primaryFlightPoints.map((p) => new THREE.Vector3(p.x, p.y, 0.02));
+        }
+      } else {
+        // Mode 1: "Human Cannonball" - Articulated Ragdoll in flight from launch cannon
+        if (targetStand) {
+          targetStand.visible = false;
+        }
+
+        const v0x = u * Math.cos(rad);
+        const v0y = u * Math.sin(rad);
+
+        this.projectileRagdollSimulator.stepTo(tInCycle, {
+          startX: 0,
+          startY: h0 + 1.5,
+          v0x,
+          v0y,
+          inclineAngleDeg: planeAngle,
+          customGravity: g,
+          dragCoeff,
+          restitution,
+          freezeJoints,
+          isStandingStance: false,
+          initialSpin: 2.0,
+          flailTorque: 35,
+        });
+
+        // Derive multi-body Center of Mass & Velocity directly from Rapier physics world
+        const curCOM = this.projectileRagdollSimulator.calculateSimCOM();
+        const curVel = this.projectileRagdollSimulator.calculateSimVelocity();
+        currentState.x = curCOM.x;
+        currentState.y = curCOM.y;
+        currentState.vx = curVel.x;
+        currentState.vy = curVel.y;
+        currentState.forceDragX = -dragCoeff * curVel.length() * curVel.x;
+        currentState.forceDragY = -dragCoeff * curVel.length() * curVel.y;
+
+        // Synchronize all 10 visual bone meshes with Rapier WASM transforms
+        this.projectileRagdollMeshes.forEach((mesh, boneId) => {
+          const xform = this.projectileRagdollSimulator!.getBodyTransform(boneId);
+          if (xform) {
+            mesh.position.copy(xform.position);
+            mesh.quaternion.copy(xform.rotation);
+            mesh.visible = true;
+          }
+        });
+
+        this.updateArrowLabel(
+          'target-dummy-label',
+          tInCycle < T
+            ? `Ragdoll in Air [v = ${Math.hypot(currentState.vx, currentState.vy).toFixed(1)} m/s]`
+            : `Ragdoll Ground Collision [T = ${T.toFixed(2)}s]`,
+          '#f59e0b',
+          new THREE.Vector3(currentState.x, currentState.y + 1.8, 0),
+          ctx.showTrajectory && ctx.showLabels
+        );
+
+        // Center of Mass live trajectory generated by Rapier physics solver
+        activePts = this.projectileRagdollSimulator.getCOMTrajectory();
+      }
+    } else {
+      if (tInCycle <= T) {
+        for (const p of primaryFlightPoints) {
+          if (p.t <= tInCycle) {
+            activePts.push(new THREE.Vector3(p.x, p.y, 0.02));
+          } else {
+            break;
+          }
+        }
+        activePts.push(new THREE.Vector3(currentState.x, currentState.y, 0.02));
+      } else {
+        activePts = primaryFlightPoints.map((p) => new THREE.Vector3(p.x, p.y, 0.02));
+      }
+    }
+
+    // 7. Projectile Shell Ballistics & Orientation
     const shellGroup = this.objectsGroup.getObjectByName('projectile-ball');
     if (shellGroup) {
       if (launchMode === 1) {
@@ -1480,31 +1830,52 @@ export class SimulationRenderer {
       }
     }
 
-    // Active Dynamic Flight Trail (live tracer from launch to current position)
+    // Active Dynamic Flight Trail (Continuous dotted tracer line following projectile in air)
     if (this.activeTrailLine) {
-      if (ctx.showTrajectory && tInCycle <= T) {
-        const activePts: THREE.Vector3[] = [];
-        for (const p of primaryFlightPoints) {
-          if (p.t <= tInCycle) {
-            activePts.push(new THREE.Vector3(p.x, p.y, 0));
-          } else {
-            break;
-          }
-        }
-        activePts.push(new THREE.Vector3(currentState.x, currentState.y, 0));
-        if (activePts.length >= 2) {
-          this.activeTrailLine.geometry.setFromPoints(activePts);
-          this.activeTrailLine.visible = true;
-        } else {
-          this.activeTrailLine.visible = false;
-        }
-      } else if (ctx.showTrajectory && tInCycle > T) {
-        const pts = primaryFlightPoints.map((p) => new THREE.Vector3(p.x, p.y, 0));
-        this.activeTrailLine.geometry.setFromPoints(pts);
+      if (ctx.showTrajectory && activePts.length >= 2) {
+        this.activeTrailLine.geometry.setFromPoints(activePts);
+        this.activeTrailLine.computeLineDistances();
         this.activeTrailLine.visible = true;
       } else {
         this.activeTrailLine.visible = false;
       }
+    }
+
+    // Active Trajectory Instanced Glowing Dots in Air (80 instances tracing path)
+    if (this.projectileActiveInstancedDots) {
+      this.projectileActiveInstancedDots.visible = ctx.showTrajectory && activePts.length > 1;
+      const countA = 80;
+      for (let a = 0; a < countA; a++) {
+        if (activePts.length > 1) {
+          const frac = a / (countA - 1);
+          const idx = Math.min(activePts.length - 1, Math.floor(frac * (activePts.length - 1)));
+          const apt = activePts[idx];
+          dummyObj.position.copy(apt);
+          const pulse = 0.9 + 0.25 * Math.sin(a * 0.45 + ctx.simTime * 6);
+          dummyObj.scale.set(pulse, pulse, pulse);
+          dummyObj.updateMatrix();
+          this.projectileActiveInstancedDots.setMatrixAt(a, dummyObj.matrix);
+        } else {
+          dummyObj.position.set(0, -999, 0);
+          dummyObj.scale.set(0.001, 0.001, 0.001);
+          dummyObj.updateMatrix();
+          this.projectileActiveInstancedDots.setMatrixAt(a, dummyObj.matrix);
+        }
+      }
+      this.projectileActiveInstancedDots.instanceMatrix.needsUpdate = true;
+    }
+
+    if (tInCycle <= T + 0.05) {
+      const liveAlt = currentState.y - currentState.x * Math.tan(alpha);
+      this.updateArrowLabel(
+        'projectile-live-tracker',
+        `h=${liveAlt.toFixed(1)}m | x=${currentState.x.toFixed(1)}m`,
+        '#10b981',
+        new THREE.Vector3(currentState.x, currentState.y + 0.85, 0),
+        ctx.showTrajectory && ctx.showLabels
+      );
+    } else {
+      this.updateArrowLabel('projectile-live-tracker', '', '#10b981', new THREE.Vector3(0, -999, 0), false);
     }
 
     // 7. Apex Peak Beacon & Curvature Geometry
