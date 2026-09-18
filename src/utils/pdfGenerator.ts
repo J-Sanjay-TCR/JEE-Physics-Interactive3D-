@@ -8,6 +8,11 @@ import {
   validateChapterSheetData,
   SheetValidationReport,
 } from './formulaValidator';
+import {
+  drawMathFormulaBox,
+  measureMathFormulaBox,
+  formatLatexToMathText,
+} from './mathPdfRenderer';
 
 /**
  * Robust LaTeX-to-Clean-Readable-Mathematical-ASCII converter.
@@ -19,15 +24,34 @@ export function cleanLatexForPdf(latex: string): string {
 
   let str = String(latex);
 
+  // Strip math delimiters
+  str = str.replace(/\$\$/g, '').replace(/\$/g, '');
+  str = str.replace(/^\\\[|\\\]$/g, '');
+  str = str.replace(/^\\\(|\\\)$/g, '');
+
   // 1. Remove KaTeX/LaTeX formatting environments & wrappers
   str = str.replace(/\\begin\{[^{}]*\}|\\end\{[^{}]*\}/g, '');
   str = str.replace(/\\boxed\{([^{}]*)\}/g, '$1');
   str = str.replace(/\\mathbf\{([^{}]*)\}/g, '$1');
-  str = str.replace(/\\text\{([^{}]*)\}/g, '$1');
   str = str.replace(/\\mathrm\{([^{}]*)\}/g, '$1');
   str = str.replace(/\\mathit\{([^{}]*)\}/g, '$1');
   str = str.replace(/\\mathbb\{([^{}]*)\}/g, '$1');
   str = str.replace(/\\boldsymbol\{([^{}]*)\}/g, '$1');
+
+  // Handle escaped percent e.g. \% -> %
+  str = str.replace(/\\%/g, '%');
+
+  // Repeatedly peel text wrappers (handles nested \text{...} or \mathrm{...})
+  let textMatch = true;
+  let maxTextLoops = 6;
+  while (textMatch && maxTextLoops-- > 0) {
+    textMatch = false;
+    if (/\\(?:text|mathrm|mathbf|mathit)\{([^{}]*)\}/.test(str)) {
+      str = str.replace(/\\(?:text|mathrm|mathbf|mathit)\{([^{}]*)\}/g, '$1');
+      textMatch = true;
+    }
+  }
+
   str = str.replace(/\\left\(|\\right\)/g, (m) => (m.includes('(') ? '(' : ')'));
   str = str.replace(/\\left\[|\\right\]/g, (m) => (m.includes('[') ? '[' : ']'));
   str = str.replace(/\\left\\\{|\\right\\\}/g, (m) => (m.includes('{') ? '{' : '}'));
@@ -35,13 +59,110 @@ export function cleanLatexForPdf(latex: string): string {
   str = str.replace(/\\quad|\\qquad|\\,|\\;|\\!/g, ' ');
   str = str.replace(/\\\\[0-9a-zA-Z]*|\\\\/g, '  |  ');
 
-  // 2. Fractions: \frac{a}{b} -> (a) / (b)
-  for (let i = 0; i < 4; i++) {
+  // Clean common LaTeX operators in indices
+  str = str.replace(/\\max\b/g, 'max');
+  str = str.replace(/\\min\b/g, 'min');
+  str = str.replace(/\\prime\b/g, "'");
+
+  // 2. Fractions: Balanced brace parser for \frac{numerator}{denominator}
+  let fracFound = true;
+  let maxFracLoops = 10;
+  while (fracFound && maxFracLoops-- > 0) {
+    fracFound = false;
+    const idx = str.indexOf('\\frac');
+    if (idx !== -1) {
+      let p = idx + 5;
+      while (p < str.length && /\s/.test(str[p])) p++;
+      if (str[p] === '{') {
+        let depth = 0;
+        let numStart = p + 1;
+        let numEnd = -1;
+        for (let j = p; j < str.length; j++) {
+          if (str[j] === '{') depth++;
+          else if (str[j] === '}') {
+            depth--;
+            if (depth === 0) {
+              numEnd = j;
+              break;
+            }
+          }
+        }
+        if (numEnd !== -1) {
+          let denP = numEnd + 1;
+          while (denP < str.length && /\s/.test(str[denP])) denP++;
+          if (str[denP] === '{') {
+            let denDepth = 0;
+            let denStart = denP + 1;
+            let denEnd = -1;
+            for (let k = denP; k < str.length; k++) {
+              if (str[k] === '{') denDepth++;
+              else if (str[k] === '}') {
+                denDepth--;
+                if (denDepth === 0) {
+                  denEnd = k;
+                  break;
+                }
+              }
+            }
+            if (denEnd !== -1) {
+              const num = str.substring(numStart, numEnd).trim();
+              const den = str.substring(denStart, denEnd).trim();
+              str = str.substring(0, idx) + `(${num}) / (${den})` + str.substring(denEnd + 1);
+              fracFound = true;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < 3; i++) {
     str = str.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1) / ($2)');
   }
   str = str.replace(/\\frac\s*([a-zA-Z0-9])\s*([a-zA-Z0-9])/g, '($1) / ($2)');
 
-  // 3. Square roots & n-th roots: \sqrt{x} -> sqrt(x)
+  // 3. Square roots & n-th roots: Balanced brace parser for \sqrt{...}
+  let sqrtFound = true;
+  let maxSqrtLoops = 8;
+  while (sqrtFound && maxSqrtLoops-- > 0) {
+    sqrtFound = false;
+    const sIdx = str.indexOf('\\sqrt');
+    if (sIdx !== -1) {
+      let p = sIdx + 5;
+      while (p < str.length && /\s/.test(str[p])) p++;
+      let nRoot = '';
+      if (str[p] === '[') {
+        const closeB = str.indexOf(']', p);
+        if (closeB !== -1) {
+          nRoot = str.substring(p + 1, closeB);
+          p = closeB + 1;
+          while (p < str.length && /\s/.test(str[p])) p++;
+        }
+      }
+      if (str[p] === '{') {
+        let depth = 0;
+        let radStart = p + 1;
+        let radEnd = -1;
+        for (let j = p; j < str.length; j++) {
+          if (str[j] === '{') depth++;
+          else if (str[j] === '}') {
+            depth--;
+            if (depth === 0) {
+              radEnd = j;
+              break;
+            }
+          }
+        }
+        if (radEnd !== -1) {
+          const rad = str.substring(radStart, radEnd).trim();
+          const prefix = nRoot ? `root_${nRoot}` : 'sqrt';
+          str = str.substring(0, sIdx) + `${prefix}(${rad})` + str.substring(radEnd + 1);
+          sqrtFound = true;
+        }
+      }
+    }
+  }
+
   str = str.replace(/\\sqrt\[([^{}]+)\]\{([^{}]+)\}/g, 'root_$1($2)');
   str = str.replace(/\\sqrt\{([^{}]+)\}/g, 'sqrt($1)');
   str = str.replace(/\\sqrt\s*([a-zA-Z0-9])/g, 'sqrt($1)');
@@ -61,38 +182,38 @@ export function cleanLatexForPdf(latex: string): string {
   str = str.replace(/\\nabla/g, 'grad');
   str = str.replace(/\\infty/g, 'inf');
 
-  // 5. Greek Letter mappings (LaTeX to standard readable names)
+  // 5. Greek Letter mappings (LaTeX to real standard mathematical symbols)
   const latexGreekMap: Record<string, string> = {
-    '\\theta': 'theta',
-    '\\Theta': 'Theta',
-    '\\omega': 'omega',
-    '\\Omega': 'Omega',
-    '\\lambda': 'lambda',
-    '\\Lambda': 'Lambda',
-    '\\alpha': 'alpha',
-    '\\beta': 'beta',
-    '\\gamma': 'gamma',
-    '\\Gamma': 'Gamma',
-    '\\delta': 'delta',
-    '\\Delta': 'Delta',
-    '\\epsilon': 'epsilon',
-    '\\varepsilon': 'epsilon',
-    '\\mu': 'mu',
-    '\\nu': 'nu',
-    '\\rho': 'rho',
-    '\\sigma': 'sigma',
-    '\\Sigma': 'Sigma',
-    '\\tau': 'tau',
-    '\\phi': 'phi',
-    '\\Phi': 'Phi',
-    '\\psi': 'psi',
-    '\\Psi': 'Psi',
-    '\\eta': 'eta',
-    '\\pi': 'pi',
-    '\\Pi': 'Pi',
-    '\\zeta': 'zeta',
-    '\\chi': 'chi',
-    '\\kappa': 'kappa',
+    '\\theta': 'θ',
+    '\\Theta': 'Θ',
+    '\\omega': 'ω',
+    '\\Omega': 'Ω',
+    '\\lambda': 'λ',
+    '\\Lambda': 'Λ',
+    '\\alpha': 'α',
+    '\\beta': 'β',
+    '\\gamma': 'γ',
+    '\\Gamma': 'Γ',
+    '\\delta': 'δ',
+    '\\Delta': 'Δ',
+    '\\epsilon': 'ε',
+    '\\varepsilon': 'ε',
+    '\\mu': 'μ',
+    '\\nu': 'ν',
+    '\\rho': 'ρ',
+    '\\sigma': 'σ',
+    '\\Sigma': 'Σ',
+    '\\tau': 'τ',
+    '\\phi': 'φ',
+    '\\Phi': 'Φ',
+    '\\psi': 'ψ',
+    '\\Psi': 'Ψ',
+    '\\eta': 'η',
+    '\\pi': 'π',
+    '\\Pi': 'Π',
+    '\\zeta': 'ζ',
+    '\\chi': 'χ',
+    '\\kappa': 'κ',
   };
 
   for (const [tex, name] of Object.entries(latexGreekMap)) {
@@ -100,23 +221,23 @@ export function cleanLatexForPdf(latex: string): string {
   }
 
   // 6. LaTeX Operators and Relational symbols
-  str = str.replace(/\\cdot/g, ' * ');
-  str = str.replace(/\\times/g, ' x ');
-  str = str.replace(/\\pm/g, ' +/- ');
-  str = str.replace(/\\mp/g, ' -/+ ');
-  str = str.replace(/\\approx/g, ' ~= ');
+  str = str.replace(/\\cdot/g, ' · ');
+  str = str.replace(/\\times/g, ' × ');
+  str = str.replace(/\\pm/g, ' ± ');
+  str = str.replace(/\\mp/g, ' ∓ ');
+  str = str.replace(/\\approx/g, ' ≈ ');
   str = str.replace(/\\sim/g, ' ~ ');
-  str = str.replace(/\\neq/g, ' != ');
-  str = str.replace(/\\leq/g, ' <= ');
-  str = str.replace(/\\geq/g, ' >= ');
-  str = str.replace(/\\ll/g, ' << ');
-  str = str.replace(/\\gg/g, ' >> ');
-  str = str.replace(/\\implies/g, ' => ');
-  str = str.replace(/\\iff/g, ' <=> ');
-  str = str.replace(/\\to/g, ' -> ');
-  str = str.replace(/\\propto/g, ' is proportional to ');
-  str = str.replace(/\\circ/g, ' deg');
-  str = str.replace(/\\degree/g, ' deg');
+  str = str.replace(/\\neq/g, ' ≠ ');
+  str = str.replace(/\\leq/g, ' ≤ ');
+  str = str.replace(/\\geq/g, ' ≥ ');
+  str = str.replace(/\\ll/g, ' ≪ ');
+  str = str.replace(/\\gg/g, ' ≫ ');
+  str = str.replace(/\\implies/g, ' ⟹ ');
+  str = str.replace(/\\iff/g, ' ⟺ ');
+  str = str.replace(/\\to/g, ' → ');
+  str = str.replace(/\\propto/g, ' ∝ ');
+  str = str.replace(/\\circ/g, '°');
+  str = str.replace(/\\degree/g, '°');
 
   // 7. Math functions
   str = str.replace(/\\sin/g, 'sin');
@@ -132,8 +253,19 @@ export function cleanLatexForPdf(latex: string): string {
   str = str.replace(/\\arccos/g, 'arccos');
   str = str.replace(/\\arctan/g, 'arctan');
 
-  // 8. Sanitize raw Unicode Greek & Math symbols in the string
-  str = sanitizeUnicodeForPdf(str);
+  // 8. Superscripts and Subscripts
+  str = str.replace(/\^2\b|\^\{2\}/g, '²');
+  str = str.replace(/\^3\b|\^\{3\}/g, '³');
+  str = str.replace(/\^4\b|\^\{4\}/g, '⁴');
+  str = str.replace(/\^0\b|\^\{0\}/g, '⁰');
+  str = str.replace(/\^1\b|\^\{1\}/g, '¹');
+  str = str.replace(/\^\{-1\}/g, '⁻¹');
+  str = str.replace(/\^\{-2\}/g, '⁻²');
+  str = str.replace(/_0\b|_\{0\}/g, '₀');
+  str = str.replace(/_1\b|_\{1\}/g, '₁');
+  str = str.replace(/_2\b|_\{2\}/g, '₂');
+  str = str.replace(/_x\b|_\{x\}/g, 'ₓ');
+  str = str.replace(/_y\b|_\{y\}/g, 'ᵧ');
 
   // 9. Remove leftover backslashes or unmatched braces
   str = str.replace(/\{|\}/g, '');
@@ -146,137 +278,142 @@ export function cleanLatexForPdf(latex: string): string {
 }
 
 /**
- * Converts unicode Greek, superscripts, subscripts and special characters
- * to ASCII representations supported 100% by jsPDF standard fonts.
+ * Sanitizes text for PDF rendering.
+ * Preserves authentic Greek letters, mathematical operators, superscripts, and subscripts
+ * when preserveMathSymbols is true (default).
  */
-export function sanitizeUnicodeForPdf(text: string): string {
+export function sanitizeUnicodeForPdf(text: string, options?: { preserveMathSymbols?: boolean }): string {
   if (!text) return '';
 
   let str = String(text);
+  const preserveMath = options?.preserveMathSymbols !== false;
 
-  // Unicode Greek to ASCII
-  const unicodeGreek: Record<string, string> = {
-    'θ': 'theta',
-    'Θ': 'Theta',
-    'ω': 'omega',
-    'Ω': 'Omega',
-    'λ': 'lambda',
-    'Λ': 'Lambda',
-    'α': 'alpha',
-    'β': 'beta',
-    'γ': 'gamma',
-    'Γ': 'Gamma',
-    'δ': 'delta',
-    'Δ': 'Delta',
-    'ε': 'epsilon',
-    'μ': 'mu',
-    'ν': 'nu',
-    'ρ': 'rho',
-    'σ': 'sigma',
-    'Σ': 'Sigma',
-    'τ': 'tau',
-    'φ': 'phi',
-    'Φ': 'Phi',
-    'ψ': 'psi',
-    'Ψ': 'Psi',
-    'η': 'eta',
-    'π': 'pi',
-    'Π': 'Pi',
-    'ζ': 'zeta',
-    'χ': 'chi',
-    'κ': 'kappa',
-  };
+  if (!preserveMath) {
+    // Legacy ASCII fallback only
+    const unicodeGreek: Record<string, string> = {
+      'θ': 'theta',
+      'Θ': 'Theta',
+      'ω': 'omega',
+      'Ω': 'Omega',
+      'λ': 'lambda',
+      'Λ': 'Lambda',
+      'α': 'alpha',
+      'β': 'beta',
+      'γ': 'gamma',
+      'Γ': 'Gamma',
+      'δ': 'delta',
+      'Δ': 'Delta',
+      'ε': 'epsilon',
+      'μ': 'mu',
+      'ν': 'nu',
+      'ρ': 'rho',
+      'σ': 'sigma',
+      'Σ': 'Sigma',
+      'τ': 'tau',
+      'φ': 'phi',
+      'Φ': 'Phi',
+      'ψ': 'psi',
+      'Ψ': 'Psi',
+      'η': 'eta',
+      'π': 'pi',
+      'Π': 'Pi',
+      'ζ': 'zeta',
+      'χ': 'chi',
+      'κ': 'kappa',
+    };
+    for (const [u, r] of Object.entries(unicodeGreek)) {
+      str = str.split(u).join(r);
+    }
 
-  for (const [u, r] of Object.entries(unicodeGreek)) {
-    str = str.split(u).join(r);
+    const subscriptMap: Record<string, string> = {
+      '₀': '_0',
+      '₁': '_1',
+      '₂': '_2',
+      '₃': '_3',
+      '₄': '_4',
+      '₅': '_5',
+      '₆': '_6',
+      '₇': '_7',
+      '₈': '_8',
+      '₉': '_9',
+      'ₘ': '_m',
+      'ₙ': '_n',
+      'ₓ': '_x',
+      'ᵧ': '_y',
+      'ᵣ': '_r',
+      'ᵢ': '_i',
+      'ⱼ': '_j',
+      'ₖ': '_k',
+      'ₑ': '_e',
+      'ₚ': '_p',
+      'ₛ': '_s',
+      'ₜ': '_t',
+    };
+    for (const [u, r] of Object.entries(subscriptMap)) {
+      str = str.split(u).join(r);
+    }
+
+    const superscriptMap: Record<string, string> = {
+      '²': '^2',
+      '³': '^3',
+      '⁴': '^4',
+      '⁵': '^5',
+      '⁶': '^6',
+      '⁷': '^7',
+      '⁸': '^8',
+      '⁹': '^9',
+      '⁰': '^0',
+      '¹': '^1',
+      '⁻¹': '^(-1)',
+      '⁻²': '^(-2)',
+      '⁻³': '^(-3)',
+      '⁻⁴': '^(-4)',
+      '⁺': '^+',
+      '⁻': '^-',
+      '½': '(1/2)',
+      '⅓': '(1/3)',
+      '¼': '(1/4)',
+    };
+    for (const [u, r] of Object.entries(superscriptMap)) {
+      str = str.split(u).join(r);
+    }
+
+    const symbolMap: Record<string, string> = {
+      '√': 'sqrt',
+      '∫': 'INTEGRAL ',
+      '∮': 'OINT ',
+      '∂': 'd/',
+      '∇': 'grad',
+      '±': ' +/- ',
+      '∓': ' -/+ ',
+      '≈': ' ~= ',
+      '≠': ' != ',
+      '≤': ' <= ',
+      '≥': ' >= ',
+      '·': ' * ',
+      '×': ' x ',
+      '⟹': ' => ',
+      '⟺': ' <=> ',
+      '→': ' -> ',
+      '←': ' <- ',
+      '∞': 'inf',
+      '°': ' deg',
+      '∝': ' is proportional to ',
+    };
+    for (const [u, r] of Object.entries(symbolMap)) {
+      str = str.split(u).join(r);
+    }
   }
 
-  // Subscripts to ASCII (_0, _1, _x, etc.)
-  const subscriptMap: Record<string, string> = {
-    '₀': '_0',
-    '₁': '_1',
-    '₂': '_2',
-    '₃': '_3',
-    '₄': '_4',
-    '₅': '_5',
-    '₆': '_6',
-    '₇': '_7',
-    '₈': '_8',
-    '₉': '_9',
-    'ₘ': '_m',
-    'ₙ': '_n',
-    'ₓ': '_x',
-    'ᵧ': '_y',
-    'ᵣ': '_r',
-    'ᵢ': '_i',
-    'ⱼ': '_j',
-    'ₖ': '_k',
-    'ₑ': '_e',
-    'ₚ': '_p',
-    'ₛ': '_s',
-    'ₜ': '_t',
-  };
-  for (const [u, r] of Object.entries(subscriptMap)) {
-    str = str.split(u).join(r);
-  }
+  // Common typography normalization
+  str = str.replace(/[’‘]/g, "'");
+  str = str.replace(/[“”]/g, '"');
+  str = str.replace(/[–—]/g, '-');
+  str = str.replace(/…/g, '...');
+  str = str.replace(/\u00A0/g, ' ');
 
-  // Superscripts to ASCII (^2, ^3, ^(-1), etc.)
-  const superscriptMap: Record<string, string> = {
-    '²': '^2',
-    '³': '^3',
-    '⁴': '^4',
-    '⁵': '^5',
-    '⁶': '^6',
-    '⁷': '^7',
-    '⁸': '^8',
-    '⁹': '^9',
-    '⁰': '^0',
-    '¹': '^1',
-    '⁻¹': '^(-1)',
-    '⁻²': '^(-2)',
-    '⁻³': '^(-3)',
-    '⁻⁴': '^(-4)',
-    '⁺': '^+',
-    '⁻': '^-',
-    '½': '(1/2)',
-    '⅓': '(1/3)',
-    '¼': '(1/4)',
-  };
-  for (const [u, r] of Object.entries(superscriptMap)) {
-    str = str.split(u).join(r);
-  }
-
-  // Math & Arrow symbols to ASCII
-  const symbolMap: Record<string, string> = {
-    '√': 'sqrt',
-    '∫': 'INTEGRAL ',
-    '∮': 'OINT ',
-    '∂': 'd/',
-    '∇': 'grad',
-    '±': ' +/- ',
-    '∓': ' -/+ ',
-    '≈': ' ~= ',
-    '≠': ' != ',
-    '≤': ' <= ',
-    '≥': ' >= ',
-    '·': ' * ',
-    '×': ' x ',
-    '⟹': ' => ',
-    '⟺': ' <=> ',
-    '→': ' -> ',
-    '←': ' <- ',
-    '∞': 'inf',
-    '°': ' deg',
-    '∝': ' is proportional to ',
-    '’': "'",
-    '‘': "'",
-    '”': '"',
-    '“': '"',
-    '–': '-',
-    '—': ' - ',
-    '…': '...',
-    '•': '*',
-    '›': '>',
+  // Emojis that crash PDF fonts
+  const emojiMap: Record<string, string> = {
     '⚡': '[FAST]',
     '⚠️': '[TRAP]',
     '🔬': '[ADV]',
@@ -285,15 +422,17 @@ export function sanitizeUnicodeForPdf(text: string): string {
     '⭐': '[*]',
     '✓': '[OK]',
   };
-  for (const [u, r] of Object.entries(symbolMap)) {
+  for (const [u, r] of Object.entries(emojiMap)) {
     str = str.split(u).join(r);
   }
+  str = str.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '');
 
-  // Non-breaking space to regular space
-  str = str.replace(/\u00A0/g, ' ');
-
-  // Remove any lingering unsupported non-printable ASCII or control characters
-  str = str.replace(/[^\x20-\x7E\n\r\t]/g, ' ');
+  if (!preserveMath) {
+    str = str.replace(/[^\x20-\x7E\n\r\t]/g, ' ');
+  } else {
+    // Only strip control codes (ASCII 0-31 except tab/newline), keeping all Unicode mathematical characters
+    str = str.replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
+  }
 
   // Auto-repair any remaining unclosed braces or dangling symbols
   str = autoRepairFormulaString(str);
@@ -549,15 +688,11 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
 
       sec.items.forEach((item, iIdx) => {
         const nameClean = sanitizeUnicodeForPdf(item.name);
-        const formulaClean = cleanLatexForPdf(item.formula);
-        const condClean = cleanLatexForPdf(item.conditionOrMeaning);
-        const unitClean = item.siUnit ? cleanLatexForPdf(item.siUnit) : '';
+        const condClean = sanitizeUnicodeForPdf(formatLatexToMathText(item.conditionOrMeaning));
+        const unitClean = item.siUnit ? sanitizeUnicodeForPdf(formatLatexToMathText(item.siUnit)) : '';
 
-        // Measure formula lines
-        doc.setFont('courier', 'bold');
-        doc.setFontSize(8);
-        const fLines = doc.splitTextToSize(formulaClean, contentWidth - 12);
-        const formulaBlockH = Math.max(5.5, fLines.length * 3.8 + 2.5);
+        // Measure formula height using genuine math renderer
+        const formulaBlockH = measureMathFormulaBox(item.formula, contentWidth - 5);
 
         // Measure note lines
         doc.setFont('helvetica', 'italic');
@@ -585,19 +720,9 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
         doc.setTextColor(textDark[0], textDark[1], textDark[2]);
         doc.text(`[${iIdx + 1}] ${nameClean}`, margin + 3.5, y + 4);
 
-        // Inner Formula Highlight Box
+        // Inner Formula Highlight Box with authentic mathematical equations
         const fBoxY = y + 5.5;
-        doc.setFillColor(241, 245, 249);
-        doc.setDrawColor(203, 213, 225);
-        doc.setLineWidth(0.2);
-        doc.roundedRect(margin + 2.5, fBoxY, contentWidth - 5, formulaBlockH, 0.8, 0.8, 'FD');
-
-        doc.setFont('courier', 'bold');
-        doc.setFontSize(8);
-        doc.setTextColor(15, 23, 42);
-        fLines.forEach((fl: string, flIdx: number) => {
-          doc.text(fl, margin + 4.5, fBoxY + 3.4 + flIdx * 3.8);
-        });
+        drawMathFormulaBox(doc, item.formula, margin + 2.5, fBoxY, contentWidth - 5, [15, 23, 42], [241, 245, 249], [203, 213, 225]);
 
         // Note & Condition text
         const noteY = fBoxY + formulaBlockH + 2.8;
@@ -650,14 +775,10 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
 
       concept.formulas.forEach((f, fIdx) => {
         const nameClean = sanitizeUnicodeForPdf(f.name);
-        const formulaClean = cleanLatexForPdf(f.latex);
-        const explClean = cleanLatexForPdf(f.explanation);
+        const explClean = sanitizeUnicodeForPdf(formatLatexToMathText(f.explanation));
 
-        // Measure formula lines
-        doc.setFont('courier', 'bold');
-        doc.setFontSize(8);
-        const fLines = doc.splitTextToSize(formulaClean, contentWidth - 12);
-        const formulaBlockH = Math.max(5.5, fLines.length * 3.8 + 2.5);
+        // Measure formula height using genuine math renderer
+        const formulaBlockH = measureMathFormulaBox(f.latex, contentWidth - 5);
 
         // Measure explanation lines
         doc.setFont('helvetica', 'italic');
@@ -682,17 +803,7 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
         doc.text(`• ${nameClean}`, margin + 3.5, y + 4);
 
         const fBoxY = y + 5.5;
-        doc.setFillColor(241, 245, 249);
-        doc.setDrawColor(203, 213, 225);
-        doc.setLineWidth(0.2);
-        doc.roundedRect(margin + 2.5, fBoxY, contentWidth - 5, formulaBlockH, 0.8, 0.8, 'FD');
-
-        doc.setFont('courier', 'bold');
-        doc.setFontSize(8);
-        doc.setTextColor(15, 23, 42);
-        fLines.forEach((fl: string, flIdx: number) => {
-          doc.text(fl, margin + 4.5, fBoxY + 3.4 + flIdx * 3.8);
-        });
+        drawMathFormulaBox(doc, f.latex, margin + 2.5, fBoxY, contentWidth - 5, [15, 23, 42], [241, 245, 249], [203, 213, 225]);
 
         const noteY = fBoxY + formulaBlockH + 2.8;
         doc.setFont('helvetica', 'normal');
@@ -702,7 +813,7 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
           doc.text(nl, margin + 3.5, noteY + nlIdx * 3.2);
         });
 
-        y += totalCardH + 1.5;
+        y += totalCardH + 1.8;
       });
 
       y += 2;
@@ -723,14 +834,11 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
 
     jeeSheet.specialCases.forEach((sc) => {
       const titleClean = sanitizeUnicodeForPdf(sc.title);
-      const condClean = cleanLatexForPdf(sc.condition);
-      const resClean = cleanLatexForPdf(sc.resultFormula);
-      const noteClean = cleanLatexForPdf(sc.notes);
+      const condClean = sanitizeUnicodeForPdf(formatLatexToMathText(sc.condition));
+      const noteClean = sanitizeUnicodeForPdf(formatLatexToMathText(sc.notes));
 
-      doc.setFont('courier', 'bold');
-      doc.setFontSize(7.8);
-      const resLines = doc.splitTextToSize(resClean, contentWidth - 12);
-      const resHeight = resLines.length * 3.6 + 2;
+      // Measure mathematical formula height
+      const resHeight = measureMathFormulaBox(sc.resultFormula, contentWidth - 5);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.8);
@@ -754,17 +862,7 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
       doc.text(`Case: ${titleClean}`, margin + 3.5, y + 4);
 
       const rBoxY = y + 5.2;
-      doc.setFillColor(254, 243, 199);
-      doc.setDrawColor(252, 211, 77);
-      doc.setLineWidth(0.2);
-      doc.roundedRect(margin + 2.5, rBoxY, contentWidth - 5, resHeight, 0.8, 0.8, 'FD');
-
-      doc.setFont('courier', 'bold');
-      doc.setFontSize(7.8);
-      doc.setTextColor(120, 53, 15);
-      resLines.forEach((rl: string, rIdx: number) => {
-        doc.text(rl, margin + 4.5, rBoxY + 3.2 + rIdx * 3.6);
-      });
+      drawMathFormulaBox(doc, sc.resultFormula, margin + 2.5, rBoxY, contentWidth - 5, [120, 53, 15], [254, 243, 199], [252, 211, 77]);
 
       const nY = rBoxY + resHeight + 2.6;
       doc.setFont('helvetica', 'normal');
@@ -774,7 +872,7 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
         doc.text(nl, margin + 3.5, nY + nIdx * 3.2);
       });
 
-      y += cardH + 1.5;
+      y += cardH + 1.8;
     });
 
     y += 2;
@@ -1165,13 +1263,9 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
 
         sec.items.forEach((item) => {
           const nameClean = sanitizeUnicodeForPdf(item.name);
-          const formulaClean = cleanLatexForPdf(item.formula);
-          const condClean = cleanLatexForPdf(item.conditionOrMeaning);
+          const condClean = sanitizeUnicodeForPdf(formatLatexToMathText(item.conditionOrMeaning));
 
-          doc.setFont('courier', 'bold');
-          doc.setFontSize(7.5);
-          const fLines = doc.splitTextToSize(formulaClean, contentWidth - 10);
-          const fBoxH = Math.max(5, fLines.length * 3.4 + 2);
+          const fBoxH = measureMathFormulaBox(item.formula, contentWidth - 4);
 
           doc.setFont('helvetica', 'italic');
           doc.setFontSize(6.5);
@@ -1194,14 +1288,7 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
           doc.text(`* ${nameClean}:`, margin + 3, y + 3.5);
 
           const fY = y + 4.8;
-          doc.setFillColor(241, 245, 249);
-          doc.rect(margin + 2, fY, contentWidth - 4, fBoxH, 'F');
-          doc.setFont('courier', 'bold');
-          doc.setFontSize(7.5);
-          doc.setTextColor(15, 23, 42);
-          fLines.forEach((fl: string, flIdx: number) => {
-            doc.text(fl, margin + 4, fY + 2.8 + flIdx * 3.4);
-          });
+          drawMathFormulaBox(doc, item.formula, margin + 2, fY, contentWidth - 4, [15, 23, 42], [241, 245, 249], [203, 213, 225]);
 
           const nY = fY + fBoxH + 2.4;
           doc.setFont('helvetica', 'normal');
@@ -1227,7 +1314,7 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
         doc.text(`[SHORTCUT]`, margin + 2, y + 3.5);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(6, 78, 59);
-        doc.text(cleanLatexForPdf(jeeSheet.jeeQuickRevision.shortcuts[0]), margin + 20, y + 3.5, {
+        doc.text(sanitizeUnicodeForPdf(formatLatexToMathText(jeeSheet.jeeQuickRevision.shortcuts[0])), margin + 20, y + 3.5, {
           maxWidth: contentWidth - 23,
         });
 
@@ -1237,7 +1324,7 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
           doc.text(`[TRAP]`, margin + 2, y + 6.8);
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(136, 19, 55);
-          doc.text(cleanLatexForPdf(jeeSheet.jeeQuickRevision.trapsAndPitfalls[0]), margin + 20, y + 6.8, {
+          doc.text(sanitizeUnicodeForPdf(formatLatexToMathText(jeeSheet.jeeQuickRevision.trapsAndPitfalls[0])), margin + 20, y + 6.8, {
             maxWidth: contentWidth - 23,
           });
         }
@@ -1258,9 +1345,8 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
         y += 6;
 
         concept.formulas.forEach((f) => {
-          const cleanFormula = cleanLatexForPdf(f.latex);
-          const fLines = doc.splitTextToSize(cleanFormula, contentWidth - 10);
-          const totalH = 5 + fLines.length * 3.5 + 4;
+          const fBoxH = measureMathFormulaBox(f.latex, contentWidth - 4);
+          const totalH = 5 + fBoxH + 4;
 
           checkPageBreak(totalH, chapter.name);
 
@@ -1274,12 +1360,7 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
           doc.text(`* ${sanitizeUnicodeForPdf(f.name)}:`, margin + 3, y + 3.5);
 
           const fY = y + 4.8;
-          doc.setFont('courier', 'bold');
-          doc.setFontSize(7.5);
-          doc.setTextColor(15, 23, 42);
-          fLines.forEach((fl: string, flIdx: number) => {
-            doc.text(fl, margin + 4, fY + 2.8 + flIdx * 3.5);
-          });
+          drawMathFormulaBox(doc, f.latex, margin + 2, fY, contentWidth - 4, [15, 23, 42], [241, 245, 249], [203, 213, 225]);
 
           y += totalH + 1.2;
         });

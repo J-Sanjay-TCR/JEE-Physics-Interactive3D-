@@ -2,6 +2,8 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { GoogleGenAI, Modality, ThinkingLevel, Type } from '@google/genai';
+import { generateServerChapterPdf, generateServerMasterPdf } from './server/latexPdfService';
+import { preprocessAndWrapFormula, unwrapFormula } from './src/utils/latexPreprocessor';
 
 const app = express();
 const PORT = 3000;
@@ -1065,6 +1067,100 @@ function cleanTextForSpeech(input: string): string {
   cleaned = cleaned.replace(/\n\s*\n/g, '. ').replace(/\n/g, ' ');
   return cleaned.trim();
 }
+
+// 4.5. Server-Side LaTeX-to-PDF Formula Rendering API
+// Generates publication-grade PDFs with formulas pre-processed into proper \begin{equation} or \( ... \) delimiters
+app.post('/api/pdf/chapter-formula', (req, res) => {
+  try {
+    const chapterId = req.body?.chapterId || (req.query?.chapterId as string) || 'units-dimensions';
+    const pdfResult = generateServerChapterPdf(chapterId);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${pdfResult.fileName}"`);
+    res.setHeader('Content-Length', pdfResult.buffer.length);
+    res.setHeader('X-Chapter-Name', encodeURIComponent(pdfResult.chapterName));
+    res.setHeader('X-Page-Count', pdfResult.pageCount.toString());
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Chapter-Name, X-Page-Count');
+
+    res.send(pdfResult.buffer);
+  } catch (error: any) {
+    console.error('Error generating chapter PDF on server:', error);
+    res.status(500).json({ error: error?.message || 'Failed to render chapter PDF on server' });
+  }
+});
+
+app.get('/api/pdf/chapter-formula', (req, res) => {
+  try {
+    const chapterId = (req.query?.chapterId as string) || 'units-dimensions';
+    const pdfResult = generateServerChapterPdf(chapterId);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${pdfResult.fileName}"`);
+    res.setHeader('Content-Length', pdfResult.buffer.length);
+    res.setHeader('X-Chapter-Name', encodeURIComponent(pdfResult.chapterName));
+    res.setHeader('X-Page-Count', pdfResult.pageCount.toString());
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Chapter-Name, X-Page-Count');
+
+    res.send(pdfResult.buffer);
+  } catch (error: any) {
+    console.error('Error serving chapter PDF preview on server:', error);
+    res.status(500).json({ error: error?.message || 'Failed to preview chapter PDF on server' });
+  }
+});
+
+app.post('/api/pdf/master-compendium', (req, res) => {
+  try {
+    const pdfResult = generateServerMasterPdf();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${pdfResult.fileName}"`);
+    res.setHeader('Content-Length', pdfResult.buffer.length);
+    res.setHeader('X-Chapter-Name', encodeURIComponent('Master 18-Chapter Compendium'));
+    res.setHeader('X-Page-Count', pdfResult.pageCount.toString());
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Chapter-Name, X-Page-Count');
+
+    res.send(pdfResult.buffer);
+  } catch (error: any) {
+    console.error('Error generating master compendium PDF on server:', error);
+    res.status(500).json({ error: error?.message || 'Failed to render master compendium on server' });
+  }
+});
+
+app.get('/api/pdf/master-compendium', (req, res) => {
+  try {
+    const pdfResult = generateServerMasterPdf();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${pdfResult.fileName}"`);
+    res.setHeader('Content-Length', pdfResult.buffer.length);
+    res.setHeader('X-Chapter-Name', encodeURIComponent('Master 18-Chapter Compendium'));
+    res.setHeader('X-Page-Count', pdfResult.pageCount.toString());
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Chapter-Name, X-Page-Count');
+
+    res.send(pdfResult.buffer);
+  } catch (error: any) {
+    console.error('Error previewing master compendium PDF on server:', error);
+    res.status(500).json({ error: error?.message || 'Failed to preview master compendium on server' });
+  }
+});
+
+app.post('/api/pdf/preprocess-formula', (req, res) => {
+  try {
+    const formula = req.body?.formula || '';
+    const mode = req.body?.mode || 'equation';
+    const wrapped = preprocessAndWrapFormula(formula, mode);
+    const unwrapped = unwrapFormula(wrapped);
+
+    res.json({
+      original: formula,
+      mode,
+      wrapped,
+      unwrapped,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Error pre-processing formula' });
+  }
+});
 
 // 5. Vite middleware (development) or Static serving (production)
 async function startServer() {
