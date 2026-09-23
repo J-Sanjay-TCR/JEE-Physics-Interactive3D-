@@ -28,6 +28,7 @@ import { GlobalErrorBoundary } from './components/ui/GlobalErrorBoundary';
 import { CursorEffect } from './components/ui/CursorEffect';
 import { JeeWeightageAnalyticsModal } from './components/ui/JeeWeightageAnalyticsModal';
 import { GlobalPhysicsLoader } from './components/ui/GlobalPhysicsLoader';
+import { stopAllAudio } from './utils/audioPlayer';
 import {
   Menu,
   X,
@@ -53,7 +54,7 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  const { isDark, isCyberpunk, theme, toggleTheme, cycleTheme } = useTheme();
+  const { isDark, isCyberpunk, theme, toggleTheme, cycleTheme, setTheme } = useTheme();
   const [userName, setUserName] = useState<string>(() => localStorage.getItem('ai_physics_user_name') || '');
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isLoadingScreenOpen, setIsLoadingScreenOpen] = useState(false);
@@ -631,6 +632,10 @@ export default function App() {
     }
   }, [currentView]);
 
+  // AI Physics Tutor initial query / snapshot state
+  const [tutorInitialQuestion, setTutorInitialQuestion] = useState('');
+  const [tutorInitialScreenImage, setTutorInitialScreenImage] = useState<string | null>(null);
+
   // Compute Real-time Quantities
   const liveQuantities = currentConcept.computeLiveQuantities(paramValues, simTime);
 
@@ -1121,6 +1126,7 @@ export default function App() {
                       jeeAdvanced={currentConcept.jeeAdvanced}
                       conceptTitle={currentConcept.title}
                       onOpenGlobalAnalytics={() => setIsAnalyticsOpen(true)}
+                      onClose={() => setActiveTab('controls')}
                     />
                   </motion.div>
                 )}
@@ -1290,7 +1296,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Draggable Floating AI Physics Tutor Circle Button */}
+      {/* Draggable Floating AI Physics Tutor Button */}
       <DraggableAiTutorFab
         onOpenAiTutor={() => setIsAiTutorOpen(true)}
         isOpen={isAiTutorOpen}
@@ -1325,6 +1331,15 @@ export default function App() {
         currentConcept={currentConcept}
         currentParams={paramValues}
         userName={userName}
+        allConcepts={ALL_CONCEPTS}
+        initialQuestion={tutorInitialQuestion}
+        initialScreenImage={tutorInitialScreenImage}
+        onClearInitialQuestion={() => {
+          setTutorInitialQuestion('');
+          setTutorInitialScreenImage(null);
+        }}
+        onSelectConcept={handleSelectConcept}
+        currentView={currentView}
       />
 
       {/* JEE Weightage Analytics Modal */}

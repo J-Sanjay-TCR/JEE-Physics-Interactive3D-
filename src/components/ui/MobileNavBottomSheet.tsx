@@ -727,6 +727,9 @@ export const MobileNavBottomSheet: React.FC<MobileNavBottomSheetProps> = ({
                   <JeeInsightsPanel
                     jeeMain={currentConcept.jeeMain}
                     jeeAdvanced={currentConcept.jeeAdvanced}
+                    conceptTitle={currentConcept.title}
+                    onOpenGlobalAnalytics={onOpenAnalytics}
+                    onClose={() => setActiveTab('controls')}
                   />
                 </div>
               )}

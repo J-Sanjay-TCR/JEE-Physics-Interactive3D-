@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, PieChart as PieChartIcon, BarChart2, TrendingUp, BookOpen, Layers, 
@@ -273,6 +273,29 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
     };
   }, [targetScore, examType]);
 
+  // Listen for Escape key to quickly exit the modal & prevent background scroll leak
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // Prevent background scrolling when modal is open
+    const originalOverflow = document.body.style.overflow;
+    const originalOverscrollBehavior = document.body.style.overscrollBehavior;
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'contain';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = originalOverflow;
+      document.body.style.overscrollBehavior = originalOverscrollBehavior;
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const CustomPieTooltip = ({ active, payload }: any) => {
@@ -334,14 +357,19 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex flex-col items-center justify-center p-2 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md"
+        transition={{ duration: 0.28, ease: 'easeOut' }}
+        onClick={onClose}
+        className="fixed inset-0 z-50 flex flex-col items-center justify-center p-2 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md cursor-pointer overscroll-contain select-none"
+        aria-modal="true"
+        role="dialog"
       >
         <motion.div
-          initial={{ y: 30, scale: 0.96, opacity: 0 }}
+          initial={{ y: -60, scale: 0.98, opacity: 0 }}
           animate={{ y: 0, scale: 1, opacity: 1 }}
-          exit={{ y: 20, scale: 0.96, opacity: 0 }}
-          transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-          className="w-full max-w-6xl h-[94vh] max-h-[900px] bg-[#060812] border border-cyan-500/30 rounded-2xl sm:rounded-3xl shadow-[0_0_70px_rgba(0,240,255,0.16)] overflow-hidden flex flex-col relative"
+          exit={{ y: -40, scale: 0.98, opacity: 0 }}
+          transition={{ type: 'spring', damping: 28, stiffness: 340, mass: 0.9 }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-6xl h-[94vh] max-h-[900px] bg-[#060812] border border-cyan-500/30 rounded-2xl sm:rounded-3xl shadow-[0_0_70px_rgba(0,240,255,0.16)] overflow-hidden flex flex-col relative cursor-default select-text"
         >
           {/* Subtle Cyber scanline background texture */}
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#00f0ff05_1px,transparent_1px),linear-gradient(to_bottom,#00f0ff05_1px,transparent_1px)] bg-[size:28px_28px] pointer-events-none opacity-50" />
@@ -395,12 +423,19 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                 </button>
               </div>
 
+              {/* High-visibility Exit Button */}
               <button
+                id="jee-analytics-header-exit-btn"
                 onClick={onClose}
-                className="p-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors shrink-0"
-                title="Close Analytics Modal"
+                className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs font-bold text-zinc-100 hover:text-white bg-red-500/20 hover:bg-red-500/35 border border-red-500/40 hover:border-red-400 rounded-xl transition-all shadow-[0_0_15px_rgba(239,68,68,0.25)] shrink-0 active:scale-95 group"
+                title="Exit JEE Analytics Hub (Press Escape)"
+                aria-label="Exit JEE Analytics Hub"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 text-red-300 group-hover:rotate-90 transition-transform duration-200" />
+                <span className="font-bold tracking-wide">Exit Hub</span>
+                <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[9px] font-mono font-semibold text-red-200 bg-black/40 rounded border border-red-500/40 ml-0.5">
+                  Esc
+                </kbd>
               </button>
             </div>
           </div>
@@ -499,8 +534,8 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
             </div>
           </div>
 
-          {/* Tab Content Container */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar bg-[#0A0A0E]">
+          {/* Tab Content Container with overscroll containment */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar bg-[#0A0A0E] overscroll-contain">
             
             {/* ================= TAB 1: OVERVIEW & UNITS ================= */}
             {activeTab === 'overview' && (
@@ -587,21 +622,25 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                 {/* Interactive Donut & Unit Intelligence Detail */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Left Donut Pie Chart (5 Cols) */}
-                  <div className="lg:col-span-5 bg-[#090C18] p-5 rounded-2xl border border-cyan-500/20 shadow-[0_4px_25px_rgba(0,240,255,0.06)] flex flex-col relative overflow-hidden">
-                    <div className="flex items-center justify-between mb-2">
+                  <div className="lg:col-span-5 bg-[#090C18] p-5 rounded-2xl border border-cyan-500/25 shadow-[0_4px_30px_rgba(0,240,255,0.08)] flex flex-col relative overflow-hidden anim-graph-glow">
+                    {/* Oscilloscope scan beam overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/5 to-transparent anim-graph-oscilloscope pointer-events-none" />
+
+                    <div className="flex items-center justify-between mb-2 relative z-10">
                       <h3 className="text-sm font-bold text-white flex items-center gap-2">
                         <PieChartIcon className="w-4 h-4 text-cyan-400" />
                         Interactive Unit-Wise Share
                       </h3>
-                      <span className="text-[10px] font-semibold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 rounded-md">
-                        Click slice to pin
+                      <span className="text-[10px] font-semibold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 rounded-md flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                        Live Matrix
                       </span>
                     </div>
-                    <p className="text-[11px] text-zinc-400 mb-2">
+                    <p className="text-[11px] text-zinc-400 mb-2 relative z-10">
                       Click any slice below to inspect high-yield subtopics and chapter breakdowns
                     </p>
 
-                    <div className="h-[260px] relative">
+                    <div className="h-[260px] relative z-10">
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
@@ -609,7 +648,7 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                             cx="50%"
                             cy="50%"
                             innerRadius={70}
-                            outerRadius={95}
+                            outerRadius={96}
                             paddingAngle={4}
                             dataKey="value"
                             stroke="none"
@@ -623,9 +662,9 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                               <Cell 
                                 key={`cell-${entry.id}`} 
                                 fill={entry.color} 
-                                opacity={selectedUnitId === null || selectedUnitId === entry.id ? 1 : 0.4}
-                                stroke={selectedUnitId === entry.id ? '#ffffff' : 'none'}
-                                strokeWidth={2}
+                                opacity={selectedUnitId === null || selectedUnitId === entry.id ? 1 : 0.35}
+                                stroke={selectedUnitId === entry.id ? '#38bdf8' : 'none'}
+                                strokeWidth={selectedUnitId === entry.id ? 2.5 : 0}
                               />
                             ))}
                           </Pie>
@@ -633,13 +672,18 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                         </PieChart>
                       </ResponsiveContainer>
 
-                      {/* Center Badge */}
+                      {/* Center Badge with Animated Pulse Halo */}
                       <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                        <div className="text-center">
-                          <div className="text-2xl font-black text-white">{activeUnit.value}%</div>
-                          <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest max-w-[100px] truncate">
+                        <div className="text-center p-3 rounded-full bg-[#070914]/90 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.25)] flex flex-col items-center justify-center w-[120px] h-[120px]">
+                          <div className="text-2xl font-black text-white font-mono tracking-tight drop-shadow-[0_0_8px_rgba(56,189,248,0.5)]">
+                            {activeUnit.value}%
+                          </div>
+                          <div className="text-[9.5px] font-bold text-cyan-300 uppercase tracking-wider max-w-[95px] truncate mt-0.5">
                             {activeUnit.name}
                           </div>
+                          <span className="text-[9px] text-zinc-400 font-mono">
+                            ~{examType === 'MAIN' ? activeUnit.avgQuestionsMain : activeUnit.avgQuestionsAdv} Qs
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -757,27 +801,38 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
 
                 {/* Radar Competency Mapping Chart */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  <div className="lg:col-span-6 bg-[#111116] p-5 rounded-2xl border border-white/[0.06] flex flex-col">
-                    <h3 className="text-sm font-bold text-white mb-1 flex items-center gap-2">
-                      <Target className="w-4 h-4 text-emerald-400" />
-                      Multi-Dimensional Unit Competency Map
-                    </h3>
-                    <p className="text-[11px] text-zinc-400 mb-4">
+                  <div className="lg:col-span-6 bg-[#090C18] p-5 rounded-2xl border border-cyan-500/25 shadow-[0_4px_30px_rgba(0,240,255,0.08)] flex flex-col relative overflow-hidden anim-graph-glow">
+                    {/* Tactical Radar Sweep Animation Background */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-25">
+                      <div className="w-[240px] h-[240px] rounded-full border border-cyan-500/30 radar-sweep" />
+                    </div>
+
+                    <div className="flex items-center justify-between mb-1 relative z-10">
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Target className="w-4 h-4 text-emerald-400" />
+                        Multi-Dimensional Unit Competency Map
+                      </h3>
+                      <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded uppercase tracking-wider">
+                        Polar Radar
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 mb-4 relative z-10">
                       Relative weightage comparison across all major domains in {examType === 'MAIN' ? 'JEE Main' : 'JEE Advanced'}
                     </p>
 
-                    <div className="h-[280px]">
+                    <div className="h-[280px] relative z-10">
                       <ResponsiveContainer width="100%" height="100%">
                         <RadarChart cx="50%" cy="50%" outerRadius="75%" data={pieData}>
-                          <PolarGrid stroke="rgba(255,255,255,0.08)" />
-                          <PolarAngleAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                          <PolarGrid stroke="rgba(6, 182, 212, 0.18)" />
+                          <PolarAngleAxis dataKey="name" tick={{ fill: '#a1a1aa', fontSize: 10, fontWeight: 600 }} />
                           <PolarRadiusAxis angle={30} domain={[0, 40]} tick={false} axisLine={false} />
                           <Radar
                             name={examType === 'MAIN' ? 'JEE Main (%)' : 'JEE Advanced (%)'}
                             dataKey="value"
-                            stroke={examType === 'MAIN' ? '#3b82f6' : '#10b981'}
-                            fill={examType === 'MAIN' ? '#3b82f6' : '#10b981'}
-                            fillOpacity={0.4}
+                            stroke={examType === 'MAIN' ? '#38bdf8' : '#10b981'}
+                            strokeWidth={2.5}
+                            fill={examType === 'MAIN' ? '#0284c7' : '#059669'}
+                            fillOpacity={0.45}
                           />
                           <Tooltip content={<CustomPieTooltip />} />
                         </RadarChart>
@@ -785,39 +840,50 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
                     </div>
                   </div>
 
-                  <div className="lg:col-span-6 bg-[#111116] p-5 rounded-2xl border border-white/[0.06] flex flex-col justify-between">
+                  <div className="lg:col-span-6 bg-[#090C18] p-5 rounded-2xl border border-white/[0.08] shadow-[0_4px_30px_rgba(0,0,0,0.4)] flex flex-col justify-between relative overflow-hidden">
                     <div>
-                      <h3 className="text-sm font-bold text-white mb-1 flex items-center gap-2">
-                        <Activity className="w-4 h-4 text-purple-400" />
-                        Class 11 vs Class 12 Syllabus Weightage Ratio
-                      </h3>
+                      <div className="flex items-center justify-between mb-1">
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-purple-400" />
+                          Class 11 vs Class 12 Syllabus Weightage Ratio
+                        </h3>
+                        <span className="text-[10px] font-mono text-purple-300 bg-purple-950/60 border border-purple-500/30 px-2 py-0.5 rounded">
+                          NTA Shift Average
+                        </span>
+                      </div>
                       <p className="text-[11px] text-zinc-400 mb-4">
                         Historical syllabus division in {examType === 'MAIN' ? 'JEE Main Papers' : 'JEE Advanced Papers'}
                       </p>
 
                       {/* Visual Dual Progress Bar */}
                       <div className="space-y-4 mb-6">
-                        <div>
+                        <div className="p-3 bg-[#111424] rounded-xl border border-sky-500/20">
                           <div className="flex justify-between text-xs font-bold mb-1.5">
-                            <span className="text-blue-300">Class 11 (Mechanics, Thermal, Waves)</span>
-                            <span className="text-white">{classSplit.class11}%</span>
+                            <span className="text-sky-300 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]" />
+                              Class 11 (Mechanics, Thermal, Waves)
+                            </span>
+                            <span className="text-white font-mono font-black text-sm">{classSplit.class11}%</span>
                           </div>
-                          <div className="w-full h-3 bg-zinc-800 rounded-full overflow-hidden">
+                          <div className="w-full h-3 bg-zinc-900 rounded-full overflow-hidden p-0.5 border border-white/[0.06]">
                             <div 
-                              className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full transition-all duration-500"
+                              className="h-full bg-gradient-to-r from-sky-500 to-cyan-400 rounded-full transition-all duration-700 shadow-[0_0_10px_rgba(56,189,248,0.5)]"
                               style={{ width: `${classSplit.class11}%` }}
                             />
                           </div>
                         </div>
 
-                        <div>
+                        <div className="p-3 bg-[#171124] rounded-xl border border-purple-500/20">
                           <div className="flex justify-between text-xs font-bold mb-1.5">
-                            <span className="text-purple-300">Class 12 (Electrodynamics, Optics, Modern)</span>
-                            <span className="text-white">{classSplit.class12}%</span>
+                            <span className="text-purple-300 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-purple-400 shadow-[0_0_6px_#c084fc]" />
+                              Class 12 (Electrodynamics, Optics, Modern)
+                            </span>
+                            <span className="text-white font-mono font-black text-sm">{classSplit.class12}%</span>
                           </div>
-                          <div className="w-full h-3 bg-zinc-800 rounded-full overflow-hidden">
+                          <div className="w-full h-3 bg-zinc-900 rounded-full overflow-hidden p-0.5 border border-white/[0.06]">
                             <div 
-                              className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-500"
+                              className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-700 shadow-[0_0_10px_rgba(192,132,252,0.5)]"
                               style={{ width: `${classSplit.class12}%` }}
                             />
                           </div>
@@ -1923,6 +1989,37 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
               </div>
             )}
 
+          </div>
+
+          {/* Modal Footer Exit & Quick Actions Bar */}
+          <div className="relative z-10 px-4 sm:px-6 py-2.5 sm:py-3 border-t border-white/[0.08] flex items-center justify-between bg-gradient-to-r from-[#080A14] via-[#070912] to-[#080A14] shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 text-[11px] text-zinc-400">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="hidden sm:inline font-mono">13-Year Historical Calibration (2014-2026)</span>
+                <span className="sm:hidden font-mono text-[10px]">2014-2026 Active</span>
+              </span>
+              <span className="hidden md:inline-block text-zinc-600">|</span>
+              <span className="hidden md:inline-block text-zinc-400 text-[11px]">
+                Target: <strong className="text-white">{examType === 'MAIN' ? 'JEE Main 100M' : 'JEE Advanced'}</strong>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <span className="text-[10px] text-zinc-500 font-mono hidden md:inline">
+                Click outside or press <kbd className="px-1.5 py-0.5 bg-black/50 border border-white/10 rounded text-zinc-300 font-semibold">Esc</kbd>
+              </span>
+              <button
+                id="jee-analytics-footer-exit-btn"
+                onClick={onClose}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-zinc-800/90 hover:bg-red-600 border border-white/10 hover:border-red-500/50 rounded-xl transition-all shadow-md active:scale-95 group"
+                title="Exit JEE Analytics Hub"
+                aria-label="Exit JEE Analytics Hub"
+              >
+                <X className="w-3.5 h-3.5 text-zinc-400 group-hover:text-white transition-colors" />
+                <span>Exit Analytics</span>
+              </button>
+            </div>
           </div>
         </motion.div>
       </motion.div>

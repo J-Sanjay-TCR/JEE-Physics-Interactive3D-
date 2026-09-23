@@ -651,6 +651,9 @@ export class StreamAudioPlayer {
       const text = this.pendingSentences[targetIdx];
 
       // ONLY use browser speech synthesis IF a verified clean English voice exists
+      if (!selectedVoiceCache) {
+        loadVoices();
+      }
       if (selectedVoiceCache && !isForbiddenNonEnglishVoice(selectedVoiceCache)) {
         this.isSpeakingChunk = true;
         speakWithBrowser(

@@ -13,30 +13,89 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
   </head>
   <body class="bg-slate-950 text-slate-100 font-['Plus_Jakarta_Sans',sans-serif] antialiased selection:bg-cyan-500/30 selection:text-cyan-200 overflow-x-hidden">
-    <div id="root">
+    <div id="root" style="width:100%;height:100%;min-height:100vh;min-height:100dvh;">
       <!-- Instant Zero-Delay Physics Preloader -->
-      <div id="app-preloader" style="position:fixed;inset:0;background:#050711;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;z-index:99999;">
+      <div id="app-preloader" style="position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;min-height:100dvh;background:#030611;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;z-index:999999;overflow:hidden;user-select:none;margin:0;padding:16px;">
         <style>
-          @keyframes preloader-orbit-1 { 0% { transform: rotateX(70deg) rotateZ(0deg); } 100% { transform: rotateX(70deg) rotateZ(360deg); } }
-          @keyframes preloader-orbit-2 { 0% { transform: rotate(60deg) rotateX(70deg) rotateZ(0deg); } 100% { transform: rotate(60deg) rotateX(70deg) rotateZ(-360deg); } }
-          @keyframes preloader-orbit-3 { 0% { transform: rotate(120deg) rotateX(70deg) rotateZ(0deg); } 100% { transform: rotate(120deg) rotateX(70deg) rotateZ(360deg); } }
-          @keyframes preloader-pulse { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.15); opacity: 1; filter: drop-shadow(0 0 16px #00f0ff); } }
-          .preloader-atom { position: relative; width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px; }
-          .preloader-nucleus { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #00f0ff, #10b981); box-shadow: 0 0 16px rgba(0,240,255,0.6); animation: preloader-pulse 2s infinite ease-in-out; }
-          .preloader-ring { position: absolute; width: 90px; height: 90px; border-radius: 50%; border: 1.5px dashed rgba(0,240,255,0.5); pointer-events: none; }
-          .preloader-ring-1 { animation: preloader-orbit-1 4s linear infinite; }
-          .preloader-ring-2 { border-color: rgba(16,185,129,0.5); animation: preloader-orbit-2 3.5s linear infinite; }
-          .preloader-ring-3 { border-color: rgba(96,165,250,0.4); animation: preloader-orbit-3 5s linear infinite; }
+          @keyframes preloader-spin-cw { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
+          @keyframes preloader-spin-ccw { from { transform: rotateZ(0deg); } to { transform: rotateZ(-360deg); } }
+          @keyframes preloader-wave { 0% { transform: scale(0.6); opacity: 0.8; } 50% { opacity: 0.35; } 100% { transform: scale(2.4); opacity: 0; } }
+          @keyframes preloader-pulse { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 16px rgba(0,240,255,0.7)); } 50% { transform: scale(1.15); filter: drop-shadow(0 0 28px rgba(0,240,255,0.95)) drop-shadow(0 0 35px rgba(16,185,129,0.5)); } }
+          @keyframes preloader-radar { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+          @keyframes preloader-quark { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+          .p-atom { position: relative; width: 140px; height: 140px; aspect-ratio: 1/1; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-bottom: 24px; perspective: 800px; transform-style: preserve-3d; }
+          .p-wave { position: absolute; width: 100px; height: 100px; aspect-ratio: 1/1; border-radius: 50%; border: 1px solid rgba(0,240,255,0.4); animation: preloader-wave 2.8s cubic-bezier(0.1,0.8,0.3,1) infinite; pointer-events: none; }
+          .p-wave-2 { animation-delay: 1.4s; border-color: rgba(16,185,129,0.35); }
+          .p-reticle { position: absolute; width: 130px; height: 130px; aspect-ratio: 1/1; border-radius: 50%; border: 1px dotted rgba(0,240,255,0.25); animation: preloader-radar 15s linear infinite; pointer-events: none; }
+          .p-reticle::after { content: ''; position: absolute; top: 0; left: 50%; width: 4px; height: 4px; background: #00f0ff; border-radius: 50%; transform: translateX(-50%); box-shadow: 0 0 8px #00f0ff; }
+          
+          .p-shell { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; transform-style: preserve-3d; }
+          .p-orbit-1 { transform: rotateX(70deg); }
+          .p-orbit-2 { transform: rotateZ(60deg) rotateX(70deg); }
+          .p-orbit-3 { transform: rotateZ(120deg) rotateX(70deg); }
+          
+          .p-ring { position: absolute; border-radius: 50%; border: 1.5px dashed; display: flex; align-items: center; justify-content: center; aspect-ratio: 1/1; }
+          .p-ring-1 { width: 110px; height: 110px; border-color: rgba(0,240,255,0.55); animation: preloader-spin-cw 3.6s linear infinite; }
+          .p-ring-2 { width: 120px; height: 120px; border-color: rgba(16,185,129,0.55); animation: preloader-spin-ccw 4.4s linear infinite; }
+          .p-ring-3 { width: 130px; height: 130px; border-color: rgba(192,132,252,0.5); animation: preloader-spin-cw 5.4s linear infinite; }
+          
+          .p-electron { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 10px; height: 10px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+          .p-el-1 { background: #67e8f9; box-shadow: 0 0 14px #00f0ff, 0 0 24px rgba(0,240,255,0.8); }
+          .p-el-2 { background: #6ee7b7; box-shadow: 0 0 14px #10b981, 0 0 24px rgba(16,185,129,0.8); }
+          .p-el-3 { background: #d8b4fe; box-shadow: 0 0 14px #c084fc, 0 0 24px rgba(192,132,252,0.8); }
+          .p-el-core { width: 4px; height: 4px; border-radius: 50%; background: #ffffff; }
+
+          .p-nucleus { width: 34px; height: 34px; aspect-ratio: 1/1; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #00f0ff 0%, #0d9488 50%, #050711 100%); border: 1.5px solid rgba(0,240,255,0.6); box-shadow: 0 0 20px rgba(0,240,255,0.7); display: flex; align-items: center; justify-content: center; z-index: 10; animation: preloader-pulse 2.2s infinite ease-in-out; position: relative; }
+          .p-quarks { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; animation: preloader-quark 2.4s linear infinite; }
+          .p-quark-1 { position: absolute; top: 4px; width: 5px; height: 5px; border-radius: 50%; background: #00f0ff; box-shadow: 0 0 6px #00f0ff; }
+          .p-quark-2 { position: absolute; bottom: 5px; left: 5px; width: 5px; height: 5px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px #10b981; }
+          .p-quark-3 { position: absolute; bottom: 5px; right: 5px; width: 5px; height: 5px; border-radius: 50%; background: #f43f5e; box-shadow: 0 0 6px #f43f5e; }
         </style>
-        <div class="preloader-atom">
-          <div class="preloader-nucleus"></div>
-          <div class="preloader-ring preloader-ring-1"></div>
-          <div class="preloader-ring preloader-ring-2"></div>
-          <div class="preloader-ring preloader-ring-3"></div>
+        
+        <div class="p-atom">
+          <div class="p-wave"></div>
+          <div class="p-wave p-wave-2"></div>
+          <div class="p-reticle"></div>
+          
+          <div class="p-shell p-orbit-1">
+            <div class="p-ring p-ring-1">
+              <div class="p-electron p-el-1"><div class="p-el-core"></div></div>
+            </div>
+          </div>
+          
+          <div class="p-shell p-orbit-2">
+            <div class="p-ring p-ring-2">
+              <div class="p-electron p-el-2"><div class="p-el-core"></div></div>
+            </div>
+          </div>
+          
+          <div class="p-shell p-orbit-3">
+            <div class="p-ring p-ring-3">
+              <div class="p-electron p-el-3"><div class="p-el-core"></div></div>
+            </div>
+          </div>
+          
+          <div class="p-nucleus">
+            <div class="p-quarks">
+              <div class="p-quark-1"></div>
+              <div class="p-quark-2"></div>
+              <div class="p-quark-3"></div>
+            </div>
+          </div>
         </div>
-        <div style="font-size:12px;font-family:monospace;letter-spacing:0.15em;text-transform:uppercase;color:#00f0ff;margin-bottom:6px;font-weight:700;">JEE 3D Physics Lab</div>
-        <div style="font-size:16px;font-weight:700;color:#f8fafc;letter-spacing:-0.01em;">Calibrating 3D Quantum Engine...</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px;">Setting up WebGL shaders & numerical solvers</div>
+
+        <div style="display:inline-flex;align-items:center;gap:8px;padding:3px 12px;border-radius:9999px;background:rgba(0,240,255,0.1);border:1px solid rgba(0,240,255,0.3);color:#67e8f9;font-size:11px;font-family:monospace;font-weight:700;letter-spacing:0.1em;margin-bottom:10px;box-shadow:0 0 12px rgba(0,240,255,0.2);">
+          <span>JEE 3D QUANTUM LAB</span>
+          <span style="color:#64748b;">•</span>
+          <span style="color:#34d399;">RK4 SOLVER</span>
+        </div>
+        <div style="font-size:18px;font-weight:800;color:#f8fafc;letter-spacing:-0.02em;">Calibrating Physics Apparatus...</div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:6px;max-width:320px;text-align:center;line-height:1.4;">Allocating WebGL 3D framebuffers & numerical differential pipelines</div>
+        
+        <div style="width:200px;height:3px;background:rgba(255,255,255,0.1);border-radius:9999px;overflow:hidden;margin-top:16px;">
+          <div style="height:100%;width:60%;background:linear-gradient(90deg,#00f0ff,#10b981);border-radius:9999px;animation:preloader-radar 2s ease-in-out infinite alternate;box-shadow:0 0 10px #00f0ff;"></div>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

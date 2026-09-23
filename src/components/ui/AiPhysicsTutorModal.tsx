@@ -26,10 +26,14 @@ import {
   ExternalLink,
   Database,
   Trash2,
+  Camera,
+  Eye,
+  ChevronDown,
 } from 'lucide-react';
 import { MathMarkdown } from './MathMarkdown';
 import { Latex } from './Latex';
 import { getConceptDerivation } from '../../data/conceptDerivations';
+import { captureLive3dScreen } from '../../utils/canvasCapture';
 import {
   playPcmBase64,
   speakWithBrowser,
@@ -43,6 +47,7 @@ import {
   VoiceCacheStats,
 } from '../../utils/audioPlayer';
 import { AudioWaveformVisualizer } from './AudioWaveformVisualizer';
+import { speechLock, safelyDestroySpeechRecognition } from '../../utils/speechLock';
 
 interface WebSource {
   title: string;
@@ -63,20 +68,33 @@ interface AiPhysicsTutorModalProps {
   currentConcept: PhysicsConcept;
   currentParams: Record<string, number>;
   userName?: string;
+  allConcepts?: PhysicsConcept[];
+  initialQuestion?: string;
+  initialScreenImage?: string | null;
+  onClearInitialQuestion?: () => void;
+  onSelectConcept?: (concept: PhysicsConcept) => void;
+  currentView?: 'home' | 'lab';
 }
 
 export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
-
   isOpen,
   onClose,
   currentConcept,
   currentParams,
-  userName
+  userName,
+  allConcepts = [],
+  initialQuestion,
+  initialScreenImage,
+  onClearInitialQuestion,
+  onSelectConcept,
+  currentView = 'home',
 }) => {
   const [tutorTab, setTutorTab] = useState<'chat' | 'derivation' | 'shortcuts'>('chat');
   const [question, setQuestion] = useState('');
+  const [isConceptDropdownOpen, setIsConceptDropdownOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [liveCapturedSnapshot, setLiveCapturedSnapshot] = useState<string | null>(null);
 
   // Advanced Mode Switches
   const [thinkingMode, setThinkingMode] = useState<boolean>(true); // Default ON for deep JEE Advanced reasoning
@@ -205,6 +223,8 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
 
   // Clean up mic streams and audio analysers safely
   const cleanupMicStreams = () => {
+    isManuallyStoppedRef.current = true;
+    speechLock.release('modal');
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
@@ -233,6 +253,10 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
     }
     analyserRef.current = null;
     setAudioLevel(0);
+
+    // CRITICAL: Safely dismantle recognition so no trailing onend can restart it!
+    safelyDestroySpeechRecognition(recognitionRef.current);
+    recognitionRef.current = null;
   };
 
   /**
@@ -336,13 +360,9 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
       speechSilenceTimerRef.current = null;
     }
 
-    // 1. Stop SpeechRecognition engine
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {}
-      recognitionRef.current = null;
-    }
+    // 1. Stop SpeechRecognition engine safely without allowing phantom loops
+    safelyDestroySpeechRecognition(recognitionRef.current);
+    recognitionRef.current = null;
 
     // 2. Stop MediaRecorder engine and capture audio blobs
     let recordedAudioBlob: Blob | null = null;
@@ -371,6 +391,19 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
 
     if (!shouldSend) return;
 
+    const processTranscribedSpeech = (transcript: string) => {
+      const trimmed = transcript.trim();
+      if (!trimmed) return;
+
+      // Check if it asks to inspect the screen/simulation
+      const isScreenQuery = /\b(?:screen|look|see|what's happening|explain this|view|cannon|barrel|trajectory|ammunition|ball|projectile)\b/i.test(trimmed);
+      const screenImg = isScreenQuery ? captureLive3dScreen() : null;
+
+      setQuestion(trimmed);
+      handleSend(trimmed, true, screenImg);
+      accumulatedTranscriptRef.current = '';
+    };
+
     const speechText = accumulatedTranscriptRef.current.trim();
 
     // Verify speech text has meaningful content (not just a single noise artifact)
@@ -378,9 +411,7 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
       const words = speechText.split(/\s+/);
       const isSingleFiller = words.length === 1 && ['uh', 'um', 'ah', 'oh', 'a', 'the'].includes(words[0].toLowerCase());
       if (!isSingleFiller) {
-        setQuestion(speechText);
-        handleSend(speechText, true);
-        accumulatedTranscriptRef.current = '';
+        processTranscribedSpeech(speechText);
         return;
       }
     }
@@ -412,9 +443,7 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
           const data = await res.json();
           if (data.transcript && data.transcript.trim()) {
             const finalTranscript = data.transcript.trim();
-            setQuestion(finalTranscript);
-            handleSend(finalTranscript, true);
-            accumulatedTranscriptRef.current = '';
+            processTranscribedSpeech(finalTranscript);
             setIsTranscribing(false);
             return;
           }
@@ -456,6 +485,9 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
         recognitionRef.current = null;
       }
 
+      // Claim microphone lock exclusively for the tutor modal
+      speechLock.acquire('modal');
+
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -465,6 +497,7 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
       recognition.onstart = () => {
         setIsRecording(true);
         setSpeechError(null);
+        speechLock.resetErrors();
       };
 
       // Native audio and speech onset events for instant barge-in
@@ -514,46 +547,40 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
         }
       };
 
-      // Error handler with restart loop resilience
+      // Error handler with clean termination (never loops or thrashes)
       recognition.onerror = (event: any) => {
         const err = event.error;
         console.warn('[Web Speech API] Recognition error encountered:', err);
 
         if (err === 'not-allowed' || err === 'service-not-allowed') {
           setSpeechError('Microphone permission blocked. Please allow microphone access in your browser settings.');
-          isManuallyStoppedRef.current = true;
-          setIsRecording(false);
-          cleanupMicStreams();
+          stopVoiceRecording(false);
         } else if (err === 'audio-capture') {
           setSpeechError('No microphone detected or audio capture is unavailable.');
-          isManuallyStoppedRef.current = true;
-          setIsRecording(false);
-          cleanupMicStreams();
+          stopVoiceRecording(false);
         } else if (err === 'no-speech') {
-          // Benign silence event: listener loop will continue in onend
-        } else if (err === 'aborted') {
-          // Triggered during barge-in reset or tab switch: listener loop handles restart if active
-        } else if (err === 'network') {
-          console.warn('[Web Speech API] Network transient issue. Retrying in listener loop...');
+          // If the user already spoke something, finalize and process it; otherwise stop cleanly
+          if (accumulatedTranscriptRef.current.trim().length > 1) {
+            stopVoiceRecording(true);
+          } else {
+            setSpeechError('No speech detected. Tap the mic and speak your doubt.');
+            stopVoiceRecording(false);
+          }
+        } else {
+          stopVoiceRecording(false);
         }
       };
 
-      // End event listener to restart listener loop seamlessly
+      // End event listener - strictly finalize or clean up without infinite auto-restart loops
       recognition.onend = () => {
         if (!isManuallyStoppedRef.current) {
-          if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-          restartTimerRef.current = setTimeout(() => {
-            if (!isManuallyStoppedRef.current) {
-              try {
-                recognition.start();
-              } catch (restartErr: any) {
-                // If the recognition instance is in an unrecoverable state, re-instantiate cleanly
-                if (restartErr.name !== 'InvalidStateError') {
-                  bindSpeechRecognitionInstance();
-                }
-              }
-            }
-          }, 60);
+          if (accumulatedTranscriptRef.current.trim().length > 1) {
+            stopVoiceRecording(true);
+          } else {
+            stopVoiceRecording(false);
+          }
+        } else {
+          cleanupMicStreams();
         }
       };
 
@@ -561,6 +588,7 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
       recognition.start();
     } catch (recErr: any) {
       console.warn('[Web Speech API] Could not start SpeechRecognition instance:', recErr);
+      cleanupMicStreams();
     }
   };
 
@@ -729,6 +757,15 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
     ]);
   }, [initialGreeting]);
 
+  // Clean up all audio and recording resources on permanent unmount
+  useEffect(() => {
+    return () => {
+      handleBargeIn('modal_unmounted');
+      stopVoiceRecording(false);
+      cleanupMicStreams();
+    };
+  }, []);
+
   // Cleanup audio, recording & body scroll lock on unmount or close
   useEffect(() => {
     if (!isOpen) {
@@ -780,7 +817,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
     }
   }, [messages, loading, isOpen, tutorTab]);
 
-  // Play voice response for a message with Gemini Ursa Neural Podcast Voice
+  // Play voice response for a message with Neural Voice
   const playVoiceResponse = async (text: string, msgIndex: number) => {
     if (playingMessageIndex === msgIndex) {
       handleBargeIn('voice_play_toggle');
@@ -804,7 +841,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
           setPlayingMessageIndex(null);
           refreshCacheStats();
         },
-        { voice: 'Ursa', rate: voiceSpeed, pitch: 1.05 }
+        { voice: 'Aoede', rate: voiceSpeed, pitch: 1.05 }
       );
     } catch (err) {
       console.error('Error playing tutor voice:', err);
@@ -822,9 +859,22 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
     `What are the full specifications & features of this app?`,
   ];
 
-  const handleSend = async (customText?: string, wasVoiceInput = false) => {
+  // Trigger initial question when modal opened by wake-word or hands-free command
+  useEffect(() => {
+    if (isOpen && initialQuestion) {
+      handleSend(initialQuestion, true, initialScreenImage);
+      onClearInitialQuestion?.();
+    }
+  }, [isOpen, initialQuestion]);
+
+  const handleSend = async (customText?: string, wasVoiceInput = false, screenImage?: string | null) => {
     const textToSend = customText || question;
     if (!textToSend.trim() || loading) return;
+
+    // Determine visual inspection: passed screenImage, manual snapshot, or keywords mentioning view/screen
+    const mentionsVision = /\b(?:screen|look|see|what's happening|explain this|view|cannon|barrel|trajectory|ammunition|ball|projectile|apparatus)\b/i.test(textToSend);
+    const activeScreenImage = screenImage !== undefined ? screenImage : (liveCapturedSnapshot || (mentionsVision ? captureLive3dScreen() : null));
+    setLiveCapturedSnapshot(null);
 
     // Barge-in: cut off any playing audio or stream immediately
     handleBargeIn('new_question');
@@ -847,13 +897,14 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
     setLoading(true);
 
     const shouldPlayVoice = wasVoiceInput || autoVoiceResponse;
+
     let streamPlayer: StreamAudioPlayer | null = null;
 
     if (shouldPlayVoice) {
       setPlayingMessageIndex(assistantMsgIndex);
       setIsGeneratingVoice(true);
       streamPlayer = new StreamAudioPlayer({
-        voice: 'Ursa',
+        voice: 'Aoede',
         rate: voiceSpeed,
         pitch: 1.05,
         onStart: () => {
@@ -885,6 +936,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
           question: textToSend,
           conceptTitle: currentConcept.title,
           currentParams,
+          screenImage: activeScreenImage,
           thinkingMode,
           enableWebSearch,
           isVoiceInput: wasVoiceInput,
@@ -939,7 +991,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                 if (parsed.fullText && !accumulatedText) {
                   accumulatedText = parsed.fullText;
                   if (streamPlayer) {
-                    streamPlayer.feed(parsed.fullText);
+                    streamPlayer.feed(accumulatedText);
                   }
                 }
               }
@@ -1035,27 +1087,86 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#0D0F18] border-0 sm:border-2 sm:border-cyan-500/30 rounded-none sm:rounded-2xl w-full max-w-4xl flex flex-col h-[100dvh] sm:h-[92vh] max-h-[100dvh] shadow-2xl overflow-hidden cursor-default text-zinc-200 select-text touch-auto relative"
+            className="bg-[#0B0D16] border-0 sm:border sm:border-cyan-500/40 rounded-none sm:rounded-2xl w-full max-w-4xl flex flex-col h-[100dvh] sm:h-[92vh] max-h-[100dvh] shadow-2xl overflow-hidden cursor-default text-zinc-200 select-text touch-auto relative anim-ai-quantum-glow ai-grid-pattern"
           >
+            {/* Holographic Top Laser Accent Line */}
+            <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent anim-ai-shimmer pointer-events-none z-30 opacity-90" />
+
             {/* Header: Title, Model Badge & Exit */}
-            <div className="p-3 sm:p-4 border-b border-white/[0.08] flex items-center justify-between bg-[#141522] gap-2 flex-wrap sm:flex-nowrap">
+            <div className="p-3 sm:p-4 border-b border-white/[0.08] flex items-center justify-between bg-[#121422]/95 backdrop-blur-md gap-2 flex-wrap sm:flex-nowrap relative z-10">
               <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-cyan-500/20 shrink-0">
-                  <Bot className="w-5 h-5" />
+                {/* Advanced Holographic Avatar with Rotating Gyro Ring */}
+                <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 group">
+                  <div className="absolute -inset-1 rounded-xl bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-600 opacity-70 blur-xs anim-ai-quantum-glow" />
+                  <div className="relative w-full h-full rounded-xl bg-gradient-to-tr from-cyan-600 via-indigo-600 to-purple-700 flex items-center justify-center border border-cyan-300/40 shadow-md shadow-cyan-500/30 overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent anim-ai-shimmer pointer-events-none" />
+                    <Bot className="w-5 h-5 text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]" />
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#121422] shadow-[0_0_6px_#34d399]" />
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 id="ai-tutor-title" className="text-sm sm:text-base font-bold text-white truncate">
-                      JEE Physics AI Tutor & Reasoning Engine
+                    <h3 id="ai-tutor-title" className="text-sm sm:text-base font-bold text-white truncate flex items-center gap-1.5">
+                      <span>AI Physics Tutor &amp; Doubt Solver</span>
                     </h3>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex items-center gap-1">
-                      <Zap className="w-3 h-3 text-cyan-400" />
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex items-center gap-1 shadow-[0_0_8px_rgba(6,182,212,0.2)]">
+                      <Zap className="w-3 h-3 text-cyan-400 animate-pulse" />
                       Gemini 3.7 Flash
                     </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 shadow-[0_0_8px_rgba(16,185,129,0.2)]">
+                      <Eye className="w-3 h-3 text-emerald-400 animate-pulse" />
+                      Live Vision &amp; Voice
+                    </span>
                   </div>
-                  <p className="text-[11px] sm:text-xs text-zinc-400 truncate">
-                    Active Apparatus: <span className="text-cyan-300 font-semibold">{currentConcept.title}</span> ({currentConcept.topic})
-                  </p>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                    <span className="text-[11px] sm:text-xs text-zinc-400">
+                      {currentView === 'home' ? 'Selected Topic:' : 'Active 3D Apparatus:'}
+                    </span>
+                    {onSelectConcept && allConcepts.length > 0 ? (
+                      <div className="relative inline-block">
+                        <button
+                          type="button"
+                          onClick={() => setIsConceptDropdownOpen(!isConceptDropdownOpen)}
+                          className="inline-flex items-center gap-1 text-[11px] sm:text-xs text-cyan-300 hover:text-cyan-200 font-semibold bg-white/[0.05] hover:bg-white/[0.1] px-2 py-0.5 rounded-lg border border-cyan-500/30 transition"
+                          title="Click to switch physics apparatus"
+                        >
+                          <span className="truncate max-w-[180px] sm:max-w-[260px]">{currentConcept.title}</span>
+                          <ChevronDown className={`w-3 h-3 transition-transform ${isConceptDropdownOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {isConceptDropdownOpen && (
+                          <div className="absolute left-0 top-full mt-1.5 w-64 max-h-60 overflow-y-auto bg-[#0d0f1a] border border-cyan-500/40 rounded-xl shadow-2xl p-1 z-50 divide-y divide-white/[0.06] backdrop-blur-xl">
+                            {allConcepts.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => {
+                                  onSelectConcept(c);
+                                  setIsConceptDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition flex flex-col gap-0.5 ${
+                                  c.id === currentConcept.id
+                                    ? 'bg-cyan-500/20 text-cyan-200 font-bold border border-cyan-500/30'
+                                    : 'text-zinc-300 hover:bg-white/[0.06] hover:text-white'
+                                }`}
+                              >
+                                <span className="font-semibold truncate">{c.title}</span>
+                                <span className="text-[10px] text-zinc-500">{c.topic}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-cyan-300 font-semibold text-[11px] sm:text-xs">
+                        {currentConcept.title} ({currentConcept.topic})
+                      </span>
+                    )}
+                    {currentView === 'home' && (
+                      <span className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.2 rounded font-mono">
+                        Home Hub Mode
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1065,7 +1176,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                 <AudioWaveformVisualizer
                   isPlaying={playingMessageIndex !== null}
                   isStreaming={loading && autoVoiceResponse}
-                  voiceName="Ursa"
+                  voiceName="Neural"
                   size="sm"
                   showLabel={true}
                   className="hidden md:inline-flex"
@@ -1159,19 +1270,19 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                   <button
                     onClick={() => {
                       unlockAudio();
-                      const sampleText = "Hey there! I'm your JEE Physics AI tutor powered by Ursa voice. Let's unpack the equations and conquer your doubts with deep intuitive clarity!";
+                      const sampleText = "Hey there! I'm your JEE Physics AI tutor. Let's unpack the equations and conquer your doubts with deep intuitive clarity!";
                       playTutorVoice(
                         sampleText,
                         () => setSpeechError(null),
                         () => {},
-                        { voice: 'Ursa', rate: voiceSpeed, pitch: 1.05 }
+                        { voice: 'Aoede', rate: voiceSpeed, pitch: 1.05 }
                       ).catch(() => {});
                     }}
                     className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 transition flex items-center gap-1"
-                    title="Test Gemini Ursa Voice for AI Tutor"
+                    title="Test Neural Voice for AI Tutor"
                   >
                     <Volume2 className="w-3 h-3 text-cyan-400" />
-                    <span>Test Ursa</span>
+                    <span>Test Voice</span>
                   </button>
 
                   {/* 5. Voice Cache Management Button */}
@@ -1266,6 +1377,42 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
               </div>
             )}
 
+            {/* Quick Physics Exploration Prompts */}
+            {tutorTab === 'chat' && (
+              <div className="px-3.5 sm:px-4 py-1.5 bg-[#080910] border-b border-white/[0.04] flex items-center gap-2 overflow-x-auto no-scrollbar">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 shrink-0 flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-cyan-400 animate-pulse" />
+                  Quick Doubts:
+                </span>
+                {(currentConcept.jeeMain.commonPatterns?.length
+                  ? [
+                      `Derive core equations for ${currentConcept.title}`,
+                      ...currentConcept.jeeMain.commonPatterns.slice(0, 3),
+                      `What's the #1 trap in ${currentConcept.title}?`,
+                      `Inspect active 3D parameters and verify state`,
+                    ]
+                  : [
+                      `Derive ${currentConcept.formulas[0]?.name || currentConcept.title}`,
+                      `Explain physical intuition of ${currentConcept.title}`,
+                      `High-yield shortcuts for JEE Advanced`,
+                      `Inspect active 3D parameters and verify state`,
+                    ]
+                ).map((cmd, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      handleBargeIn('cmd_chip_clicked');
+                      handleSend(cmd, false);
+                    }}
+                    disabled={loading}
+                    className="px-2.5 py-0.8 rounded-lg text-[10.5px] font-medium bg-cyan-950/40 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-100 border border-cyan-500/30 hover:border-cyan-400/60 whitespace-nowrap transition shrink-0 min-h-[26px] touch-manipulation flex items-center gap-1 shadow-xs hover:shadow-[0_0_10px_rgba(6,182,212,0.25)]"
+                  >
+                    <span>💡 {cmd}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Main Content Area */}
             {tutorTab === 'chat' && (
               <div className="flex-1 p-3.5 sm:p-4 overflow-y-auto space-y-4 bg-[#090A0E] pb-6 sm:pb-8">
@@ -1305,7 +1452,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                               {isPlayingThis && (
                                 <AudioWaveformVisualizer
                                   isPlaying={true}
-                                  voiceName="Ursa"
+                                  voiceName="Neural"
                                   size="sm"
                                   showLabel={false}
                                   className="py-0.5 px-2 bg-amber-500/10 border-amber-500/30"
@@ -1392,15 +1539,35 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                   );
                 })}
 
-                {/* Loading state with Thinking Mode indicator */}
+                {/* Loading state with Thinking Mode indicator & Holographic Synchrotron animation */}
                 {loading && (
-                  <div className="flex items-center gap-3 text-xs text-cyan-300 bg-[#121322] p-3.5 rounded-2xl w-fit border border-cyan-500/30 shadow-lg animate-pulse">
-                    <Zap className="w-4 h-4 animate-spin text-cyan-400" />
-                    <span>
-                      {thinkingMode
-                        ? '🧠 Engaging Deep Thinking Mode & JEE Advanced derivation...'
-                        : 'Querying Gemini Physics Model...'}
-                    </span>
+                  <div className="relative overflow-hidden flex items-center gap-3.5 text-xs text-cyan-200 bg-gradient-to-r from-[#0C1022] via-[#0F1530] to-[#0A0E1E] p-3.5 sm:p-4 rounded-2xl w-fit max-w-[95%] border border-cyan-400/40 shadow-[0_0_25px_rgba(6,182,212,0.25)] anim-ai-quantum-glow">
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/15 to-transparent anim-ai-shimmer pointer-events-none" />
+                    
+                    {/* Multi-orbiting particle gyro */}
+                    <div className="relative w-7 h-7 flex items-center justify-center shrink-0">
+                      <div className="absolute inset-0 rounded-full border border-cyan-400/50 border-dashed animate-spin-slow" />
+                      <div className="absolute inset-1 rounded-full border border-purple-400/50 anim-quantum-spin-ccw" />
+                      <Zap className="w-4 h-4 text-cyan-300 drop-shadow-[0_0_6px_#22d3ee] animate-pulse" />
+                    </div>
+
+                    <div className="flex flex-col gap-0.5 relative z-10">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-white tracking-wide">
+                          {thinkingMode ? 'Deep Thinking & Mathematical Derivation' : 'Synthesizing Physics Explanation'}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping delay-100" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping delay-200" />
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-cyan-300/80">
+                        {thinkingMode
+                          ? 'Formulating multi-step calculus, KaTeX equations, and intuitive breakdown...'
+                          : 'Querying Gemini neural physics models with live context...'}
+                      </span>
+                    </div>
                   </div>
                 )}
                 <div ref={chatBottomRef} className="h-4 sm:h-6 shrink-0" />
@@ -1569,7 +1736,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                 <div className="flex items-center gap-2 min-w-0">
                   <AudioWaveformVisualizer
                     isPlaying={true}
-                    voiceName="Ursa"
+                    voiceName="Neural"
                     size="sm"
                     showLabel={false}
                     className="py-0.5 px-2 bg-amber-900/40 border-amber-500/40 shrink-0"
@@ -1577,7 +1744,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                   <div className="flex flex-col min-w-0">
                     <span className="font-semibold text-zinc-200 flex items-center gap-1.5 truncate">
                       <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                      Tutor speaking • <span className="text-amber-300 font-bold">Ursa Voice</span>
+                      Tutor speaking • <span className="text-amber-300 font-bold">AI Voice</span>
                     </span>
                     <span className="text-[10px] text-zinc-400 hidden sm:inline">
                       Speak, type, or tap Interrupt at any point
@@ -1617,7 +1784,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-zinc-400">
                   <span className="text-emerald-400 font-medium hidden sm:inline">● Instant Barge-in Active</span>
-                  <span>Voice: <span className="text-cyan-300 font-semibold">Gemini Ursa</span></span>
+                  <span>Voice: <span className="text-cyan-300 font-semibold">Neural Audio</span></span>
                 </div>
               </div>
 
@@ -1661,14 +1828,62 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                   </span>
                 </button>
 
+                {/* Inspect Live 3D Screen Button (Vision) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const snap = captureLive3dScreen();
+                    setLiveCapturedSnapshot(snap);
+                    if (!question.trim()) {
+                      setQuestion('Please inspect my live 3D screen, apparatus, and parameters, and explain the current physics state.');
+                    }
+                  }}
+                  disabled={loading || isRecording}
+                  className={`p-2.5 sm:px-3 sm:py-2.5 rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 min-h-[44px] min-w-[44px] justify-center touch-manipulation active:scale-95 border ${
+                    liveCapturedSnapshot
+                      ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow-md shadow-cyan-500/30 font-black'
+                      : 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-500/40'
+                  }`}
+                  title="Inspect Live 3D Screen & Apparatus"
+                  aria-label="Inspect Live 3D Screen"
+                >
+                  <Camera className={`w-4 h-4 ${liveCapturedSnapshot ? 'text-slate-950' : 'text-cyan-400'}`} />
+                  <span className="text-xs hidden md:inline">
+                    {liveCapturedSnapshot ? 'Screen Attached' : 'Inspect Screen'}
+                  </span>
+                </button>
+
                 {/* Text Input with auto-scroll on focus & typing barge-in */}
                 <div className="relative flex-1 flex items-center min-w-0">
+                  {liveCapturedSnapshot && (
+                    <div className="absolute left-2 z-10 flex items-center gap-1.5 bg-gradient-to-r from-cyan-950 to-indigo-950 border border-cyan-400/60 rounded-lg pl-1.5 pr-2 py-1 text-[10px] text-cyan-200 shadow-md overflow-hidden group">
+                      {/* Animated laser scan bar */}
+                      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-cyan-400/30 to-transparent anim-ai-laser-scan pointer-events-none" />
+                      <div className="relative w-4 h-4 rounded overflow-hidden border border-cyan-400/40 shrink-0">
+                        <img src={liveCapturedSnapshot} alt="Snapshot" className="w-full h-full object-cover" />
+                      </div>
+                      <span className="font-bold text-cyan-100 flex items-center gap-1">
+                        <Eye className="w-3 h-3 text-cyan-400 animate-pulse" />
+                        3D Screen Attached
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setLiveCapturedSnapshot(null)}
+                        className="ml-1 text-cyan-400 hover:text-white p-0.5 rounded hover:bg-cyan-500/20 transition"
+                        title="Remove snapshot"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
                   <input
                     ref={inputRef}
                     type="text"
                     placeholder={
                       isRecording
                         ? '🎙️ Listening to your microphone...'
+                        : liveCapturedSnapshot
+                        ? '       Ask anything about this 3D screen...'
                         : '💬 Tap here to type your physics doubt or question...'
                     }
                     value={question}
@@ -1692,7 +1907,9 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                       }
                     }}
                     disabled={loading || isRecording || isTranscribing}
-                    className="w-full pl-3.5 pr-9 py-2.5 sm:py-3 bg-[#07080E] border-2 border-cyan-500/40 rounded-xl text-xs sm:text-sm text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-cyan-300 focus:ring-2 focus:ring-cyan-500/40 transition min-h-[46px] font-medium"
+                    className={`w-full ${
+                      liveCapturedSnapshot ? 'pl-48 sm:pl-52' : 'pl-3.5'
+                    } pr-9 py-2.5 sm:py-3 bg-[#07080E] border-2 border-cyan-500/40 focus:border-cyan-300 rounded-xl text-xs sm:text-sm text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 shadow-inner transition min-h-[46px] font-medium`}
                     autoComplete="off"
                   />
                   {question.length > 0 && !loading && (
@@ -1710,15 +1927,16 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                   )}
                 </div>
 
-                {/* Send Button */}
+                {/* Send Button with Shimmer Sweep */}
                 <button
                   onClick={() => handleSend()}
                   disabled={loading || !question.trim() || isRecording || isTranscribing}
-                  className="px-3.5 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 disabled:opacity-40 text-slate-950 font-black transition shadow-lg shadow-cyan-600/30 flex items-center gap-1.5 shrink-0 min-h-[46px] touch-manipulation active:scale-95"
+                  className="relative overflow-hidden px-3.5 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-400 via-sky-400 to-indigo-500 hover:from-cyan-300 hover:to-indigo-400 disabled:opacity-40 text-slate-950 font-black transition shadow-lg shadow-cyan-500/30 flex items-center gap-1.5 shrink-0 min-h-[46px] touch-manipulation active:scale-95 group"
                   title="Send Question to AI Tutor"
                 >
-                  <Send className="w-4 h-4 fill-current" />
-                  <span className="text-xs hidden sm:inline font-bold">Ask AI</span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent anim-ai-shimmer pointer-events-none" />
+                  <Send className="w-4 h-4 fill-current relative z-10" />
+                  <span className="text-xs hidden sm:inline font-bold relative z-10">Ask AI</span>
                 </button>
               </div>
             </div>
@@ -1768,7 +1986,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                     <AudioWaveformVisualizer
                       isPlaying={playingMessageIndex !== null}
                       isStreaming={loading}
-                      voiceName="Ursa"
+                      voiceName="Neural"
                       size="sm"
                     />
                   </div>
@@ -1817,7 +2035,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                           sampleText,
                           () => refreshCacheStats(),
                           () => refreshCacheStats(),
-                          { voice: 'Ursa', rate: voiceSpeed, pitch: 1.05 }
+                          { voice: 'Aoede', rate: voiceSpeed, pitch: 1.05 }
                         ).catch(() => {});
                       }}
                       className="flex-1 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-cyan-500/20"
@@ -1846,6 +2064,39 @@ function generateFallbackResponse(
   const isGeneralInfo = /founder|founded|who made|who built|creator|aim|motto|specification|features|about this app|overview/i.test(query);
   const isDerivation = /derive|derivation|calculus|proof|step/i.test(query);
   const isShortcut = /shortcut|trick|trap|mistake/i.test(query);
+  const isScreenQuery = /screen|look|see|what's happening|view|cannon|barrel|trajectory|ammunition|ball|projectile|apparatus/i.test(query);
+
+  if (isScreenQuery) {
+    const paramEntries = Object.entries(params);
+    const paramBullets = paramEntries.length > 0
+      ? paramEntries
+          .map(([k, v]) => {
+            const paramDef = concept.parameters?.find((p) => p.id === k);
+            const label = paramDef?.label || k;
+            const unit = paramDef?.unit ? `\\text{ ${paramDef.unit}}` : '';
+            return `- **${label}**: \`${k} = ${v}\` $${unit}$`;
+          })
+          .join('\n')
+      : `- **State**: Default calibrated simulation parameters loaded.`;
+
+    const primaryFormula = concept.formulas[0]
+      ? `$$${concept.formulas[0].latex}$$\n*(${concept.formulas[0].name}: ${concept.formulas[0].explanation})*`
+      : '';
+
+    return `### 🔭 Live 3D Screen Inspection:
+I'm inspecting your live 3D physics viewport for **${concept.title}** (${concept.topic})!
+
+- **Active Apparatus Setup**:
+${paramBullets}
+
+- **Governing Equations in Motion**:
+${primaryFormula}
+
+- **Physical Vector Fields & Trajectory**:
+${concept.description}
+
+> **Live Inspection Insight:** Every change you make to parameter sliders is continuously re-rendered on the GPU canvas with precise vector forces and kinematics equations!`;
+  }
 
   if (isGeneralInfo) {
     return `### Hey buddy! Here's everything about our Lab:

@@ -227,4 +227,241 @@ canvas {
   animation: synapse-pulse 3s infinite ease-in-out;
 }
 
+/* ==========================================================================
+   Quantum Physics 3D Gyroscopic Loading Screen Animations
+   Mathematically Authentic, GPU Accelerated with preserve-3d
+   ========================================================================== */
+
+@keyframes quantum-orbit-cw {
+  from { transform: rotateZ(0deg); }
+  to { transform: rotateZ(360deg); }
+}
+
+@keyframes quantum-orbit-ccw {
+  from { transform: rotateZ(0deg); }
+  to { transform: rotateZ(-360deg); }
+}
+
+@keyframes quantum-wave-radiate {
+  0% { transform: scale(0.65); opacity: 0.85; }
+  50% { opacity: 0.4; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+@keyframes quantum-radar-sweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes quantum-quark-rot {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes quantum-core-pulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 16px rgba(0, 240, 255, 0.7)); }
+  50% { transform: scale(1.18); filter: drop-shadow(0 0 28px rgba(0, 240, 255, 0.95)) drop-shadow(0 0 40px rgba(16, 185, 129, 0.6)); }
+}
+
+@keyframes quantum-dipole-flux {
+  0%, 100% { opacity: 0.25; transform: scaleY(1); }
+  50% { opacity: 0.65; transform: scaleY(1.06); filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.5)); }
+}
+
+@keyframes quantum-particle-glow {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 8px currentColor); }
+  50% { transform: scale(1.22); filter: drop-shadow(0 0 16px currentColor) drop-shadow(0 0 24px currentColor); }
+}
+
+.anim-quantum-spin-cw {
+  animation: quantum-orbit-cw var(--spin-dur, 4s) linear infinite;
+  will-change: transform;
+}
+
+.anim-quantum-spin-ccw {
+  animation: quantum-orbit-ccw var(--spin-dur, 4s) linear infinite;
+  will-change: transform;
+}
+
+.anim-quantum-wave {
+  animation: quantum-wave-radiate var(--wave-dur, 2.5s) cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.anim-quantum-radar {
+  animation: quantum-radar-sweep 8s linear infinite;
+  will-change: transform;
+}
+
+.anim-quantum-quark {
+  animation: quantum-quark-rot 2.2s linear infinite;
+  will-change: transform;
+}
+
+.anim-quantum-pulse {
+  animation: quantum-core-pulse 2s infinite ease-in-out;
+  will-change: transform, filter;
+}
+
+.anim-quantum-flux {
+  animation: quantum-dipole-flux 3.5s infinite ease-in-out;
+  will-change: transform, opacity;
+}
+
+/* ==========================================================================
+   Advanced AI Physics Tutor Keyframes & Holographic Animations
+   ========================================================================== */
+
+/* Holographic Rotating Conic Border */
+@keyframes ai-hologram-rotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Laser Scan Sweep for Screen Vision Inspection */
+@keyframes ai-laser-scan {
+  0% { transform: translateY(-100%); opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translateY(350%); opacity: 0; }
+}
+
+/* Quantum Holographic Matrix Pulse */
+@keyframes ai-quantum-glow {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(6, 182, 212, 0.25), 0 0 50px rgba(99, 102, 241, 0.15), inset 0 0 15px rgba(6, 182, 212, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 45px rgba(6, 182, 212, 0.45), 0 0 85px rgba(168, 85, 247, 0.25), inset 0 0 25px rgba(6, 182, 212, 0.15);
+  }
+}
+
+/* Diagonal Shimmer Sweep */
+@keyframes ai-shimmer-sweep {
+  0% { transform: translateX(-150%) skewX(-25deg); }
+  100% { transform: translateX(250%) skewX(-25deg); }
+}
+
+/* Orbital Spark Rotation */
+@keyframes ai-orbit-spark {
+  0% { transform: rotate(0deg) translateX(32px) rotate(0deg); }
+  100% { transform: rotate(360deg) translateX(32px) rotate(-360deg); }
+}
+
+@keyframes ai-orbit-spark-reverse {
+  0% { transform: rotate(360deg) translateX(26px) rotate(-360deg); }
+  100% { transform: rotate(0deg) translateX(26px) rotate(0deg); }
+}
+
+/* Neon Pulse Breathing */
+@keyframes ai-neon-pulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 6px rgba(6, 182, 212, 0.7)) drop-shadow(0 0 14px rgba(59, 130, 246, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(6, 182, 212, 0.95)) drop-shadow(0 0 24px rgba(168, 85, 247, 0.6));
+  }
+}
+
+/* Cyber Equalizer Wave Animation */
+@keyframes ai-wave-bar {
+  0%, 100% { height: 25%; }
+  50% { height: 95%; }
+}
+
+/* Utility Animation Classes */
+.anim-ai-hologram-border {
+  animation: ai-hologram-rotate 6s linear infinite;
+  will-change: transform;
+}
+
+.anim-ai-laser-scan {
+  animation: ai-laser-scan 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.anim-ai-quantum-glow {
+  animation: ai-quantum-glow 3.5s ease-in-out infinite;
+}
+
+.anim-ai-shimmer {
+  animation: ai-shimmer-sweep 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform;
+}
+
+.anim-ai-orbit-1 {
+  animation: ai-orbit-spark 4s linear infinite;
+  will-change: transform;
+}
+
+.anim-ai-orbit-2 {
+  animation: ai-orbit-spark-reverse 3s linear infinite;
+  will-change: transform;
+}
+
+.anim-ai-neon-pulse {
+  animation: ai-neon-pulse 2.2s ease-in-out infinite;
+}
+
+/* Analytics Graph Animations */
+@keyframes graph-oscilloscope-scan {
+  0% { transform: translateX(-100%); opacity: 0; }
+  25% { opacity: 0.8; }
+  75% { opacity: 0.8; }
+  100% { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes graph-glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.2), inset 0 0 15px rgba(6, 182, 212, 0.05);
+    border-color: rgba(6, 182, 212, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(6, 182, 212, 0.4), inset 0 0 25px rgba(6, 182, 212, 0.1);
+    border-color: rgba(6, 182, 212, 0.6);
+  }
+}
+
+@keyframes graph-grid-breathe {
+  0%, 100% { opacity: 0.08; }
+  50% { opacity: 0.18; }
+}
+
+@keyframes radar-sweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.anim-graph-oscilloscope {
+  animation: graph-oscilloscope-scan 3.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.anim-graph-glow {
+  animation: graph-glow-pulse 4s ease-in-out infinite;
+}
+
+.anim-graph-grid-breathe {
+  animation: graph-grid-breathe 5s ease-in-out infinite;
+}
+
+.anim-radar-sweep {
+  animation: radar-sweep 8s linear infinite;
+  transform-origin: center center;
+}
+
+.ai-grid-pattern {
+  background-image: linear-gradient(to right, rgba(6, 182, 212, 0.05) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(6, 182, 212, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.cyber-graph-grid {
+  background-size: 30px 30px;
+  background-image:
+    linear-gradient(to right, rgba(6, 182, 212, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(6, 182, 212, 0.07) 1px, transparent 1px);
+}
+
+
 

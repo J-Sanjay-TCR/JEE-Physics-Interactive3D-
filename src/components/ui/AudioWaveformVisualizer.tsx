@@ -19,7 +19,7 @@ export const AudioWaveformVisualizer: React.FC<AudioWaveformVisualizerProps> = (
   isListening = false,
   isStreaming = false,
   audioLevel = 0,
-  voiceName = 'Ursa',
+  voiceName = 'Neural',
   size = 'md',
   showLabel = true,
   onTogglePlay,

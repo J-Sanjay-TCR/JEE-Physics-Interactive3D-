@@ -569,65 +569,66 @@ export class SimulationRenderer {
       roughness: 0.3,
     });
     const basePlate = new THREE.Mesh(basePlateGeo, darkMetalMat);
-    basePlate.position.y = 0.2;
+    basePlate.position.y = -0.2;
     launcherGroup.add(basePlate);
 
     // Carriage side cheeks
-    const cheekGeo = new THREE.BoxGeometry(0.4, 1.8, 1.6);
+    const cheekGeo = new THREE.BoxGeometry(0.4, 0.8, 1.4);
     const carriageMat = new THREE.MeshStandardMaterial({
       color: isDark ? 0x475569 : 0x64748b,
       metalness: 0.8,
       roughness: 0.3,
     });
     const cheekL = new THREE.Mesh(cheekGeo, carriageMat);
-    cheekL.position.set(0, 1.0, 0.8);
+    cheekL.position.set(0, -0.15, 0.75);
     launcherGroup.add(cheekL);
 
     const cheekR = new THREE.Mesh(cheekGeo, carriageMat);
-    cheekR.position.set(0, 1.0, -0.8);
+    cheekR.position.set(0, -0.15, -0.75);
     launcherGroup.add(cheekR);
 
-    // Elevation Trunnion Pivot
-    const trunnionGeo = new THREE.CylinderGeometry(0.25, 0.25, 2.0, 24);
+    // Elevation Trunnion Pivot - perfectly centered at launch origin y=0
+    const trunnionGeo = new THREE.CylinderGeometry(0.22, 0.22, 1.8, 24);
     const brassMat = new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.85, roughness: 0.2 });
     const trunnion = new THREE.Mesh(trunnionGeo, brassMat);
     trunnion.rotation.x = Math.PI / 2;
-    trunnion.position.y = 1.5;
+    trunnion.position.y = 0;
     launcherGroup.add(trunnion);
 
     // Elevation Protractor Angle Dial
     const dialGeo = new THREE.RingGeometry(0.5, 0.75, 32, 1, 0, Math.PI / 2);
     const dialMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide });
     const dial = new THREE.Mesh(dialGeo, dialMat);
-    dial.position.set(0, 1.5, 1.02);
+    dial.position.set(0, 0, 0.95);
     launcherGroup.add(dial);
 
     // Cannon Barrel with Recoil Jacket & Muzzle Brake
     const cannon = new THREE.Group();
     cannon.name = 'cannon-barrel';
-    cannon.position.y = 1.5;
+    cannon.position.y = 0;
 
-    // Main rifled tube
-    const barrelGeo = new THREE.CylinderGeometry(0.32, 0.48, 3.8, 32);
+    // Main rifled tube - hollow open-ended cylinder with double-sided steel
+    const barrelGeo = new THREE.CylinderGeometry(0.32, 0.46, 2.8, 32, 1, true);
     const steelMat = new THREE.MeshStandardMaterial({
       color: isDark ? 0x64748b : 0x475569,
       metalness: 0.9,
       roughness: 0.2,
+      side: THREE.DoubleSide,
     });
     const barrelMesh = new THREE.Mesh(barrelGeo, steelMat);
-    barrelMesh.position.y = 1.9;
+    barrelMesh.position.y = 1.4;
     cannon.add(barrelMesh);
 
     // Recoil hydraulic buffer sleeve
-    const recoilSleeveGeo = new THREE.CylinderGeometry(0.52, 0.54, 1.6, 28);
+    const recoilSleeveGeo = new THREE.CylinderGeometry(0.48, 0.50, 1.2, 28);
     const recoilSleeve = new THREE.Mesh(recoilSleeveGeo, darkMetalMat);
-    recoilSleeve.position.y = 1.0;
+    recoilSleeve.position.y = 0.7;
     cannon.add(recoilSleeve);
 
     // Muzzle Brake with gas expansion ports
-    const muzzleBrakeGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.6, 24);
+    const muzzleBrakeGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.45, 24, 1, true);
     const muzzleBrake = new THREE.Mesh(muzzleBrakeGeo, brassMat);
-    muzzleBrake.position.y = 3.8;
+    muzzleBrake.position.y = 2.8;
     cannon.add(muzzleBrake);
 
     // Muzzle Flash Shockwave Burst Mesh
@@ -639,7 +640,7 @@ export class SimulationRenderer {
     });
     const muzzleFlash = new THREE.Mesh(flashGeo, flashMat);
     muzzleFlash.name = 'cannon-muzzle-flash';
-    muzzleFlash.position.y = 4.2;
+    muzzleFlash.position.y = 3.1;
     cannon.add(muzzleFlash);
 
     launcherGroup.add(cannon);
@@ -1516,7 +1517,7 @@ export class SimulationRenderer {
       if (ctx.showTrajectory && dragCoeff > 0.001) {
         const v0x = u * Math.cos(rad);
         const v0y = u * Math.sin(rad);
-        const y0 = h0 + (launchMode === 1 ? 1.5 : 0);
+        const y0 = h0;
         const A_quad = 0.5 * g;
         const B_quad = -(v0y - v0x * Math.tan(alpha));
         const C_quad = -y0;
@@ -1642,7 +1643,7 @@ export class SimulationRenderer {
         const p = tInCycle / recoilDuration;
         recoil = Math.sin(p * Math.PI) * 0.45;
       }
-      barrel.position.set(-Math.cos(rad) * recoil, 1.5 - Math.sin(rad) * recoil, 0);
+      barrel.position.set(-Math.cos(rad) * recoil, -Math.sin(rad) * recoil, 0);
 
       if (muzzleFlash) {
         if (tInCycle < 0.12) {
@@ -1752,7 +1753,7 @@ export class SimulationRenderer {
 
         this.projectileRagdollSimulator.stepTo(tInCycle, {
           startX: 0,
-          startY: h0 + 1.5,
+          startY: h0,
           v0x,
           v0y,
           inclineAngleDeg: planeAngle,
@@ -1995,7 +1996,7 @@ export class SimulationRenderer {
         'launch-label',
         `Cannon Launch: u = ${u} m/s @ ${theta}° (h₀ = ${h0.toFixed(1)}m)`,
         '#38bdf8',
-        new THREE.Vector3(-Math.cos(rad) * 1.5, h0 + 2.4, 0),
+        new THREE.Vector3(-Math.cos(rad) * 1.5, h0 + 1.8, 0),
         ctx.showTrajectory && ctx.showLabels
       );
     }

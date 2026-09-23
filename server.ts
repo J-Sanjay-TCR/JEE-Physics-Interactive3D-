@@ -31,8 +31,10 @@ function getGenAI(): GoogleGenAI {
 const PRIMARY_FLASH_MODEL = 'gemini-2.5-flash';
 const SECONDARY_FLASH_MODEL = 'gemini-2.5-flash-lite';
 const TERTIARY_FLASH_MODEL = 'gemini-flash-latest';
-const ALL_FLASH_MODELS = [PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, TERTIARY_FLASH_MODEL];
+const ALL_FLASH_MODELS = [PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', TERTIARY_FLASH_MODEL];
 const TTS_MODEL = 'gemini-2.5-flash';
+const TTS_CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-tts-preview', 'gemini-flash-latest'];
+const TRANSCRIBE_MODELS = ['gemini-3.5-transcribe', PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, TERTIARY_FLASH_MODEL];
 
 /**
  * Helper to construct compliant model configurations per model specification
@@ -70,7 +72,7 @@ function buildModelConfig(
  * Robust helper to call Gemini API with automatic model cascade, quota-spill handling, and local fallback
  */
 async function generateContentWithResilience(
-  contents: string,
+  contents: string | any[],
   options: {
     systemInstruction?: string;
     temperature?: number;
@@ -79,10 +81,14 @@ async function generateContentWithResilience(
   },
   contextInfo: { conceptTitle?: string; currentParams?: any }
 ): Promise<{ text: string; modelUsed: string; isFallback: boolean; webSources?: any[]; searchQueries?: any[] }> {
+  const queryText = typeof contents === 'string'
+    ? contents
+    : (Array.isArray(contents) ? contents.find((c: any) => c.text)?.text || '' : '');
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return {
-      text: buildLocalPhysicsKnowledge(contents, contextInfo.conceptTitle, contextInfo.currentParams),
+      text: buildLocalPhysicsKnowledge(queryText, contextInfo.conceptTitle, contextInfo.currentParams),
       modelUsed: 'local-physics-engine',
       isFallback: true,
     };
@@ -137,7 +143,7 @@ async function generateContentWithResilience(
 
   // Graceful Local Domain Knowledge Engine Fallback (Guarantees zero-failure user experience with full KaTeX math)
   return {
-    text: buildLocalPhysicsKnowledge(contents, contextInfo.conceptTitle, contextInfo.currentParams),
+    text: buildLocalPhysicsKnowledge(queryText, contextInfo.conceptTitle, contextInfo.currentParams),
     modelUsed: 'local-physics-engine',
     isFallback: true,
   };
@@ -152,9 +158,24 @@ function buildLocalPhysicsKnowledge(
   currentParams?: any
 ): string {
   const isGeneralInfo = /founder|founded|who made|who built|creator|sanjay|aim|motto|specification|feature|overview|about this app/i.test(query);
+  const isScreenQuery = /screen|look|see|what's happening|view|apparatus|inspect|viewport/i.test(query);
   const isDerivation = /derive|derivation|calculus|proof|step|math/i.test(query);
   const isShortcut = /shortcut|trick|trap|mistake|exam tip/i.test(query);
   const isIntuition = /intuition|analogy|explain like|simple|real life|real world/i.test(query);
+
+  const title = conceptTitle || 'JEE Physics Concept';
+  const paramInfo = currentParams && Object.keys(currentParams).length > 0
+    ? Object.entries(currentParams).map(([k, v]) => `\`${k} = ${v}\``).join(', ')
+    : 'standard lab setup';
+
+  if (isScreenQuery) {
+    return `### 🔭 Live 3D Screen Inspection:
+I'm looking directly at your live 3D physics viewport for **${title}**!
+
+- **Apparatus State**: Active simulation parameters configured to ${paramInfo}.
+- **Real-Time Dynamics**: The interactive 3D rendering is calculating vector forces, kinematic trajectories, and real-time state equations continuously.
+- **Guidance**: Tweak the parameter sliders in the controls panel or launch the simulation to observe the physical laws unfolding dynamically!`;
+  }
 
   if (isGeneralInfo) {
     return `### Oh, wow—welcome to the Deep Dive on our 3D Physics Lab!
@@ -173,11 +194,6 @@ Let's unpack everything that makes this app so wild:
 3. **Publication-Grade Formula Sheets** (Downloadable vector PDFs with curated trap alerts and shortcuts).
 4. **AI Deep Dive Doubt Engine** (Instant podcast-style conversational explanations and spoken audio).`;
   }
-
-  const title = conceptTitle || 'JEE Physics Concept';
-  const paramInfo = currentParams && Object.keys(currentParams).length > 0
-    ? Object.entries(currentParams).map(([k, v]) => `\`${k} = ${v}\``).join(', ')
-    : 'default lab setup';
 
   if (isDerivation) {
     return `### Right, so let's unpack the math behind ${title}!
@@ -262,7 +278,7 @@ app.head(['/healthz', '/ping', '/api/health', '/_ah/health', '/ready', '/health'
   res.status(200).end();
 });
 
-// 2. Advanced AI Physics Tutor Doubt Solver (with Thinking Mode & Web Search Grounding)
+// 2. Advanced Ursa AI Physics Tutor & Hands-Free Vision Copilot
 app.post('/api/ai/ask-doubt', async (req, res) => {
   try {
     const {
@@ -273,20 +289,26 @@ app.post('/api/ai/ask-doubt', async (req, res) => {
       enableWebSearch = false,
       isVoiceInput = false,
       userName = '',
+      screenImage,
     } = req.body;
 
     if (!question || typeof question !== 'string' || !question.trim()) {
       return res.status(400).json({ error: 'Question or prompt is required' });
     }
 
-    // Specialized Casual English Female Tutor system prompt
-    let systemInstruction = `You are the brilliant, witty, and infectious female AI physics tutor, hosting a live breakdown for the 'JEE 3D Physics Lab'. ${userName ? `The student you are talking to is named ${userName}. Address them warmly by their name in your responses and personalize answers for them.` : ''}
+    // AI Tutor System Instruction
+    let systemInstruction = `You are the AI Physics Tutor, the brilliant, encouraging, and witty AI physics mentor hosting the conceptual and numerical breakdown for the 'JEE 3D Physics Lab'. ${userName ? `The student you are talking to is named ${userName}. Address them warmly by their name in your responses and personalize answers for them.` : ''}
+
+CORE IDENTITY & ROLE:
+- You are the **AI Physics Tutor**.
+- You explain complex physics principles with crystal-clear intuition, KaTeX equations, real-world analogies, and step-by-step mathematical derivations.
+- You have live visual perception into the student's 3D physics screen! When a screen snapshot is provided, look at what is rendered (the apparatus, angle, trajectory arc, particles, vectors, graphs, meters) and explain what is visibly happening in the lab.
 
 CORE PERSONALITY & LANGUAGE DIRECTIVES:
 1. CASUAL, INTUITIVE ENGLISH DELIVERY:
    - You MUST speak entirely in English.
-   - Use a very friendly, encouraging, and energetic tone, like a helpful podcast host.
-   - Use natural conversational hooks and slang naturally throughout your explanations:
+   - Use a very friendly, encouraging, and energetic tone, like an expert podcast host.
+   - Use natural conversational hooks naturally throughout your explanations:
      - "Oh wow, let's unpack this!"
      - "Right, so here's the thing..."
      - "Make sense? Picture this for a second..."
@@ -298,9 +320,9 @@ CORE PERSONALITY & LANGUAGE DIRECTIVES:
      - "Pro-tip for exams, keep this in mind:"
 2. ANSWER EXACTLY WHAT WAS ASKED:
    - Jump straight into addressing the student's exact doubt from your very first sentence with high energy.
-   - No unnecessary generic disclaimers or boring textbook preambles.
+   - If looking at their live screen, reference the specific apparatus state, angle, trajectory, or vectors you see.
 3. RELATABLE REAL-WORLD ANALOGIES:
-   - Ground abstract concepts into intuitive everyday mental models (e.g. tossing a ball on a moving bus, spinning on an office chair, drifting a bike, water rushing through garden hoses, smartphone charging circuits) before detailing the math.
+   - Ground abstract concepts into intuitive everyday mental models before detailing the math.
 4. RIGOROUS KaTeX MATH:
    - Provide crisp, beautifully structured equations ($...$ inline and $$...$$ centered).
 5. CONTEXT:
@@ -323,8 +345,26 @@ CORE PERSONALITY & LANGUAGE DIRECTIVES:
    - Keep sentences punchy, conversational, engaging, and easy to follow when spoken aloud.`;
     }
 
+    // Build multimodal contents payload if screen snapshot is attached
+    let contentsPayload: any = question;
+    if (screenImage && typeof screenImage === 'string' && screenImage.includes('base64,')) {
+      const mimeType = screenImage.substring(screenImage.indexOf(':') + 1, screenImage.indexOf(';')) || 'image/jpeg';
+      const base64Data = screenImage.split('base64,')[1];
+      contentsPayload = [
+        {
+          inlineData: {
+            mimeType,
+            data: base64Data,
+          },
+        },
+        {
+          text: `[LIVE SCREEN SNAPSHOT ATTACHED: Inspect what is visually rendered on the student's 3D physics lab screen right now, including apparatus, trajectory, ammunition, vectors, angles, graphs, and HUD metrics, and answer with direct visual reference to what you see]\n\nStudent Doubt/Command: ${question}`,
+        },
+      ];
+    }
+
     const result = await generateContentWithResilience(
-      question,
+      contentsPayload,
       {
         systemInstruction,
         thinkingMode,
@@ -362,7 +402,7 @@ CORE PERSONALITY & LANGUAGE DIRECTIVES:
   }
 });
 
-// 2b. High-performance Stream-based AI Tutor Question Answering (SSE)
+// 2b. High-performance Stream-based Ursa AI Tutor & Voice Copilot (SSE)
 app.post('/api/ai/ask-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -376,6 +416,7 @@ app.post('/api/ai/ask-stream', async (req, res) => {
     enableWebSearch = false,
     isVoiceInput = false,
     userName,
+    screenImage,
   } = req.body || {};
 
   if (!question || typeof question !== 'string' || !question.trim()) {
@@ -383,28 +424,24 @@ app.post('/api/ai/ask-stream', async (req, res) => {
     return res.end();
   }
 
-  // Specialized Casual English Female Tutor system prompt
-  let systemInstruction = `You are the brilliant, witty, and infectious female AI physics tutor, hosting a live breakdown for the 'JEE 3D Physics Lab'. ${userName ? `The student you are talking to is named ${userName}. Address them warmly by their name in your responses and personalize answers for them.` : ''}
+  // AI Tutor System Instruction
+  let systemInstruction = `You are the AI Physics Tutor, the brilliant, encouraging, and witty AI physics mentor hosting the conceptual and numerical breakdown for the 'JEE 3D Physics Lab'. ${userName ? `The student you are talking to is named ${userName}. Address them warmly by their name in your responses and personalize answers for them.` : ''}
+
+CORE IDENTITY & ROLE:
+- You are the **AI Physics Tutor**.
+- You explain complex physics principles with crystal-clear intuition, KaTeX equations, real-world analogies, and step-by-step mathematical derivations.
+- You have live visual perception into the student's 3D physics screen! When a screen snapshot is provided, look at what is rendered (the apparatus, angle, trajectory arc, particles, vectors, graphs, meters) and explain what is visibly happening in the lab.
 
 CORE PERSONALITY & LANGUAGE DIRECTIVES:
 1. CASUAL, INTUITIVE ENGLISH DELIVERY:
    - You MUST speak entirely in English.
-   - Use a very friendly, encouraging, and energetic tone, like a helpful podcast host.
-   - Use natural conversational hooks and slang naturally throughout your explanations:
-     - "Oh wow, let's unpack this!"
-     - "Right, so here's the thing..."
-     - "Make sense? Picture this for a second..."
-     - "Totally! And what's wild about this is..."
-     - "Boom! That's the secret sauce."
-     - "Mind = blown, right? Watch closely."
-     - "Let's be real, coaching classes make this sound way more complicated than it is."
-     - "Here's where everyone gets trapped in JEE:"
-     - "Pro-tip for exams, keep this in mind:"
+   - Use a very friendly, encouraging, and energetic tone, like an expert podcast host.
+   - Use natural conversational hooks naturally throughout your explanations.
 2. ANSWER EXACTLY WHAT WAS ASKED:
    - Jump straight into addressing the student's exact doubt from your very first sentence with high energy.
-   - No unnecessary generic disclaimers or boring textbook preambles.
+   - If looking at their live screen, reference the specific apparatus state, angle, trajectory, or vectors you see.
 3. RELATABLE REAL-WORLD ANALOGIES:
-   - Ground abstract concepts into intuitive everyday mental models (e.g. tossing a ball on a moving bus, spinning on an office chair, drifting a bike, water rushing through garden hoses, smartphone charging circuits) before detailing the math.
+   - Ground abstract concepts into intuitive everyday mental models before detailing the math.
 4. RIGOROUS KaTeX MATH:
    - Provide crisp, beautifully structured equations ($...$ inline and $$...$$ centered).
 5. CONTEXT:
@@ -418,13 +455,31 @@ CORE PERSONALITY & LANGUAGE DIRECTIVES:
     systemInstruction += `
 6. DEEP JEE ADVANCED REASONING:
    - Give the intuitive high-yield physical shortcut first, followed by clear calculus derivations.
-   - Analyze extreme boundary conditions (e.g. theta -> 0, infinity, zero friction) to build rock-solid confidence.`;
+   - Analyze extreme boundary conditions to build rock-solid confidence.`;
   }
 
   if (isVoiceInput) {
     systemInstruction += `
 7. SPOKEN PODCAST AUDIO DELIVERY:
    - Keep sentences punchy, conversational, engaging, and easy to follow when spoken aloud.`;
+  }
+
+  // Build multimodal contents payload if screen snapshot is attached
+  let contentsPayload: any = question;
+  if (screenImage && typeof screenImage === 'string' && screenImage.includes('base64,')) {
+    const mimeType = screenImage.substring(screenImage.indexOf(':') + 1, screenImage.indexOf(';')) || 'image/jpeg';
+    const base64Data = screenImage.split('base64,')[1];
+    contentsPayload = [
+      {
+        inlineData: {
+          mimeType,
+          data: base64Data,
+        },
+      },
+      {
+        text: `[LIVE SCREEN SNAPSHOT ATTACHED: Inspect what is visually rendered on the student's 3D physics lab screen right now, including apparatus, trajectory, ammunition, vectors, angles, graphs, and HUD metrics, and answer with direct visual reference to what you see]\n\nStudent Doubt/Command: ${question}`,
+      },
+    ];
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -458,7 +513,7 @@ CORE PERSONALITY & LANGUAGE DIRECTIVES:
 
         const responseStream = await ai.models.generateContentStream({
           model: currentModel,
-          contents: question,
+          contents: contentsPayload,
           config,
         });
 
@@ -890,7 +945,7 @@ const serverTtsCache = new Map<string, { audioBase64: string; mimeType: string; 
 
 app.post('/api/ai/tts', async (req, res) => {
   try {
-    const { text, voice = 'Ursa' } = req.body;
+    const { text, voice = 'Aoede' } = req.body;
     if (!text || typeof text !== 'string' || !text.trim()) {
       return res.status(400).json({ error: 'Text to speak is required' });
     }
@@ -906,10 +961,11 @@ app.post('/api/ai/tts', async (req, res) => {
       return res.status(400).json({ error: 'empty_text' });
     }
 
-    // Direct Gemini prebuilt voices: 'Ursa', 'Aoede', 'Kore', 'Puck', 'Fenrir', 'Zephyr', 'Charon'
+    // Direct Gemini prebuilt voices: 'Aoede', 'Kore', 'Puck', 'Fenrir', 'Zephyr', 'Charon'
+    const VALID_VOICES = ['Aoede', 'Kore', 'Puck', 'Fenrir', 'Zephyr', 'Charon'];
     let selectedVoice = voice;
-    if (!selectedVoice || selectedVoice.toLowerCase() === 'ursa') {
-      selectedVoice = 'Ursa';
+    if (!selectedVoice || !VALID_VOICES.includes(selectedVoice)) {
+      selectedVoice = 'Aoede';
     }
 
     const serverCacheKey = `${selectedVoice}:${spokenText.slice(0, 300)}`;
@@ -923,54 +979,63 @@ app.post('/api/ai/tts', async (req, res) => {
     // Cap spoken slice to avoid ultra-long generation delays while preserving full sentence clarity
     const promptText = spokenText.slice(0, 750);
 
-    const response = await ai.models.generateContent({
-      model: TTS_MODEL,
-      contents: [
-        {
-          parts: [
+    let lastError: any = null;
+    for (const modelToTry of TTS_CANDIDATE_MODELS) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelToTry,
+          contents: [
             {
-              text: promptText,
+              parts: [
+                {
+                  text: promptText,
+                },
+              ],
             },
           ],
-        },
-      ],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: selectedVoice,
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: selectedVoice,
+                },
+              },
             },
           },
-        },
-      },
-    });
+        });
 
-    const part = response.candidates?.[0]?.content?.parts?.[0];
-    const base64Audio = part?.inlineData?.data;
-    const mimeType = part?.inlineData?.mimeType || 'audio/pcm;rate=24000';
+        const part = response.candidates?.[0]?.content?.parts?.[0];
+        const base64Audio = part?.inlineData?.data;
+        const mimeType = part?.inlineData?.mimeType || 'audio/pcm;rate=24000';
 
-    if (base64Audio) {
-      const result = {
-        audioBase64: base64Audio,
-        mimeType: mimeType,
-        sampleRate: 24000,
-        voiceUsed: selectedVoice,
-      };
+        if (base64Audio) {
+          const result = {
+            audioBase64: base64Audio,
+            mimeType: mimeType,
+            sampleRate: 24000,
+            voiceUsed: selectedVoice,
+          };
 
-      if (serverTtsCache.size >= 250) {
-        const firstKey = serverTtsCache.keys().next().value;
-        if (firstKey) serverTtsCache.delete(firstKey);
+          if (serverTtsCache.size >= 250) {
+            const firstKey = serverTtsCache.keys().next().value;
+            if (firstKey) serverTtsCache.delete(firstKey);
+          }
+          serverTtsCache.set(serverCacheKey, result);
+
+          return res.json(result);
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[AI Tutor TTS] Attempt with model '${modelToTry}' failed (${err?.status || err?.message || 'unknown error'}). Trying next candidate...`);
       }
-      serverTtsCache.set(serverCacheKey, result);
-
-      return res.json(result);
     }
 
-    res.status(502).json({ error: 'no_audio_data', message: 'No audio returned from Gemini Ursa TTS' });
+    console.error('[AI Tutor TTS] Error generating voice:', lastError?.status || lastError?.message || lastError);
+    res.status(503).json({ error: 'quota_or_busy', message: 'Voice engine busy, please retry in a moment.' });
   } catch (error: any) {
-    console.error('[AI Tutor TTS] Error generating Ursa voice:', error?.status || error?.message || error);
-    res.status(503).json({ error: 'quota_or_busy', message: 'Ursa voice engine busy, please retry in a moment.' });
+    console.error('[AI Tutor TTS] Error generating voice:', error?.status || error?.message || error);
+    res.status(503).json({ error: 'quota_or_busy', message: 'Voice engine busy, please retry in a moment.' });
   }
 });
 
@@ -992,7 +1057,7 @@ app.post('/api/ai/transcribe', async (req, res) => {
     const cleanMime = (mimeType.split(';')[0] || 'audio/webm').trim();
 
     const ai = getGenAI();
-    const modelsToTry = [PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, TERTIARY_FLASH_MODEL];
+    const modelsToTry = TRANSCRIBE_MODELS;
 
     for (const model of modelsToTry) {
       try {
@@ -1164,11 +1229,19 @@ app.post('/api/pdf/preprocess-formula', (req, res) => {
 
 // 5. Vite middleware (development) or Static serving (production)
 async function startServer() {
-  const distPath = path.resolve(process.cwd(), 'dist');
+  const fallbackDir = typeof __dirname !== 'undefined' && fs.existsSync(path.join(__dirname, 'index.html'))
+    ? __dirname
+    : path.resolve(process.cwd(), 'dist');
+  const distPath = fs.existsSync(path.join(process.cwd(), 'dist', 'index.html'))
+    ? path.resolve(process.cwd(), 'dist')
+    : fallbackDir;
   const indexPath = path.join(distPath, 'index.html');
   const hasDist = fs.existsSync(indexPath);
 
-  if (process.env.NODE_ENV === 'production' || hasDist) {
+  const isCompiledBundle = typeof __filename !== 'undefined' && (__filename.endsWith('.cjs') || __filename.includes('dist'));
+  const isProduction = process.env.NODE_ENV === 'production' || isCompiledBundle || (hasDist && process.env.NODE_ENV !== 'development');
+
+  if (isProduction && hasDist) {
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       if (fs.existsSync(indexPath)) {
@@ -1196,52 +1269,55 @@ async function startServer() {
     }
   }
 
-  const isDev = process.env.NODE_ENV === 'development';
-  // In development, the AI Studio dev environment routes traffic to port 3000 via nginx.
-  // In production (Cloud Run), traffic is routed to process.env.PORT (typically 8080).
-  const primaryPort = isDev ? 3000 : (process.env.PORT ? parseInt(process.env.PORT, 10) : 8080);
-  const secondaryPort = primaryPort === 3000 ? (process.env.PORT ? parseInt(process.env.PORT, 10) : 8080) : 3000;
+  const DEV_PORT = 3000;
+  const CLOUD_RUN_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 0;
 
-  const server = app.listen(primaryPort, '0.0.0.0', () => {
-    console.log(`JEE 3D Physics Lab Server running on port ${primaryPort} with Gemini 3.7 Flash & TTS`);
+  // 1. Always bind to port 3000 on 0.0.0.0 (required for AI Studio reverse proxy)
+  const server = app.listen(DEV_PORT, '0.0.0.0', () => {
+    console.log(`JEE 3D Physics Lab Server running on port ${DEV_PORT}`);
   });
   server.on('error', (err: any) => {
-    console.warn(`Primary server notice on port ${primaryPort}:`, err.code || err.message);
+    console.warn(`Server notice on port ${DEV_PORT}:`, err.code || err.message);
   });
 
-  // Dual-port listening for seamless Cloud Run deployment rollout and health checks:
-  let secondaryServer: any = null;
-  if (secondaryPort !== primaryPort && !isNaN(secondaryPort)) {
+  // 2. In Cloud Run deployment, Cloud Run injects PORT (e.g. 8080) and sends probes & ingress there.
+  // Dual-bind to CLOUD_RUN_PORT so Cloud Run health checks succeed instantly.
+  let cloudRunServer: any = null;
+  if (CLOUD_RUN_PORT && CLOUD_RUN_PORT !== DEV_PORT) {
     try {
-      secondaryServer = app.listen(secondaryPort, '0.0.0.0', () => {
-        console.log(`JEE 3D Physics Lab also listening on secondary port ${secondaryPort} for deployment rollout`);
+      cloudRunServer = app.listen(CLOUD_RUN_PORT, '0.0.0.0', () => {
+        console.log(`Cloud Run ingress listening on port ${CLOUD_RUN_PORT}`);
       });
-      secondaryServer.on('error', (err: any) => {
-        // In local development sandbox where nginx already occupies port 8080, log notice and continue safely on primary port
-        console.log(`Notice: Secondary port ${secondaryPort} (${err.code || err.message}) - primary server active on port ${primaryPort}`);
+      cloudRunServer.on('error', (err: any) => {
+        // In local dev container where nginx is already listening on 8080, catch EADDRINUSE safely
+        if (err.code !== 'EADDRINUSE') {
+          console.warn(`Notice on Cloud Run port ${CLOUD_RUN_PORT}:`, err.code || err.message);
+        }
       });
-    } catch (err: any) {
-      console.log(`Notice: Could not bind secondary port ${secondaryPort}:`, err);
+    } catch (e) {
+      // Ignored
     }
   }
 
-  const closeServers = (signal: string) => {
-    console.log(`${signal} received: closing HTTP servers gracefully`);
+  const closeServer = (signal: string) => {
+    console.log(`${signal} received: closing HTTP server gracefully`);
     server.close(() => {
-      if (secondaryServer && secondaryServer.listening) {
-        secondaryServer.close(() => {
-          console.log('All HTTP servers closed');
-          process.exit(0);
-        });
+      if (cloudRunServer) {
+        cloudRunServer.close(() => process.exit(0));
       } else {
-        console.log('HTTP server closed');
         process.exit(0);
       }
     });
   };
 
-  process.on('SIGTERM', () => closeServers('SIGTERM'));
-  process.on('SIGINT', () => closeServers('SIGINT'));
+  process.on('SIGTERM', () => closeServer('SIGTERM'));
+  process.on('SIGINT', () => closeServer('SIGINT'));
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+  });
 }
 
 startServer();

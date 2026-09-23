@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { JeeMainInsight, JeeAdvancedInsight } from '../../types';
-import { Award, AlertTriangle, Zap, Layers, Flame, CheckCircle2 } from 'lucide-react';
+import { Award, AlertTriangle, Zap, Layers, Flame, CheckCircle2, LineChart, X } from 'lucide-react';
 import { Latex } from './Latex';
 import { TrendAnalysisChart } from './TrendAnalysisChart';
-import { LineChart } from 'lucide-react';
 
 interface JeeInsightsPanelProps {
   jeeMain: JeeMainInsight;
   jeeAdvanced: JeeAdvancedInsight;
   conceptTitle?: string;
   onOpenGlobalAnalytics?: () => void;
+  onClose?: () => void;
 }
 
 export const JeeInsightsPanel: React.FC<JeeInsightsPanelProps> = ({
@@ -18,54 +18,69 @@ export const JeeInsightsPanel: React.FC<JeeInsightsPanelProps> = ({
   jeeAdvanced,
   conceptTitle = 'Physics Concept',
   onOpenGlobalAnalytics,
+  onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<'main' | 'advanced' | 'trend'>('main');
 
   return (
     <div className="bg-[#111114]/90 backdrop-blur-md rounded-2xl p-5 border border-white/[0.08] shadow-xl flex flex-col gap-4">
       {/* Header Tabs */}
-      <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+      <div className="flex items-center justify-between pb-3 border-b border-white/[0.08] flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Award className="w-4 h-4 text-amber-400" />
           <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-            JEE Exam Strategy & Trap Alerts
+            JEE Exam Strategy &amp; Trap Alerts
           </span>
         </div>
 
-        <div className="flex items-center bg-[#0A0A0E] p-1 rounded-xl border border-white/[0.08]">
-          <button
-            onClick={() => setActiveTab('main')}
-            className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
-              activeTab === 'main'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Zap className="w-3 h-3 text-amber-300" />
-            JEE Main
-          </button>
-          <button
-            onClick={() => setActiveTab('advanced')}
-            className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
-              activeTab === 'advanced'
-                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Flame className="w-3 h-3 text-pink-300" />
-            JEE Advanced
-          </button>
-          <button
-            onClick={() => setActiveTab('trend')}
-            className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
-              activeTab === 'trend'
-                ? 'bg-emerald-600 text-white shadow-md'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <LineChart className="w-3 h-3 text-emerald-300" />
-            Trend
-          </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center bg-[#0A0A0E] p-1 rounded-xl border border-white/[0.08]">
+            <button
+              onClick={() => setActiveTab('main')}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+                activeTab === 'main'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Zap className="w-3 h-3 text-amber-300" />
+              JEE Main
+            </button>
+            <button
+              onClick={() => setActiveTab('advanced')}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+                activeTab === 'advanced'
+                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Flame className="w-3 h-3 text-pink-300" />
+              JEE Advanced
+            </button>
+            <button
+              onClick={() => setActiveTab('trend')}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+                activeTab === 'trend'
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <LineChart className="w-3 h-3 text-emerald-300" />
+              Trend
+            </button>
+          </div>
+
+          {onClose && (
+            <button
+              id="jee-insights-exit-btn"
+              onClick={onClose}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-zinc-300 hover:text-white bg-white/[0.06] hover:bg-red-500/20 border border-white/[0.1] hover:border-red-500/40 rounded-xl transition-all shadow-sm shrink-0 active:scale-95"
+              title="Exit JEE Panel & Return to Simulation Lab"
+            >
+              <X className="w-3.5 h-3.5 text-zinc-400 hover:text-red-400" />
+              <span className="hidden sm:inline">Exit to Lab</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -258,6 +273,22 @@ export const JeeInsightsPanel: React.FC<JeeInsightsPanelProps> = ({
         )}
 
       </AnimatePresence>
+
+      {onClose && (
+        <div className="pt-3 border-t border-white/[0.08] flex items-center justify-between">
+          <span className="text-xs text-zinc-400">
+            Reviewing concept insights for <strong className="text-zinc-200">{conceptTitle}</strong>
+          </span>
+          <button
+            id="jee-insights-bottom-exit-btn"
+            onClick={onClose}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.05] hover:bg-red-500/20 text-zinc-300 hover:text-white border border-white/[0.1] hover:border-red-500/40 text-xs font-semibold transition-all active:scale-95"
+          >
+            <X className="w-3.5 h-3.5 text-zinc-400" />
+            <span>Return to Interactive Simulation</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

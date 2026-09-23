@@ -692,7 +692,9 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       antialias: true,
       alpha: true,
       powerPreference: 'high-performance',
+      preserveDrawingBuffer: true,
     });
+    renderer.domElement.id = 'three-physics-webgl-canvas';
     renderer.setClearColor(
       envType === 'space' 
         ? 0x000000 
