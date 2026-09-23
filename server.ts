@@ -33,7 +33,8 @@ const SECONDARY_FLASH_MODEL = 'gemini-2.5-flash-lite';
 const TERTIARY_FLASH_MODEL = 'gemini-flash-latest';
 const ALL_FLASH_MODELS = [PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', TERTIARY_FLASH_MODEL];
 const TTS_MODEL = 'gemini-2.5-flash';
-const TTS_CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-tts-preview', 'gemini-flash-latest'];
+// Fastest, lowest latency TTS models first: gemini-2.5-flash-lite followed by gemini-2.5-flash
+const TTS_CANDIDATE_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
 const TRANSCRIBE_MODELS = ['gemini-3.5-transcribe', PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, TERTIARY_FLASH_MODEL];
 
 /**
@@ -405,8 +406,10 @@ CORE PERSONALITY & LANGUAGE DIRECTIVES:
 // 2b. High-performance Stream-based Ursa AI Tutor & Voice Copilot (SSE)
 app.post('/api/ai/ask-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
 
   const {
     question,
@@ -965,7 +968,7 @@ app.post('/api/ai/tts', async (req, res) => {
     const VALID_VOICES = ['Aoede', 'Kore', 'Puck', 'Fenrir', 'Zephyr', 'Charon'];
     let selectedVoice = voice;
     if (!selectedVoice || !VALID_VOICES.includes(selectedVoice)) {
-      selectedVoice = 'Aoede';
+      selectedVoice = 'Kore';
     }
 
     const serverCacheKey = `${selectedVoice}:${spokenText.slice(0, 300)}`;

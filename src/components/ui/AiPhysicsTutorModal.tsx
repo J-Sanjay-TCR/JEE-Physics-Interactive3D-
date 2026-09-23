@@ -97,6 +97,7 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
   const [liveCapturedSnapshot, setLiveCapturedSnapshot] = useState<string | null>(null);
 
   // Advanced Mode Switches
+  const [selectedVoiceName, setSelectedVoiceName] = useState<string>('Kore'); // Default to soothing Kore voice
   const [thinkingMode, setThinkingMode] = useState<boolean>(true); // Default ON for deep JEE Advanced reasoning
   const [enableWebSearch, setEnableWebSearch] = useState<boolean>(true); // Access external data from the web
   const [autoVoiceResponse, setAutoVoiceResponse] = useState<boolean>(true); // Auto-speak when voice asked
@@ -841,7 +842,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
           setPlayingMessageIndex(null);
           refreshCacheStats();
         },
-        { voice: 'Aoede', rate: voiceSpeed, pitch: 1.05 }
+        { voice: selectedVoiceName, rate: voiceSpeed, pitch: 1.05 }
       );
     } catch (err) {
       console.error('Error playing tutor voice:', err);
@@ -904,7 +905,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
       setPlayingMessageIndex(assistantMsgIndex);
       setIsGeneratingVoice(true);
       streamPlayer = new StreamAudioPlayer({
-        voice: 'Aoede',
+        voice: selectedVoiceName,
         rate: voiceSpeed,
         pitch: 1.05,
         onStart: () => {
@@ -1255,34 +1256,49 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                 </button>
 
                 {/* 4. Voice Speed & Tone Selector */}
-                <div className="hidden lg:flex items-center gap-1.5 pl-1 border-l border-white/[0.1]">
+                <div className="flex items-center gap-1.5 pl-1 border-l border-white/[0.1] flex-wrap">
+                  {/* 4. Voice Selection (Kore / Aoede / Puck) */}
                   <button
                     onClick={() => {
-                      const nextSpeed = voiceSpeed === 1.03 ? 1.15 : voiceSpeed === 1.15 ? 0.95 : 1.03;
-                      setVoiceSpeed(nextSpeed);
+                      const voices = ['Kore', 'Aoede', 'Puck', 'Fenrir', 'Zephyr'];
+                      const nextIdx = (voices.indexOf(selectedVoiceName) + 1) % voices.length;
+                      setSelectedVoiceName(voices[nextIdx]);
                     }}
-                    className="px-2 py-1 rounded-lg text-[11px] font-bold bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 border border-white/[0.08] transition"
-                    title="Toggle speech pace (Normal / Fast / Steady)"
+                    className="px-2 py-1 rounded-lg text-[11px] font-bold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-200 border border-cyan-500/40 transition flex items-center gap-1 shadow-xs"
+                    title="Click to cycle tutor voice"
                   >
-                    Speed: {voiceSpeed === 1.03 ? '1.0x' : voiceSpeed === 1.15 ? '1.15x' : '0.95x'}
+                    <Volume2 className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Voice:</span>
+                    <span className="text-cyan-100 font-black bg-cyan-900/60 px-1.5 py-0.2 rounded border border-cyan-400/40">{selectedVoiceName}</span>
                   </button>
 
                   <button
                     onClick={() => {
                       unlockAudio();
-                      const sampleText = "Hey there! I'm your JEE Physics AI tutor. Let's unpack the equations and conquer your doubts with deep intuitive clarity!";
+                      const sampleText = `Hey there! I'm speaking with the ${selectedVoiceName} neural voice. Let's conquer JEE physics together with step-by-step clarity!`;
                       playTutorVoice(
                         sampleText,
                         () => setSpeechError(null),
                         () => {},
-                        { voice: 'Aoede', rate: voiceSpeed, pitch: 1.05 }
+                        { voice: selectedVoiceName, rate: voiceSpeed, pitch: 1.05 }
                       ).catch(() => {});
                     }}
-                    className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 transition flex items-center gap-1"
+                    className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 transition flex items-center gap-1"
                     title="Test Neural Voice for AI Tutor"
                   >
-                    <Volume2 className="w-3 h-3 text-cyan-400" />
+                    <Volume2 className="w-3 h-3 text-emerald-400" />
                     <span>Test Voice</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const nextSpeed = voiceSpeed === 1.03 ? 1.15 : voiceSpeed === 1.15 ? 0.95 : 1.03;
+                      setVoiceSpeed(nextSpeed);
+                    }}
+                    className="px-2 py-1 rounded-lg text-[11px] font-bold bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 border border-white/[0.08] transition hidden sm:inline-block"
+                    title="Toggle speech pace (Normal / Fast / Steady)"
+                  >
+                    Speed: {voiceSpeed === 1.03 ? '1.0x' : voiceSpeed === 1.15 ? '1.15x' : '0.95x'}
                   </button>
 
                   {/* 5. Voice Cache Management Button */}
@@ -1784,7 +1800,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-zinc-400">
                   <span className="text-emerald-400 font-medium hidden sm:inline">● Instant Barge-in Active</span>
-                  <span>Voice: <span className="text-cyan-300 font-semibold">Neural Audio</span></span>
+                  <span>Voice: <span className="text-cyan-300 font-semibold">{selectedVoiceName} (Neural)</span></span>
                 </div>
               </div>
 

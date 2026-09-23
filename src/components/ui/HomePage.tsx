@@ -286,30 +286,41 @@ export const HomePage: React.FC<HomePageProps> = ({
         id="home-hero-section"
         className={`relative overflow-hidden rounded-3xl border p-6 sm:p-10 lg:p-12 shadow-2xl transition-colors scroll-mt-20 ${
         isCyberpunk
-          ? 'bg-gradient-to-b from-[#061024] via-[#040916] to-[#030712] border-cyan-500/30 shadow-[0_0_30px_rgba(0,240,255,0.08)]'
+          ? 'bg-gradient-to-b from-[#061024] via-[#040916] to-[#030712] border-cyan-500/30 shadow-[0_0_40px_rgba(0,240,255,0.12)]'
           : isDark
           ? 'bg-gradient-to-b from-[#121422] via-[#0D0E17] to-[#070709] border-white/[0.08]'
           : 'bg-gradient-to-b from-cyan-50/70 via-white to-slate-50 border-slate-200/80 shadow-slate-200'
       }`}>
-        {/* Background subtle mesh gradient */}
-        <div className={`absolute inset-0 pointer-events-none ${
-          isCyberpunk
-            ? 'bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-500/10 via-emerald-500/5 to-transparent'
-            : 'bg-gradient-to-tr from-cyan-500/5 via-transparent to-indigo-500/5'
-        }`} />
+        {/* Advanced Dynamic Multi-Layer Physics Aurora & Quantum Grid */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden select-none">
+          {/* Subtle cyber coordinate grid */}
+          <div className="absolute inset-0 cyber-graph-grid opacity-35" />
+
+          {/* Floating Kinetic Glow Blob 1 */}
+          <div className="absolute -top-24 -left-20 w-96 h-96 rounded-full bg-gradient-to-br from-cyan-500/25 via-teal-500/10 to-transparent blur-3xl anim-physics-aurora" />
+
+          {/* Floating Kinetic Glow Blob 2 */}
+          <div className="absolute -bottom-24 -right-16 w-[420px] h-[420px] rounded-full bg-gradient-to-tl from-indigo-500/20 via-purple-500/10 to-transparent blur-3xl anim-physics-aurora-reverse" />
+
+          {/* Center Subtle Quantum Wave */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[350px] bg-cyan-400/[0.04] blur-2xl rounded-full anim-harmonic-float" />
+
+          {/* Periodic High-Precision Laser Beam Scan across top border */}
+          <div className="absolute top-0 left-0 w-48 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent anim-laser-beam" />
+        </div>
 
         <div className="relative z-10 max-w-4xl space-y-5 sm:space-y-6">
           {/* Badges */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold tracking-wide ${
+            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold tracking-wide transition-transform hover:scale-105 ${
               isCyberpunk
-                ? 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300 font-mono shadow-[0_0_10px_rgba(0,240,255,0.25)]'
+                ? 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300 font-mono shadow-[0_0_12px_rgba(0,240,255,0.3)]'
                 : isDark ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300' : 'bg-cyan-100/70 border-cyan-300 text-cyan-800'
             }`}>
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
               <span>{isCyberpunk ? '⚡ SYNAPSE HUD • 3D PHYSICS LAB' : 'Interactive 3D Physics Laboratory • JEE Main & Advanced'}</span>
             </div>
-            <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-xs sm:text-sm font-bold tracking-wide shadow-md transition hover:scale-105 ${
+            <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-xs sm:text-sm font-bold tracking-wide shadow-md transition-all hover:scale-105 ${
               isCyberpunk
                 ? 'bg-gradient-to-r from-emerald-500/20 via-teal-500/20 to-cyan-500/20 border-emerald-400/60 text-emerald-300 shadow-[0_0_15px_rgba(0,255,157,0.3)] ring-1 ring-emerald-400/40'
                 : isDark
@@ -321,12 +332,12 @@ export const HomePage: React.FC<HomePageProps> = ({
             </div>
           </div>
 
-          {/* Main Display Headline */}
+          {/* Main Display Headline with animated flowing gradient */}
           <div className="space-y-3">
             <h1 className={`text-2xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-tight ${
               isCyberpunk ? 'text-white' : isDark ? 'text-white' : 'text-slate-950'
             }`}>
-              See Physics in <span className="bg-gradient-to-r from-cyan-400 via-teal-300 to-emerald-400 bg-clip-text text-transparent">3D Dimensions</span>. Interact, Calculate, Master.
+              See Physics in <span className="bg-gradient-to-r from-cyan-400 via-teal-300 to-emerald-400 bg-clip-text text-transparent anim-hero-text-pan">3D Dimensions</span>. Interact, Calculate, Master.
             </h1>
             <p className={`text-xs sm:text-base lg:text-lg max-w-2xl leading-relaxed ${
               isCyberpunk ? 'text-zinc-300' : isDark ? 'text-zinc-300/90' : 'text-slate-600'
@@ -459,19 +470,19 @@ export const HomePage: React.FC<HomePageProps> = ({
           <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 pt-4 border-t ${
             isCyberpunk ? 'border-cyan-500/20' : isDark ? 'border-white/[0.06]' : 'border-slate-200'
           }`}>
-            <div className={`p-3 rounded-xl border ${isCyberpunk ? 'bg-[#060B18] border-cyan-500/20' : isDark ? 'bg-white/[0.02] border-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+            <div className={`p-3 rounded-xl border transition-all duration-300 hover:scale-[1.02] ${isCyberpunk ? 'bg-[#060B18]/90 border-cyan-500/30 hover:border-cyan-400 hover:shadow-[0_0_15px_rgba(0,240,255,0.2)]' : isDark ? 'bg-white/[0.02] border-white/[0.06] hover:border-cyan-500/40 hover:bg-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs hover:border-cyan-400'}`}>
               <span className="text-xl sm:text-2xl font-black text-cyan-400 font-mono">15+</span>
               <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>JEE Chapters</p>
             </div>
-            <div className={`p-3 rounded-xl border ${isCyberpunk ? 'bg-[#060B18] border-cyan-500/20' : isDark ? 'bg-white/[0.02] border-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+            <div className={`p-3 rounded-xl border transition-all duration-300 hover:scale-[1.02] ${isCyberpunk ? 'bg-[#060B18]/90 border-cyan-500/30 hover:border-emerald-400 hover:shadow-[0_0_15px_rgba(0,255,157,0.2)]' : isDark ? 'bg-white/[0.02] border-white/[0.06] hover:border-emerald-500/40 hover:bg-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs hover:border-emerald-400'}`}>
               <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">150+</span>
               <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Formulas & Laws</p>
             </div>
-            <div className={`p-3 rounded-xl border ${isCyberpunk ? 'bg-[#060B18] border-cyan-500/20' : isDark ? 'bg-white/[0.02] border-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+            <div className={`p-3 rounded-xl border transition-all duration-300 hover:scale-[1.02] ${isCyberpunk ? 'bg-[#060B18]/90 border-cyan-500/30 hover:border-cyan-400 hover:shadow-[0_0_15px_rgba(0,240,255,0.2)]' : isDark ? 'bg-white/[0.02] border-white/[0.06] hover:border-cyan-500/40 hover:bg-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs hover:border-cyan-400'}`}>
               <span className="text-xl sm:text-2xl font-black text-cyan-400 font-mono">360°</span>
               <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Orbital 3D Viewports</p>
             </div>
-            <div className={`p-3 rounded-xl border ${isCyberpunk ? 'bg-[#060B18] border-cyan-500/20' : isDark ? 'bg-white/[0.02] border-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+            <div className={`p-3 rounded-xl border transition-all duration-300 hover:scale-[1.02] ${isCyberpunk ? 'bg-[#060B18]/90 border-cyan-500/30 hover:border-amber-400 hover:shadow-[0_0_15px_rgba(245,158,11,0.2)]' : isDark ? 'bg-white/[0.02] border-white/[0.06] hover:border-amber-500/40 hover:bg-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs hover:border-amber-400'}`}>
               <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono">
                 {completedConcepts.length} / {ALL_CONCEPTS.length}
               </span>
@@ -512,10 +523,10 @@ export const HomePage: React.FC<HomePageProps> = ({
             return (
               <div
                 key={`featured-${item.id}`}
-                className={`group relative rounded-2xl bg-gradient-to-b ${item.gradient} border p-5 flex flex-col justify-between gap-4 transition-all duration-300 hover:shadow-xl ${
+                className={`physics-glass-card group relative rounded-2xl bg-gradient-to-b ${item.gradient} border p-5 flex flex-col justify-between gap-4 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1.5 ${
                   isDark
-                    ? 'border-white/[0.08] hover:border-cyan-500/40 hover:shadow-cyan-500/10'
-                    : 'border-slate-200 hover:border-cyan-400 hover:shadow-slate-300'
+                    ? 'border-white/[0.08] hover:border-cyan-400/50 hover:shadow-cyan-500/20'
+                    : 'border-slate-200 hover:border-cyan-400 hover:shadow-cyan-500/15'
                 }`}
               >
                 {/* Header */}
@@ -745,10 +756,12 @@ export const HomePage: React.FC<HomePageProps> = ({
                 <div
                   key={chapter.id}
                   id={`chapter-section-${chapter.id}`}
-                  className={`rounded-2xl border overflow-hidden flex flex-col justify-between transition shadow-lg scroll-mt-20 ${
-                    isDark
-                      ? 'bg-[#0E0E14] border-white/[0.08] hover:border-white/[0.16]'
-                      : 'bg-white border-slate-200 hover:border-slate-300 shadow-slate-200'
+                  className={`physics-glass-card rounded-2xl border overflow-hidden flex flex-col justify-between transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1 scroll-mt-20 ${
+                    isCyberpunk
+                      ? 'bg-[#0E0E14] border-cyan-500/20 hover:border-cyan-400/50 hover:shadow-cyan-500/15'
+                      : isDark
+                      ? 'bg-[#0E0E14] border-white/[0.08] hover:border-cyan-500/30 hover:shadow-cyan-500/10'
+                      : 'bg-white border-slate-200 hover:border-cyan-400/60 shadow-slate-200'
                   }`}
                 >
                   {/* Category Header */}
@@ -894,7 +907,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 pb-6 border-b border-cyan-500/20">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 sm:gap-6">
               {/* Orbital Ring Avatar */}
-              <div className="relative shrink-0 group">
+              <div className="relative shrink-0 group anim-harmonic-float">
                 <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-gradient-to-tr from-cyan-400 via-blue-600 to-indigo-600 flex items-center justify-center text-slate-950 font-black text-2xl sm:text-3xl shadow-xl shadow-cyan-500/40 ring-4 ring-cyan-400/30 group-hover:ring-cyan-300 transition-all duration-300 relative">
                   SJ
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full border-2 border-slate-950 animate-ping" />

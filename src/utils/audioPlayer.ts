@@ -427,7 +427,7 @@ export async function playTutorVoice(
   }
 
   const player = new StreamAudioPlayer({
-    voice: options?.voice || 'Ursa',
+    voice: options?.voice || 'Kore',
     rate: options?.rate,
     pitch: options?.pitch,
     onStart,
@@ -471,7 +471,7 @@ export class StreamAudioPlayer {
     onChunk?: (chunkIndex: number, text: string) => void;
     onEnd?: () => void;
   }) {
-    this.voice = options?.voice || 'Ursa';
+    this.voice = options?.voice || 'Kore';
     this.rate = options?.rate ?? 1.04;
     this.pitch = options?.pitch ?? 1.05;
     this.onStartCallback = options?.onStart;
@@ -490,20 +490,21 @@ export class StreamAudioPlayer {
     while (!this.isStopped) {
       let splitPos = -1;
       const isFirst = this.pendingSentences.length === 0;
-      const minLength = isFirst ? 35 : 65;
+      // Start speaking as soon as first 18-22 characters (e.g., "Right, let's explore!") arrive
+      const minLength = isFirst ? 18 : 45;
 
       // Extract natural full sentences on punctuation followed by whitespace or newline
       const match = this.buffer.search(/(\. |\! |\? |\n+)/);
       if (match !== -1 && match >= minLength) {
         splitPos = match + 1;
-      } else if (this.buffer.length >= 140) {
+      } else if (this.buffer.length >= 100) {
         // Fallback for long run-on sentences with semicolons or colons
         const clauseMatch = this.buffer.search(/(\; |\: )/);
-        if (clauseMatch !== -1 && clauseMatch >= 55) {
+        if (clauseMatch !== -1 && clauseMatch >= 35) {
           splitPos = clauseMatch + 1;
-        } else if (this.buffer.length >= 190) {
+        } else if (this.buffer.length >= 140) {
           const commaMatch = this.buffer.search(/(\, )/);
-          if (commaMatch !== -1 && commaMatch >= 80) {
+          if (commaMatch !== -1 && commaMatch >= 45) {
             splitPos = commaMatch + 1;
           }
         }
@@ -559,12 +560,28 @@ export class StreamAudioPlayer {
     }
 
     try {
+      // 3.5-second hard timeout: if Gemini server TTS is slow or congested, immediately fall back
+      // so speech starts without perceptible pause
+      const timeoutController = new AbortController();
+      const timeoutId = setTimeout(() => timeoutController.abort(), 3500);
+
+      // Listen to parent abort controller if provided
+      const parentSignal = this.abortController?.signal;
+      if (parentSignal) {
+        if (parentSignal.aborted) {
+          clearTimeout(timeoutId);
+          return null;
+        }
+        parentSignal.addEventListener('abort', () => timeoutController.abort(), { once: true });
+      }
+
       const res = await fetch('/api/ai/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, voice: this.voice }),
-        signal: this.abortController?.signal
+        signal: timeoutController.signal
       });
+      clearTimeout(timeoutId);
 
       if (!res.ok) return null;
       const data = await res.json();

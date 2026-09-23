@@ -463,5 +463,191 @@ canvas {
     linear-gradient(to bottom, rgba(6, 182, 212, 0.07) 1px, transparent 1px);
 }
 
+/* ==========================================================================
+   Homepage Physics Aura & Cyberpunk Animations
+   GPU accelerated (will-change, transform3d), 60 FPS, prefers-reduced-motion safe
+   ========================================================================== */
+
+@keyframes physics-aurora-drift {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+    opacity: 0.45;
+  }
+  33% {
+    transform: translate3d(30px, -20px, 0) rotate(120deg) scale(1.12);
+    opacity: 0.65;
+  }
+  66% {
+    transform: translate3d(-25px, 25px, 0) rotate(240deg) scale(0.92);
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) rotate(360deg) scale(1);
+    opacity: 0.45;
+  }
+}
+
+@keyframes physics-aurora-drift-reverse {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(360deg) scale(1.05);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translate3d(-35px, -30px, 0) rotate(180deg) scale(1.18);
+    opacity: 0.6;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1.05);
+    opacity: 0.4;
+  }
+}
+
+@keyframes laser-beam-scan {
+  0% {
+    left: -30%;
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.8;
+  }
+  80% {
+    opacity: 0.8;
+  }
+  100% {
+    left: 130%;
+    opacity: 0;
+  }
+}
+
+@keyframes hero-gradient-pan {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes harmonic-float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(0.4deg);
+  }
+}
+
+@keyframes particle-orbit-pulse {
+  0% {
+    transform: rotate(0deg) translateX(38px) rotate(0deg);
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+    transform: rotate(180deg) translateX(44px) rotate(-180deg);
+  }
+  100% {
+    transform: rotate(360deg) translateX(38px) rotate(-360deg);
+    opacity: 0.3;
+  }
+}
+
+@keyframes neon-border-flow {
+  0% {
+    background-position: 0% 0%;
+  }
+  50% {
+    background-position: 100% 100%;
+  }
+  100% {
+    background-position: 0% 0%;
+  }
+}
+
+.anim-physics-aurora {
+  animation: physics-aurora-drift 22s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.anim-physics-aurora-reverse {
+  animation: physics-aurora-drift-reverse 26s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.anim-laser-beam {
+  animation: laser-beam-scan 4.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: left, opacity;
+}
+
+.anim-harmonic-float {
+  animation: harmonic-float 6s ease-in-out infinite;
+  will-change: transform;
+}
+
+.anim-hero-text-pan {
+  background-size: 200% auto;
+  animation: hero-gradient-pan 7s ease infinite;
+}
+
+.anim-border-neon {
+  background-size: 300% 300%;
+  animation: neon-border-flow 8s ease infinite;
+}
+
+/* Dynamic Interactive Physics Glass Card Effect */
+.physics-glass-card {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.28s ease;
+}
+
+.physics-glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -120%;
+  width: 80%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 40%,
+    rgba(0, 240, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.04) 60%,
+    transparent 100%
+  );
+  transform: skewX(-22deg);
+  transition: none;
+  pointer-events: none;
+}
+
+.physics-glass-card:hover::before {
+  animation: card-specular-shimmer 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes card-specular-shimmer {
+  0% {
+    left: -120%;
+  }
+  100% {
+    left: 180%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-physics-aurora,
+  .anim-physics-aurora-reverse,
+  .anim-laser-beam,
+  .anim-harmonic-float,
+  .anim-hero-text-pan,
+  .anim-border-neon,
+  .physics-glass-card:hover::before {
+    animation: none !important;
+  }
+}
+
 
 
