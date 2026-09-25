@@ -637,6 +637,115 @@ canvas {
   }
 }
 
+/* =========================================================================
+   Advanced Zero-Latency PC Cursor HUD Keyframes & GPU Accelerated Utilities
+   ========================================================================= */
+@keyframes cursor-spin-clockwise {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes cursor-spin-counter {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes cursor-aura-breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+}
+
+@keyframes cursor-shockwave-bloom {
+  0% {
+    transform: translate(-50%, -50%) scale(0.35);
+    opacity: 0.95;
+    border-width: 2px;
+  }
+  60% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(2.8);
+    opacity: 0;
+    border-width: 1px;
+  }
+}
+
+@keyframes cursor-quantum-flicker {
+  0%, 100% {
+    opacity: 0.85;
+    filter: drop-shadow(0 0 6px currentColor);
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 14px currentColor);
+  }
+}
+
+@keyframes cursor-bracket-snap {
+  0% {
+    transform: scale(1.25);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.cursor-container-gpu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 99999;
+  will-change: transform;
+  transition: none !important;
+}
+
+.anim-cursor-spin {
+  animation: cursor-spin-clockwise 7s linear infinite;
+  will-change: transform;
+}
+
+.anim-cursor-spin-fast {
+  animation: cursor-spin-clockwise 3.2s linear infinite;
+  will-change: transform;
+}
+
+.anim-cursor-spin-reverse {
+  animation: cursor-spin-counter 5s linear infinite;
+  will-change: transform;
+}
+
+.anim-cursor-breathe {
+  animation: cursor-aura-breathe 2.2s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.anim-cursor-flicker {
+  animation: cursor-quantum-flicker 1.8s ease-in-out infinite;
+}
+
+.anim-cursor-shockwave {
+  animation: cursor-shockwave-bloom 0.48s cubic-bezier(0.1, 0.9, 0.2, 1) forwards;
+  will-change: transform, opacity;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .anim-physics-aurora,
   .anim-physics-aurora-reverse,
@@ -644,6 +753,11 @@ canvas {
   .anim-harmonic-float,
   .anim-hero-text-pan,
   .anim-border-neon,
+  .anim-cursor-spin,
+  .anim-cursor-spin-fast,
+  .anim-cursor-spin-reverse,
+  .anim-cursor-breathe,
+  .anim-cursor-flicker,
   .physics-glass-card:hover::before {
     animation: none !important;
   }
