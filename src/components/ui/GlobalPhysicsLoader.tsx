@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 import {
   Atom,
@@ -358,16 +357,11 @@ export const GlobalPhysicsLoader: React.FC<GlobalPhysicsLoaderProps> = ({
   conceptTitle,
   isInitial = true,
 }) => {
-  const [mounted, setMounted] = useState(false);
   const [progress, setProgress] = useState(0);
   const [stageIndex, setStageIndex] = useState(0);
   const [insightIndex, setInsightIndex] = useState(() =>
     Math.floor(Math.random() * JEE_INSIGHTS.length)
   );
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Stable ref for onComplete callback
   const onCompleteRef = useRef(onComplete);
@@ -375,13 +369,11 @@ export const GlobalPhysicsLoader: React.FC<GlobalPhysicsLoaderProps> = ({
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
-  // Safe manual skip handler
+  // Safe manual skip handler for instant entry
   const handleInstantSkip = useCallback(() => {
     setProgress(100);
     setStageIndex(CALIBRATION_STAGES.length - 1);
-    setTimeout(() => {
-      onCompleteRef.current?.();
-    }, 60);
+    onCompleteRef.current?.();
   }, []);
 
   // Keyboard shortcut listener (Space, Enter, Escape to instantly bypass loading)
@@ -406,9 +398,11 @@ export const GlobalPhysicsLoader: React.FC<GlobalPhysicsLoaderProps> = ({
 
   // High-Precision Smooth Progress Animation using requestAnimationFrame
   useEffect(() => {
-    const totalDuration = isInitial ? 1500 : 600;
+    // 2500ms on initial app entry for rich cinematic quantum calibration, 750ms for concept switches
+    const totalDuration = isInitial ? 2500 : 750;
     const startTime = performance.now();
     let animFrameId: number;
+    let completionTimeout: any;
 
     const tick = (now: number) => {
       const elapsed = Math.max(0, now - startTime);
@@ -433,14 +427,19 @@ export const GlobalPhysicsLoader: React.FC<GlobalPhysicsLoaderProps> = ({
       if (rawFrac < 1) {
         animFrameId = requestAnimationFrame(tick);
       } else {
-        setTimeout(() => {
+        setProgress(100);
+        setStageIndex(CALIBRATION_STAGES.length - 1);
+        completionTimeout = setTimeout(() => {
           onCompleteRef.current?.();
-        }, 120);
+        }, isInitial ? 240 : 120);
       }
     };
 
     animFrameId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animFrameId);
+    return () => {
+      cancelAnimationFrame(animFrameId);
+      if (completionTimeout) clearTimeout(completionTimeout);
+    };
   }, [isInitial]);
 
   const safeStageIndex = Math.max(
@@ -698,11 +697,7 @@ export const GlobalPhysicsLoader: React.FC<GlobalPhysicsLoaderProps> = ({
     </motion.div>
   );
 
-  if (!mounted || typeof document === 'undefined') {
-    return content;
-  }
-
-  return createPortal(content, document.body);
+  return content;
 };
 
 /**

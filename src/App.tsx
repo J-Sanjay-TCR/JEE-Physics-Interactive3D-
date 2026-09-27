@@ -644,11 +644,12 @@ export default function App() {
       isCyberpunk ? 'bg-[#030712] text-zinc-100' : isDark ? 'bg-[#0A0A0B] text-zinc-100' : 'bg-slate-50 text-slate-900'
     }`}>
       {/* Global Physics Laboratory Loading Screen */}
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {(isInitialLoading || isLoadingScreenOpen) && (
           <GlobalPhysicsLoader
+            key={isInitialLoading ? 'quantum-init-loader' : `quantum-concept-loader-${currentConcept.id}`}
             onComplete={handleLoaderComplete}
-            conceptTitle={currentConcept.title}
+            conceptTitle={isInitialLoading ? undefined : currentConcept.title}
             isInitial={isInitialLoading}
           />
         )}
@@ -1297,10 +1298,12 @@ export default function App() {
       )}
 
       {/* Draggable Floating AI Physics Tutor Button */}
-      <DraggableAiTutorFab
-        onOpenAiTutor={() => setIsAiTutorOpen(true)}
-        isOpen={isAiTutorOpen}
-      />
+      {!isInitialLoading && !isLoadingScreenOpen && (
+        <DraggableAiTutorFab
+          onOpenAiTutor={() => setIsAiTutorOpen(true)}
+          isOpen={isAiTutorOpen}
+        />
+      )}
 
       {/* Global Formula & Law Hub Directory Modal */}
       <FormulaDirectoryModal
@@ -1353,7 +1356,7 @@ export default function App() {
 
       {/* Interactive 3D Physics Lab User Tutorial Modal */}
       <UserTutorialModal
-        isOpen={isTutorialOpen}
+        isOpen={!isInitialLoading && !isLoadingScreenOpen && isTutorialOpen}
         onClose={() => {
           setIsTutorialOpen(false);
           setCurrentView('home');
@@ -1370,47 +1373,49 @@ export default function App() {
       />
 
       {/* Animated Onboarding & Spotlight Walkthrough Overlay */}
-      <SpotlightTutorialOverlay />
+      {!isInitialLoading && !isLoadingScreenOpen && <SpotlightTutorialOverlay />}
 
       {/* Touch-Friendly Context-Aware Mobile Bottom-Sheet Menu & Navigation Bar */}
-      <MobileNavBottomSheet
-        currentView={currentView}
-        onSetView={setCurrentView}
-        currentConcept={currentConcept}
-        onSelectConcept={handleSelectConcept}
-        favorites={favorites}
-        completedConcepts={completedConcepts}
-        onToggleFavorite={handleToggleFavorite}
-        paramValues={paramValues}
-        onChangeParam={handleParamChange}
-        liveQuantities={liveQuantities}
-        isPlaying={isPlaying}
-        onTogglePlay={() => setIsPlaying(!isPlaying)}
-        onResetSimulation={handleResetSimulation}
-        speed={speed}
-        onChangeSpeed={setSpeed}
-        simTime={simTime}
-        showVectors={showVectors}
-        showLabels={showLabels}
-        showTrajectory={showTrajectory}
-        showGrid={showGrid}
-        showAxes={showAxes}
-        onToggleVectors={() => setShowVectors(!showVectors)}
-        onToggleLabels={() => setShowLabels(!showLabels)}
-        onToggleTrajectory={() => setShowTrajectory(!showTrajectory)}
-        onToggleGrid={() => setShowGrid(!showGrid)}
-        onToggleAxes={() => setShowAxes(!showAxes)}
-        onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
-        onOpenPdfModal={handleOpenPdfModal}
-        onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
-        onOpenAiTutor={() => setIsAiTutorOpen(true)}
-        onOpenTutorial={() => setIsTutorialOpen(true)}
-        onOpenAnalytics={() => setIsAnalyticsOpen(true)}
-        onEnterFocusMode={() => setIsFocusMode(true)}
-        onOpenShortcuts={() => setIsShortcutsOpen(true)}
-        bloomIntensity={bloomIntensity}
-        onChangeBloom={handleBloomChange}
-      />
+      {!isInitialLoading && !isLoadingScreenOpen && (
+        <MobileNavBottomSheet
+          currentView={currentView}
+          onSetView={setCurrentView}
+          currentConcept={currentConcept}
+          onSelectConcept={handleSelectConcept}
+          favorites={favorites}
+          completedConcepts={completedConcepts}
+          onToggleFavorite={handleToggleFavorite}
+          paramValues={paramValues}
+          onChangeParam={handleParamChange}
+          liveQuantities={liveQuantities}
+          isPlaying={isPlaying}
+          onTogglePlay={() => setIsPlaying(!isPlaying)}
+          onResetSimulation={handleResetSimulation}
+          speed={speed}
+          onChangeSpeed={setSpeed}
+          simTime={simTime}
+          showVectors={showVectors}
+          showLabels={showLabels}
+          showTrajectory={showTrajectory}
+          showGrid={showGrid}
+          showAxes={showAxes}
+          onToggleVectors={() => setShowVectors(!showVectors)}
+          onToggleLabels={() => setShowLabels(!showLabels)}
+          onToggleTrajectory={() => setShowTrajectory(!showTrajectory)}
+          onToggleGrid={() => setShowGrid(!showGrid)}
+          onToggleAxes={() => setShowAxes(!showAxes)}
+          onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
+          onOpenPdfModal={handleOpenPdfModal}
+          onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
+          onOpenAiTutor={() => setIsAiTutorOpen(true)}
+          onOpenTutorial={() => setIsTutorialOpen(true)}
+          onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+          onEnterFocusMode={() => setIsFocusMode(true)}
+          onOpenShortcuts={() => setIsShortcutsOpen(true)}
+          bloomIntensity={bloomIntensity}
+          onChangeBloom={handleBloomChange}
+        />
+      )}
 
       {/* Global PC Cursor & Ambient Spotlight Effect */}
       <CursorEffect />
