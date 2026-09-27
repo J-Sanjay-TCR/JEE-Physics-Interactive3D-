@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { PhysicsConcept } from '../../types';
 import { ALL_CONCEPTS } from '../../data/allConcepts';
 import { useTheme, ThemeMode } from '../../context/ThemeContext';
+import { SmartSearchToolbar } from './SmartSearchToolbar';
 import {
   Search,
   Sparkles,
@@ -26,6 +27,7 @@ import {
   Keyboard,
   TrendingUp,
   MoreVertical,
+  Github,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -44,6 +46,7 @@ interface HeaderProps {
   onOpenShortcuts?: () => void;
   onOpenAnalytics?: () => void;
   onOpenLoadingScreen?: () => void;
+  onOpenGithubPublish?: () => void;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
   currentView?: 'home' | 'lab';
@@ -66,40 +69,23 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenShortcuts,
   onOpenAnalytics,
   onOpenLoadingScreen,
+  onOpenGithubPublish,
   onToggleSidebar,
   isSidebarOpen,
   currentView = 'home',
   onSetView,
 }) => {
   const { theme, isDark, isCyberpunk, cycleTheme, setTheme } = useTheme();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isMoreToolsOpen, setIsMoreToolsOpen] = useState(false);
-  const searchRef = useRef<HTMLDivElement>(null);
   const themeMenuRef = useRef<HTMLDivElement>(null);
   const moreToolsRef = useRef<HTMLDivElement>(null);
-  const mobileInputRef = useRef<HTMLInputElement>(null);
 
   const isCurrentFavorite = favorites.includes(currentConcept.id);
 
-  // Filter concepts based on search query
-  const filteredConcepts = searchQuery.trim()
-    ? ALL_CONCEPTS.filter(
-        (c) =>
-          c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.topic.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.formulas.some((f) => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
-      )
-    : [];
-
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
-        setIsSearchOpen(false);
-      }
       if (themeMenuRef.current && !themeMenuRef.current.contains(event.target as Node)) {
         setIsThemeMenuOpen(false);
       }
@@ -110,12 +96,6 @@ export const Header: React.FC<HeaderProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  useEffect(() => {
-    if (isMobileSearchModalOpen) {
-      setTimeout(() => mobileInputRef.current?.focus(), 50);
-    }
-  }, [isMobileSearchModalOpen]);
 
   return (
     <header
@@ -235,66 +215,13 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       )}
 
-      {/* Global Interactive Search */}
-      <div ref={searchRef} className="relative flex-1 max-w-xs md:max-w-sm hidden lg:block">
-        <div className="relative flex items-center">
-          <Search className={`absolute left-3 w-4 h-4 pointer-events-none ${isCyberpunk ? 'text-cyan-400' : isDark ? 'text-zinc-400' : 'text-slate-400'}`} />
-          <input
-            type="text"
-            placeholder="Search Laws, Formulas, Concepts..."
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setIsSearchOpen(true);
-            }}
-            onFocus={() => setIsSearchOpen(true)}
-            className={`w-full pl-9 pr-4 py-1.5 border rounded-xl text-xs transition focus:outline-none focus:ring-1 ${
-              isCyberpunk
-                ? 'bg-[#060B18] border-cyan-500/25 text-cyan-100 placeholder-zinc-500 focus:border-cyan-400 focus:ring-cyan-400/40 font-mono shadow-inner'
-                : isDark
-                ? 'bg-[#121216] border-white/[0.08] text-zinc-200 placeholder-zinc-500 focus:border-cyan-500 focus:ring-cyan-500/40'
-                : 'bg-slate-100 border-slate-200 text-slate-800 placeholder-slate-400 focus:bg-white focus:border-cyan-500 focus:ring-cyan-500/40'
-            }`}
-          />
-        </div>
-
-        {/* Search Results Dropdown */}
-        {isSearchOpen && filteredConcepts.length > 0 && (
-          <div className={`absolute top-full mt-2 left-0 right-0 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto z-50 flex flex-col p-1.5 divide-y ${
-            isCyberpunk
-              ? 'bg-[#060B18]/98 border-cyan-500/30 divide-cyan-950/40 shadow-[0_10px_35px_rgba(0,0,0,0.8)]'
-              : isDark
-              ? 'bg-[#121216]/95 border-white/[0.1] divide-white/[0.05]'
-              : 'bg-white/95 border-slate-200 divide-slate-100 shadow-slate-300'
-          }`}>
-            {filteredConcepts.map((concept) => (
-              <button
-                key={concept.id}
-                onClick={() => {
-                  onSelectConcept(concept);
-                  onSetView?.('lab');
-                  setIsSearchOpen(false);
-                  setSearchQuery('');
-                }}
-                className={`p-3 text-left rounded-xl transition flex flex-col gap-1 ${
-                  isCyberpunk ? 'hover:bg-cyan-500/10' : isDark ? 'hover:bg-[#1A1A22]' : 'hover:bg-slate-100'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className={`text-xs font-bold ${isDark ? 'text-zinc-100' : 'text-slate-900'}`}>{concept.title}</span>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
-                    isCyberpunk
-                      ? 'bg-cyan-950/90 text-cyan-300 border-cyan-500/40'
-                      : isDark ? 'bg-cyan-950/80 text-cyan-300 border-cyan-800/60' : 'bg-cyan-50 text-cyan-700 border-cyan-200'
-                  }`}>
-                    {concept.topic}
-                  </span>
-                </div>
-                <p className={`text-[11px] line-clamp-1 ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>{concept.subtitle}</p>
-              </button>
-            ))}
-          </div>
-        )}
+      {/* Global Intelligent Physics Search Toolbar */}
+      <div className="hidden lg:block flex-1 max-w-sm xl:max-w-md mx-2">
+        <SmartSearchToolbar
+          allConcepts={ALL_CONCEPTS}
+          onSelectConcept={onSelectConcept}
+          onSetView={onSetView}
+        />
       </div>
 
       {/* Action Tools */}
@@ -365,6 +292,23 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
             <span>Analytics</span>
+          </button>
+        )}
+
+        {onOpenGithubPublish && (
+          <button
+            onClick={onOpenGithubPublish}
+            className={`flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 cursor-pointer ${
+              isCyberpunk
+                ? 'bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border-purple-400/40 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                : isDark
+                ? 'bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border-purple-500/30'
+                : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200'
+            }`}
+            title="Push Changes to GitHub & Publish Applet"
+          >
+            <Github className="w-3.5 h-3.5 text-purple-400" />
+            <span className="hidden sm:inline">GitHub & Publish</span>
           </button>
         )}
 
@@ -573,6 +517,26 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
                   </button>
                 )}
+
+                {onOpenGithubPublish && (
+                  <button
+                    onClick={() => {
+                      onOpenGithubPublish();
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
+                      isCyberpunk ? 'hover:bg-purple-500/15 text-purple-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
+                      <Github className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs">Push to GitHub & Publish</div>
+                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Export repository or share live app link</div>
+                    </div>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -592,22 +556,20 @@ export const Header: React.FC<HeaderProps> = ({
                 ? 'border-cyan-500/25 bg-[#060B18]'
                 : isDark ? 'border-white/[0.08] bg-[#161622]' : 'border-slate-200 bg-slate-50'
             }`}>
-              <div className="flex items-center gap-2 flex-1">
-                <Search className="w-4 h-4 text-cyan-400 shrink-0" />
-                <input
-                  ref={mobileInputRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search 150+ formulas, laws, chapters..."
-                  className={`flex-1 bg-transparent text-sm focus:outline-none ${
-                    isDark ? 'text-zinc-100 placeholder-zinc-500' : 'text-slate-900 placeholder-slate-400'
-                  }`}
-                />
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-400 to-emerald-400 p-[1px]">
+                  <div className="w-full h-full rounded-[11px] bg-[#050914] flex items-center justify-center">
+                    <Search className="w-4 h-4 text-cyan-300" />
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-white">Smart Physics Search</h3>
+                  <p className="text-[10px] text-zinc-400">Search acronyms, formulas & 3D labs</p>
+                </div>
               </div>
               <button
                 onClick={() => setIsMobileSearchModalOpen(false)}
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 cursor-pointer"
                 aria-label="Close search"
               >
                 <X className="w-5 h-5" />
@@ -620,10 +582,10 @@ export const Header: React.FC<HeaderProps> = ({
                 ? 'bg-[#040814] border-cyan-500/20'
                 : isDark ? 'bg-[#0E0E14] border-white/[0.05]' : 'bg-slate-100/70 border-slate-200'
             }`}>
-              <span className="text-[11px] font-semibold text-zinc-400">Quick Theme:</span>
+              <span className="text-[11px] font-semibold text-zinc-400">HUD Theme:</span>
               <button
                 onClick={cycleTheme}
-                className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition ${
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
                   isCyberpunk
                     ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/40 shadow-[0_0_10px_rgba(0,240,255,0.2)]'
                     : isDark
@@ -636,39 +598,14 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-2 divide-y divide-white/[0.05]">
-              {filteredConcepts.length === 0 ? (
-                <div className="p-8 text-center text-xs text-zinc-400">
-                  {searchQuery ? 'No matching concepts found' : 'Type to search 150+ JEE Physics formulas & labs'}
-                </div>
-              ) : (
-                filteredConcepts.map((concept) => (
-                  <button
-                    key={concept.id}
-                    onClick={() => {
-                      onSelectConcept(concept);
-                      onSetView?.('lab');
-                      setIsMobileSearchModalOpen(false);
-                      setSearchQuery('');
-                    }}
-                    className={`w-full p-3 text-left rounded-xl transition flex flex-col gap-1 ${
-                      isCyberpunk ? 'hover:bg-cyan-500/10' : isDark ? 'hover:bg-white/[0.05]' : 'hover:bg-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className={`text-xs font-bold ${isDark ? 'text-zinc-100' : 'text-slate-900'}`}>{concept.title}</span>
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
-                        isCyberpunk
-                          ? 'bg-cyan-950/90 text-cyan-300 border-cyan-500/40'
-                          : isDark ? 'bg-cyan-950/80 text-cyan-300 border-cyan-800/60' : 'bg-cyan-50 text-cyan-700 border-cyan-200'
-                      }`}>
-                        {concept.topic}
-                      </span>
-                    </div>
-                    <p className={`text-[11px] line-clamp-1 ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>{concept.subtitle}</p>
-                  </button>
-                ))
-              )}
+            <div className="p-3 overflow-y-auto">
+              <SmartSearchToolbar
+                allConcepts={ALL_CONCEPTS}
+                onSelectConcept={onSelectConcept}
+                onSetView={onSetView}
+                isMobileModal={true}
+                onCloseMobileModal={() => setIsMobileSearchModalOpen(false)}
+              />
             </div>
           </div>
         </div>

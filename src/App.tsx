@@ -28,6 +28,7 @@ import { GlobalErrorBoundary } from './components/ui/GlobalErrorBoundary';
 import { CursorEffect } from './components/ui/CursorEffect';
 import { JeeWeightageAnalyticsModal } from './components/ui/JeeWeightageAnalyticsModal';
 import { GlobalPhysicsLoader } from './components/ui/GlobalPhysicsLoader';
+import { GithubPublishModal } from './components/ui/GithubPublishModal';
 import { stopAllAudio } from './utils/audioPlayer';
 import {
   Menu,
@@ -116,6 +117,7 @@ export default function App() {
   const [isAiTutorOpen, setIsAiTutorOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+  const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(() => {
     try {
       return localStorage.getItem('jee_physics_tutorial_seen') !== 'true';
@@ -252,6 +254,11 @@ export default function App() {
         if (isTutorialOpen) {
           e.preventDefault();
           setIsTutorialOpen(false);
+          return;
+        }
+        if (isGithubModalOpen) {
+          e.preventDefault();
+          setIsGithubModalOpen(false);
           return;
         }
         if (isARMode) {
@@ -639,23 +646,34 @@ export default function App() {
   // Compute Real-time Quantities
   const liveQuantities = currentConcept.computeLiveQuantities(paramValues, simTime);
 
+  // 1. Initial Laboratory Calibration / Loading Page: Displayed BEFORE app enters its functionality
+  if (isInitialLoading) {
+    return (
+      <GlobalPhysicsLoader
+        key="quantum-init-loader"
+        onComplete={handleLoaderComplete}
+        isInitial={true}
+      />
+    );
+  }
+
   return (
     <div className={`h-screen h-[100dvh] max-h-screen overflow-hidden flex flex-col transition-colors duration-200 ${
       isCyberpunk ? 'bg-[#030712] text-zinc-100' : isDark ? 'bg-[#0A0A0B] text-zinc-100' : 'bg-slate-50 text-slate-900'
     }`}>
-      {/* Global Physics Laboratory Loading Screen */}
+      {/* On-Demand Laboratory Calibration Screen */}
       <AnimatePresence mode="wait">
-        {(isInitialLoading || isLoadingScreenOpen) && (
+        {isLoadingScreenOpen && (
           <GlobalPhysicsLoader
-            key={isInitialLoading ? 'quantum-init-loader' : `quantum-concept-loader-${currentConcept.id}`}
+            key={`quantum-concept-loader-${currentConcept.id}`}
             onComplete={handleLoaderComplete}
-            conceptTitle={isInitialLoading ? undefined : currentConcept.title}
-            isInitial={isInitialLoading}
+            conceptTitle={currentConcept.title}
+            isInitial={false}
           />
         )}
       </AnimatePresence>
 
-      {!isInitialLoading && !userName && (
+      {!userName && (
         <OnboardingScreen 
           onComplete={(name) => {
             localStorage.setItem('ai_physics_user_name', name);
@@ -680,6 +698,7 @@ export default function App() {
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
+        onOpenGithubPublish={() => setIsGithubModalOpen(true)}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         isSidebarOpen={isSidebarOpen}
         currentView={currentView}
@@ -1012,6 +1031,11 @@ export default function App() {
                   onChangeBloom={handleBloomChange}
                   onDisableTrajectory={() => setShowTrajectory(false)}
                   onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
+                  isPlaying={isPlaying}
+                  onTogglePlay={() => setIsPlaying(!isPlaying)}
+                  onReset={handleResetSimulation}
+                  speed={speed}
+                  onChangeSpeed={setSpeed}
                 />
               </GlobalErrorBoundary>
             </div>
@@ -1032,16 +1056,11 @@ export default function App() {
                       parameters={currentConcept.parameters}
                       values={paramValues}
                       onChangeParam={handleParamChange}
-                      isPlaying={isPlaying}
-                      onTogglePlay={() => setIsPlaying(!isPlaying)}
-                      onReset={handleResetSimulation}
                       speed={speed}
                       onChangeSpeed={setSpeed}
                       liveQuantities={liveQuantities}
                       specialCases={currentConcept.specialCases}
                       simulationType={currentConcept.simulationType}
-                      isARMode={isARMode}
-                      onToggleAR={() => setIsARMode(!isARMode)}
                       bloomIntensity={bloomIntensity}
                       onChangeBloom={handleBloomChange}
                       onApplySpecialCase={(preset) => {
@@ -1260,6 +1279,11 @@ export default function App() {
               onChangeBloom={handleBloomChange}
               onDisableTrajectory={() => setShowTrajectory(false)}
               onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
+              isPlaying={isPlaying}
+              onTogglePlay={() => setIsPlaying(!isPlaying)}
+              onReset={handleResetSimulation}
+              speed={speed}
+              onChangeSpeed={setSpeed}
             />
 
             <FocusModeOverlay
@@ -1352,6 +1376,12 @@ export default function App() {
       <KeyboardShortcutsModal
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
+      />
+
+      {/* GitHub Repository Connection & Publishing Assistant Modal */}
+      <GithubPublishModal
+        isOpen={isGithubModalOpen}
+        onClose={() => setIsGithubModalOpen(false)}
       />
 
       {/* Interactive 3D Physics Lab User Tutorial Modal */}

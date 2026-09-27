@@ -16,6 +16,8 @@ import { VECTOR_LEGENDS, VectorLegendItem } from '../../data/vectorLegends';
 import { useTheme } from '../../context/ThemeContext';
 import {
   RotateCcw,
+  Play,
+  Pause,
   Eye,
   EyeOff,
   Grid,
@@ -84,6 +86,11 @@ interface ThreePhysicsCanvasProps {
   adaptivePerformance?: boolean;
   onToggleAdaptivePerformance?: () => void;
   onOpenLoadingScreen?: () => void;
+  isPlaying?: boolean;
+  onTogglePlay?: () => void;
+  onReset?: () => void;
+  speed?: number;
+  onChangeSpeed?: (val: number) => void;
 }
 
 export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
@@ -113,6 +120,11 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
   adaptivePerformance: externalAdaptivePerf,
   onToggleAdaptivePerformance: externalToggleAdaptivePerf,
   onOpenLoadingScreen,
+  isPlaying,
+  onTogglePlay,
+  onReset,
+  speed,
+  onChangeSpeed,
 }) => {
   const { isCyberpunk, theme, toggleTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1161,11 +1173,56 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         onTouchCancel={handleTouchEnd}
       />
 
+      {/* Real-time Lively Top-Center FPS Render & Telemetry Bar */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto select-none">
+        <div className="flex items-center gap-2 sm:gap-2.5 px-3 py-1 sm:py-1.5 rounded-full bg-[#050A1A]/92 hover:bg-[#071026] backdrop-blur-xl border border-cyan-500/40 shadow-[0_4px_24px_rgba(0,240,255,0.22)] text-xs font-mono transition-all">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`w-2 h-2 rounded-full transition-colors ${
+                fps >= 55
+                  ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+                  : fps >= 30
+                  ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'
+                  : 'bg-rose-500 shadow-[0_0_10px_#f43f5e] animate-ping'
+              }`}
+            />
+            <span
+              className={`font-black tracking-tight ${
+                fps >= 55
+                  ? 'text-emerald-400'
+                  : fps >= 30
+                  ? 'text-amber-300'
+                  : 'text-rose-400'
+              }`}
+            >
+              {fps} FPS
+            </span>
+          </div>
+          <span className="text-zinc-600 font-sans text-[11px]">|</span>
+          <span className="text-cyan-300 font-semibold text-[11px]">{frameTimeMs} ms</span>
+          <span className="text-zinc-600 font-sans text-[11px] hidden sm:inline">|</span>
+          <div className="hidden sm:flex items-center gap-1 text-[10px] text-zinc-400 uppercase tracking-wider font-bold">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span>WebGL2</span>
+          </div>
+          {isLowFps && (
+            <button
+              type="button"
+              onClick={() => triggerAutoAdjustment(fps, 3.0)}
+              title="Low Frame Rate detected (<30 FPS). Click to auto-optimize shaders & geometry."
+              className="px-1.5 py-0.5 rounded bg-rose-500/25 text-rose-300 text-[9px] font-sans font-bold border border-rose-500/40 animate-pulse hover:bg-rose-500/40 transition cursor-pointer ml-1"
+            >
+              Optimize
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Floating Top Controls Bar - Hidden in Focus Mode so FocusModeOverlay is uncluttered */}
       {!isFocusMode && (
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none gap-2">
         {/* Left Badges */}
-        <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
+        <div className="flex items-center gap-2 pointer-events-auto flex-wrap max-w-[calc(50%-100px)]">
           {isARMode ? (
             <div className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-emerald-950/90 backdrop-blur-md border border-emerald-400/50 text-[11px] sm:text-xs font-bold text-emerald-300 flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.35)]">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
@@ -1182,12 +1239,12 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           ) : (
             <div className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-white/[0.08] text-[11px] sm:text-xs font-semibold text-cyan-400 flex items-center gap-1.5 shadow-lg">
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-              <span>3D Interactive Stage</span>
+              <span>3D Stage</span>
             </div>
           )}
 
           <div 
-            className="hidden md:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-emerald-500/20 text-[11px] font-medium text-emerald-400 shadow-lg"
+            className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-emerald-500/20 text-[11px] font-medium text-emerald-400 shadow-lg"
             title="Physics Engine Middleware: Fixed-step integration with non-penetration contact manifold and depth-bias z-fighting prevention active."
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
@@ -1195,7 +1252,6 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </div>
 
           {/* Cyberpunk Post-Processing Bloom Status Indicator */}
-          {/* 3D Bloom Lighting Mode Pill (Vibrant / Subtle / Off) */}
           <button
             type="button"
             onClick={() => {
@@ -1231,7 +1287,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               aria-label="Calibrate Laboratory"
             >
               <Atom className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Calibrate Lab</span>
+              <span>Calibrate</span>
             </button>
           )}
 
@@ -1239,7 +1295,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           <button
             type="button"
             onClick={toggleAdaptivePerformance}
-            className={`flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer ${
+            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer ${
               adaptivePerformance
                 ? isDark
                   ? 'bg-[#0A1628]/90 border-cyan-500/30 text-cyan-300 hover:border-cyan-500/50'
@@ -1248,69 +1304,17 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             }`}
             title={
               adaptivePerformance
-                ? 'Adaptive Performance Active: Detects sustained low frame rate (<30 FPS for > 3.0s) and automatically tunes bloom or trajectory to sustain 60 FPS responsiveness. Click to toggle.'
+                ? 'Adaptive Performance Active: Detects sustained low frame rate (<30 FPS for > 3.0s) and automatically tunes bloom or trajectory to sustain 60 FPS responsiveness.'
                 : 'Adaptive Performance Disabled: Click to enable auto-adjustment for low frame rates.'
             }
             aria-label="Toggle Adaptive Performance"
           >
             <Zap className={`w-3.5 h-3.5 ${adaptivePerformance ? 'text-cyan-400 fill-cyan-400/20' : 'text-zinc-500'}`} />
-            <span className="hidden sm:inline">Auto-Opt:</span>
+            <span>Auto-Opt:</span>
             <span className={adaptivePerformance ? 'text-emerald-400 font-bold' : 'text-zinc-500 font-normal'}>
               {adaptivePerformance ? 'ON' : 'OFF'}
             </span>
           </button>
-
-          {/* Real-time Viewport FPS & Hardware Diagnostics Badge (Unobtrusive & Toggleable) */}
-          <AnimatePresence>
-            {showFps && (
-              <motion.button
-                key="fps-counter-badge"
-                initial={{ opacity: 0, scale: 0.9, x: -6 }}
-                animate={{ opacity: 1, scale: 1, x: 0 }}
-                exit={{ opacity: 0, scale: 0.9, x: -6 }}
-                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                onClick={toggleFps}
-                className="flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#111114]/90 hover:bg-[#181820] backdrop-blur-md border border-white/[0.08] hover:border-emerald-500/30 text-[11px] font-mono font-bold shadow-lg transition-all cursor-pointer"
-                title={`Real-Time Viewport Performance: ${fps} FPS (${frameTimeMs} ms render latency). Click to hide or toggle FPS counter.`}
-                aria-label={`FPS: ${fps}, Frame latency: ${frameTimeMs}ms. Click to hide.`}
-              >
-                <span
-                  className={`w-2 h-2 rounded-full transition-colors ${
-                    fps >= 50
-                      ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
-                      : fps >= 30
-                      ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'
-                      : 'bg-rose-500 shadow-[0_0_10px_#f43f5e] animate-ping'
-                  }`}
-                />
-                <span
-                  className={`font-semibold tracking-tight ${
-                    fps >= 50
-                      ? 'text-emerald-400'
-                      : fps >= 30
-                      ? 'text-amber-300'
-                      : 'text-rose-400'
-                  }`}
-                >
-                  {fps} FPS
-                </span>
-                <span className="text-zinc-500 font-normal hidden sm:inline">&bull;</span>
-                <span className="text-zinc-400 font-normal text-[10px] hidden sm:inline">{frameTimeMs}ms</span>
-                {isLowFps && (
-                  <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      triggerAutoAdjustment(fps, 3.0);
-                    }}
-                    title="Heavy Load (<30 FPS). Click to trigger auto-optimization step immediately."
-                    className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px] font-sans font-bold border border-rose-500/30 animate-pulse hover:bg-rose-500/40 transition cursor-pointer"
-                  >
-                    Heavy Load &bull; Optimize
-                  </span>
-                )}
-              </motion.button>
-            )}
-          </AnimatePresence>
 
           {/* Perspective Angle Quick Switchers */}
           <div className="hidden sm:flex items-center gap-1 bg-[#111114]/90 backdrop-blur-md p-1 rounded-xl border border-white/[0.08] text-[10px] font-bold">
@@ -1457,21 +1461,6 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               <span className="hidden sm:inline">Focus Mode</span>
             </button>
           )}
-
-          <button
-            onClick={toggleAR}
-            title={isARMode ? "Exit AR View" : "Enter AR View (Camera Overlay)"}
-            aria-label="Toggle AR Mode"
-            className={`p-1.5 px-2 rounded-lg transition flex items-center gap-1.5 text-xs font-bold shadow-sm ${
-              isARMode
-                ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.6)] border border-emerald-400'
-                : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30'
-            }`}
-          >
-            <Camera className="w-3.5 h-3.5" />
-            <span>{isARMode ? 'Exit AR' : 'AR View'}</span>
-            {isARMode && <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping ml-0.5" />}
-          </button>
 
           <button
             onClick={toggleTheme}
@@ -1945,7 +1934,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       )}
 
       {/* Touch & Navigation Gesture Guide at bottom right */}
-      <div className="hidden 2xl:block absolute bottom-3 right-16 pointer-events-none z-10">
+      <div className="hidden 2xl:block absolute bottom-3 right-3 pointer-events-none z-10">
         <div className="px-2.5 py-1 rounded-lg bg-[#0A0A0B]/85 backdrop-blur-sm border border-white/[0.08] text-[10px] text-zinc-400 shadow-md">
           <span className="text-zinc-300 font-semibold">Drag:</span> Rotate &bull;{' '}
           <span className="text-zinc-300 font-semibold">Wheel:</span> {wheelMode === 'scroll' ? 'Scroll Page' : '3D Zoom'} &bull;{' '}
@@ -1953,47 +1942,152 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         </div>
       </div>
 
-      {/* Quick Jump to Menus Floating Bar */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#111114]/90 backdrop-blur-md border border-white/[0.1] shadow-2xl z-10 pointer-events-auto">
+      {/* Quick Jump to Menus Floating Bar (Bottom-Left on Wide Screens) */}
+      <div className="absolute bottom-3 left-3 hidden 2xl:flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#111114]/90 backdrop-blur-md border border-white/[0.1] shadow-2xl z-20 pointer-events-auto">
         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1 mr-1">
           <ArrowDown className="w-3 h-3 text-cyan-400" />
-          Jump to:
+          Jump:
         </span>
         <button
+          type="button"
           onClick={() => scrollToSection('section-controls')}
-          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-300 hover:text-cyan-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05]"
+          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-300 hover:text-cyan-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05] cursor-pointer"
         >
           <Sliders className="w-2.5 h-2.5 text-cyan-400" />
           Controls
         </button>
         <button
+          type="button"
           onClick={() => scrollToSection('section-coaching')}
-          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-amber-500/20 text-zinc-300 hover:text-amber-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05]"
+          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-amber-500/20 text-zinc-300 hover:text-amber-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05] cursor-pointer"
         >
           <GraduationCap className="w-2.5 h-2.5 text-amber-400" />
           Coaching
         </button>
         <button
+          type="button"
           onClick={() => scrollToSection('section-equations')}
-          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-blue-500/20 text-zinc-300 hover:text-blue-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05]"
+          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-blue-500/20 text-zinc-300 hover:text-blue-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05] cursor-pointer"
         >
           <BookOpen className="w-2.5 h-2.5 text-blue-400" />
           Equations
         </button>
         <button
+          type="button"
           onClick={() => scrollToSection('section-jee')}
-          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-purple-500/20 text-zinc-300 hover:text-purple-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05]"
+          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-purple-500/20 text-zinc-300 hover:text-purple-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05] cursor-pointer"
         >
           <Award className="w-2.5 h-2.5 text-purple-400" />
           JEE
         </button>
         <button
+          type="button"
           onClick={() => scrollToSection('section-questions')}
-          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05]"
+          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05] cursor-pointer"
         >
           <HelpCircle className="w-2.5 h-2.5 text-emerald-400" />
           Questions
         </button>
+      </div>
+
+      {/* Dedicated Non-Overlapping 3D Viewport Playback, Reset & AR Dock */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100%-24px)] overflow-x-auto py-1 px-1">
+        <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 rounded-2xl bg-[#060B18]/92 hover:bg-[#060B18]/98 backdrop-blur-xl border border-cyan-500/35 shadow-[0_8px_32px_rgba(0,0,0,0.7)] text-white text-xs">
+          {/* Individual Play / Pause Button */}
+          {onTogglePlay && (
+            <button
+              type="button"
+              id="btn-sim-play-toggle"
+              onClick={onTogglePlay}
+              className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition shadow-sm active:scale-95 cursor-pointer shrink-0 ${
+                isPlaying
+                  ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-amber-400/25 ring-1 ring-amber-300/50'
+                  : 'bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 shadow-cyan-400/25'
+              }`}
+              title={isPlaying ? 'Pause 3D Simulation (Space)' : 'Run 3D Simulation (Space)'}
+            >
+              {isPlaying ? (
+                <>
+                  <Pause className="w-3.5 h-3.5 fill-current" />
+                  <span className="font-extrabold text-[11px]">Pause</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span className="font-extrabold text-[11px]">Play</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Individual Reset Button */}
+          {onReset && (
+            <button
+              type="button"
+              id="btn-sim-reset-toggle"
+              onClick={onReset}
+              className="px-2.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white border border-white/[0.08] transition flex items-center gap-1 text-[11px] font-semibold active:scale-95 cursor-pointer shrink-0"
+              title="Reset Simulation Clock (t = 0s, R)"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset</span>
+            </button>
+          )}
+
+          <div className="h-4 w-px bg-white/[0.1] shrink-0" />
+
+          {/* Individual AR View Toggle Button */}
+          <button
+            type="button"
+            id="btn-ar-view-toggle"
+            onClick={toggleAR}
+            className={`px-2.5 py-1.5 rounded-xl font-bold flex items-center gap-1.5 text-[11px] transition shadow-sm active:scale-95 cursor-pointer shrink-0 ${
+              isARMode
+                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-[0_0_12px_rgba(16,185,129,0.5)] ring-1 ring-emerald-300'
+                : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30'
+            }`}
+            title={isARMode ? 'Exit AR Mode (Camera Overlay)' : 'Enter AR Mode: Project 3D Model into Room'}
+          >
+            <Camera className="w-3.5 h-3.5 text-emerald-400" />
+            <span>{isARMode ? 'Exit AR' : 'AR View'}</span>
+            {isARMode && <span className="w-1.5 h-1.5 rounded-full bg-slate-950 animate-ping ml-0.5" />}
+          </button>
+
+          {/* Speed Selector (if onChangeSpeed is provided) */}
+          {onChangeSpeed && speed !== undefined && (
+            <>
+              <div className="h-4 w-px bg-white/[0.1] shrink-0 hidden sm:block" />
+              <div className="hidden sm:flex items-center gap-0.5 bg-black/40 p-0.5 rounded-xl border border-white/[0.06] shrink-0">
+                {[0.5, 1, 2].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => onChangeSpeed(s)}
+                    className={`px-1.5 py-0.5 rounded-lg text-[10px] font-mono font-bold transition cursor-pointer ${
+                      speed === s
+                        ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-400/40 shadow-xs'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    {s}x
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="h-4 w-px bg-white/[0.1] shrink-0" />
+
+          {/* Reset Camera Center */}
+          <button
+            type="button"
+            onClick={resetCamera}
+            className="p-1.5 rounded-xl text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.08] transition cursor-pointer shrink-0"
+            title="Center / Reset 3D Camera"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* In-Viewport Apparatus Calibration Skeleton (When Switching Concepts) */}

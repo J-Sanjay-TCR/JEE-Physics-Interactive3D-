@@ -1,6 +1,6 @@
 {
-  "summary":  "GitHub Repository Connection & Publishing Guide. Contains step-by-step guidance on using Google AI Studio's native GitHub Export and Publish options, alongside an in-app GitHub & Publishing Help Modal in the application header.",
-  "updatedAt":  "2026-09-27T13:33:10.119015737Z",
+  "summary":  "Implementation plan to gate full app entry behind the initial laboratory loading screen and remove all pre-existing duplicate Play/Pause, Reset, and AR View buttons so only the newly created 3D viewport bottom dock is displayed.",
+  "updatedAt":  "2026-09-27T14:19:08.825449358Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

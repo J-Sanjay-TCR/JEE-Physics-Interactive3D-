@@ -26,9 +26,9 @@ interface ParameterControlsProps {
   parameters: PhysicsParameter[];
   values: Record<string, number>;
   onChangeParam: (id: string, val: number) => void;
-  isPlaying: boolean;
-  onTogglePlay: () => void;
-  onReset: () => void;
+  isPlaying?: boolean;
+  onTogglePlay?: () => void;
+  onReset?: () => void;
   speed: number;
   onChangeSpeed: (speed: number) => void;
   liveQuantities: RealtimeQuantity[];
@@ -72,70 +72,15 @@ export const ParameterControls: React.FC<ParameterControlsProps> = ({
     >
       {/* 1. Simulation Playback & Speed Bar */}
       <div
-        className={`flex items-center justify-between pb-3 sm:pb-4 border-b flex-wrap gap-2.5 ${
+        className={`flex items-center justify-between pb-3 sm:pb-4 border-b flex-wrap gap-3 ${
           isDark ? 'border-white/[0.08]' : 'border-slate-200'
         }`}
       >
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          <button
-            onClick={onTogglePlay}
-            className={`px-4 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition shadow-lg min-h-[44px] touch-manipulation active:scale-95 ${
-              isPlaying
-                ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 shadow-amber-400/20'
-                : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-cyan-500/25'
-            }`}
-            title={isPlaying ? 'Pause 3D Simulation' : 'Run 3D Physics Simulation'}
-          >
-            {isPlaying ? (
-              <>
-                <Pause className="w-4 h-4 fill-current" />
-                <span>Pause</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4 fill-current" />
-                <span>Play Simulation</span>
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={onReset}
-            title="Reset Simulation Clock (t = 0s)"
-            className={`p-2.5 rounded-xl border transition min-h-[44px] min-w-[44px] flex items-center justify-center touch-manipulation active:scale-95 ${
-              isDark
-                ? 'text-zinc-400 hover:text-zinc-100 bg-[#1A1A22] hover:bg-[#22222C] border-white/[0.08]'
-                : 'text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border-slate-300'
-            }`}
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-
-          {onToggleAR && (
-            <button
-              onClick={onToggleAR}
-              id="btn-ar-view-toggle"
-              className={`px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition shadow-md min-h-[44px] touch-manipulation active:scale-95 ${
-                isARMode
-                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30 ring-2 ring-emerald-400/50'
-                  : isDark
-                  ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30'
-                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
-              }`}
-              title={isARMode ? "Exit AR Camera View" : "Project 3D Simulation into Room via Device Camera (AR View)"}
-              aria-label="Toggle AR View"
-            >
-              <Camera className="w-4 h-4 text-emerald-400" />
-              <span>{isARMode ? 'Exit AR View' : 'AR View'}</span>
-              <span
-                className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-mono font-extrabold ${
-                  isARMode ? 'bg-black/30 text-white animate-pulse' : 'bg-emerald-500/20 text-emerald-300'
-                }`}
-              >
-                {isARMode ? 'LIVE' : '3D AR'}
-              </span>
-            </button>
-          )}
+        <div className="flex items-center gap-2">
+          <Sliders className="w-4 h-4 text-cyan-400" />
+          <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-zinc-300' : 'text-slate-700'}`}>
+            Simulation Parameters & Speed
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
