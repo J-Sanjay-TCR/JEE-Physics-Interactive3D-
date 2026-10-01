@@ -69,6 +69,8 @@ export const EquationPanel: React.FC<EquationPanelProps> = ({
       setTimeout(() => setDownloadToast(null), 3500);
     } catch (e) {
       console.error(e);
+      setDownloadToast('Failed to generate PDF. Please try again.');
+      setTimeout(() => setDownloadToast(null), 3500);
     } finally {
       setTimeout(() => setIsDownloading(false), 400);
     }

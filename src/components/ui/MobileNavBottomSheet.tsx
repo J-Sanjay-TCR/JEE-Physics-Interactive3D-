@@ -57,9 +57,9 @@ interface MobileNavBottomSheetProps {
   paramValues: Record<string, number>;
   onChangeParam: (id: string, val: number) => void;
   liveQuantities: RealtimeQuantity[];
-  isPlaying: boolean;
-  onTogglePlay: () => void;
-  onResetSimulation: () => void;
+  isPlaying?: boolean;
+  onTogglePlay?: () => void;
+  onResetSimulation?: () => void;
   speed: number;
   onChangeSpeed: (speed: number) => void;
   simTime: number;
@@ -550,67 +550,6 @@ export const MobileNavBottomSheet: React.FC<MobileNavBottomSheetProps> = ({
               {/* TAB 2: PARAMETERS & SIMULATION CONTROLS */}
               {activeTab === 'controls' && (
                 <div className="space-y-4">
-                  {/* Quick Simulation Bar */}
-                  <div className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${
-                    isCyberpunk
-                      ? 'bg-[#060D20] border-cyan-500/30 shadow-[0_0_15px_rgba(0,240,255,0.1)]'
-                      : isDark
-                      ? 'bg-white/[0.04] border-white/[0.08]'
-                      : 'bg-slate-100 border-slate-200'
-                  }`}>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={onTogglePlay}
-                        className={`px-4 py-2 rounded-xl font-black text-xs sm:text-sm flex items-center gap-2 transition active:scale-95 min-h-[44px] ${
-                          isPlaying
-                            ? isCyberpunk
-                              ? 'bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.3)]'
-                              : 'bg-amber-500 text-slate-950'
-                            : isCyberpunk
-                            ? 'bg-cyan-400 text-black shadow-[0_0_15px_rgba(0,240,255,0.4)]'
-                            : 'bg-cyan-500 text-white'
-                        }`}
-                      >
-                        {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
-                        <span>{isPlaying ? 'Pause' : 'Play'}</span>
-                      </button>
-
-                      <button
-                        onClick={onResetSimulation}
-                        className={`p-2.5 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition active:scale-95 min-h-[44px] ${
-                          isDark
-                            ? 'bg-white/5 hover:bg-white/10 text-zinc-300 border-white/10'
-                            : 'bg-white hover:bg-slate-200 text-slate-700 border-slate-300'
-                        }`}
-                        title="Reset simulation parameters and time"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                        <span className="text-xs">Reset</span>
-                      </button>
-                    </div>
-
-                    {/* Speed Selector */}
-                    <div className="flex items-center gap-1">
-                      {[0.5, 1.0, 2.0].map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => onChangeSpeed(s)}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition ${
-                            speed === s
-                              ? isCyberpunk
-                                ? 'bg-cyan-400/30 text-cyan-200 border border-cyan-400'
-                                : 'bg-cyan-500 text-white'
-                              : isDark
-                              ? 'bg-white/5 text-zinc-400 hover:text-zinc-200'
-                              : 'bg-white text-slate-600 border border-slate-200'
-                          }`}
-                        >
-                          {s}x
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
                   {/* Viewport Toggles Grid */}
                   <div className={`p-3 rounded-2xl border ${
                     isCyberpunk ? 'bg-[#060D20]/80 border-cyan-500/20' : isDark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-white border-slate-200'

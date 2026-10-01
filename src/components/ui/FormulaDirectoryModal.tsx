@@ -28,6 +28,7 @@ import {
   Compass,
   Download,
   Printer,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface FormulaDirectoryModalProps {
@@ -803,6 +804,29 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Download Toast Notification */}
+            <AnimatePresence>
+              {downloadToast && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="mx-4 sm:mx-6 mb-2 p-2.5 rounded-xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-200 text-xs font-semibold flex items-center justify-between shadow-lg"
+                >
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Saved {downloadToast.fileName} to your Downloads!</span>
+                  </div>
+                  <button
+                    onClick={() => setDownloadToast(null)}
+                    className="p-1 rounded text-cyan-300 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Bottom Footer */}
             <div className="px-4 sm:px-6 py-3 border-t border-white/[0.08] bg-[#10141E] flex items-center justify-between text-xs gap-3 shrink-0">

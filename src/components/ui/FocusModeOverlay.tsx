@@ -38,11 +38,11 @@ interface FocusModeOverlayProps {
   params: Record<string, number>;
   onChangeParam: (id: string, val: number) => void;
   liveQuantities: RealtimeQuantity[];
-  isPlaying: boolean;
-  onTogglePlay: () => void;
-  onReset: () => void;
-  speed: number;
-  onChangeSpeed: (speed: number) => void;
+  isPlaying?: boolean;
+  onTogglePlay?: () => void;
+  onReset?: () => void;
+  speed?: number;
+  onChangeSpeed?: (speed: number) => void;
   simTime: number;
   onExitFocusMode: () => void;
   showVectors: boolean;
@@ -151,21 +151,23 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
         onOpenShortcuts?.();
       } else if (e.key === ' ' || e.key === 'p' || e.key === 'P') {
         e.preventDefault();
-        onTogglePlay();
+        onTogglePlay?.();
       } else if (e.key === 'r' || e.key === 'R') {
         e.preventDefault();
-        onReset();
+        onReset?.();
       } else if (e.key === 's' || e.key === 'S') {
         e.preventDefault();
-        const currentIndex = SPEEDS.findIndex((s) => Math.abs(s - speed) < 0.05);
-        if (e.shiftKey) {
-          // Slow down (cycle backwards)
-          const nextIndex = currentIndex <= 0 ? SPEEDS.length - 1 : currentIndex - 1;
-          onChangeSpeed(SPEEDS[nextIndex]);
-        } else {
-          // Speed up (cycle forwards)
-          const nextIndex = currentIndex === -1 || currentIndex >= SPEEDS.length - 1 ? 0 : currentIndex + 1;
-          onChangeSpeed(SPEEDS[nextIndex]);
+        if (onChangeSpeed && speed !== undefined) {
+          const currentIndex = SPEEDS.findIndex((s) => Math.abs(s - speed) < 0.05);
+          if (e.shiftKey) {
+            // Slow down (cycle backwards)
+            const nextIndex = currentIndex <= 0 ? SPEEDS.length - 1 : currentIndex - 1;
+            onChangeSpeed(SPEEDS[nextIndex]);
+          } else {
+            // Speed up (cycle forwards)
+            const nextIndex = currentIndex === -1 || currentIndex >= SPEEDS.length - 1 ? 0 : currentIndex + 1;
+            onChangeSpeed(SPEEDS[nextIndex]);
+          }
         }
       } else if (e.key === 'v' || e.key === 'V') {
         e.preventDefault();
@@ -731,64 +733,23 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
         </div>
       </div>
 
-      {/* 3. BOTTOM FLOATING PLAYBACK DOCK & LIVE QUANTITIES */}
+      {/* 3. BOTTOM FLOATING TELEMETRY & DRAWER STATUS */}
       <div className="flex items-end justify-between gap-3 pointer-events-auto flex-wrap">
-        {/* Playback Controls Island */}
+        {/* Quick Drawer & Time Status */}
         <div className="flex items-center gap-2 bg-[#0C0D14]/90 backdrop-blur-xl p-2 rounded-2xl border border-white/[0.12] shadow-2xl">
-          {/* Play/Pause Button */}
-          <button
-            onClick={onTogglePlay}
-            className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition shadow-lg ${
-              isPlaying
-                ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 shadow-amber-400/20'
-                : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-cyan-500/25'
-            }`}
-          >
-            {isPlaying ? (
-              <>
-                <Pause className="w-4 h-4 fill-current" />
-                <span>Pause</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4 fill-current" />
-                <span>Play Simulation</span>
-              </>
-            )}
-          </button>
-
-          {/* Reset Button */}
-          <button
-            onClick={onReset}
-            title="Reset Simulation Time (R)"
-            className="p-2.5 rounded-xl border border-white/[0.08] bg-[#161622] hover:bg-[#202030] text-zinc-300 hover:text-white transition"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-
-          {/* Time indicator */}
-          <div className="px-3 py-2 rounded-xl bg-[#161622] border border-white/[0.08] font-mono text-xs text-cyan-300 font-bold flex items-center gap-1.5">
+          <div className="px-3 py-1.5 rounded-xl bg-[#161622] border border-white/[0.08] font-mono text-xs text-cyan-300 font-bold flex items-center gap-1.5">
             <span className="text-zinc-500 font-sans text-[10px]">TIME</span>
             <span>{simTime.toFixed(2)}s</span>
           </div>
-
-          {/* Speed Selector */}
-          <div className="flex items-center gap-1 bg-[#161622] p-1 rounded-xl border border-white/[0.08]">
-            <FastForward className="w-3.5 h-3.5 text-zinc-500 ml-1 hidden sm:inline" />
-            {SPEEDS.map((s) => (
-              <button
-                key={s}
-                onClick={() => onChangeSpeed(s)}
-                className={`px-1.5 sm:px-2 py-1 text-xs font-semibold rounded-lg transition ${
-                  Math.abs(speed - s) < 0.05
-                    ? 'bg-cyan-500 text-slate-950 font-bold'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                {s}x
-              </button>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => setIsDrawerOpen((prev) => !prev)}
+            className="px-3 py-1.5 rounded-xl bg-[#161622] hover:bg-[#202030] text-zinc-300 hover:text-white border border-white/[0.08] transition text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+            title="Toggle Control Drawer (D)"
+          >
+            <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+            <span>{isDrawerOpen ? 'Close Drawer' : 'Parameters (D)'}</span>
+          </button>
         </div>
 
         {/* Live Telemetry Quantities HUD Pills */}

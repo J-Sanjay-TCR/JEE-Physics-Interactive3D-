@@ -484,6 +484,11 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     adaptivePerformanceRef.current = adaptivePerformance;
   }, [adaptivePerformance]);
 
+  const isARModeRef = useRef(isARMode);
+  useEffect(() => {
+    isARModeRef.current = isARMode;
+  }, [isARMode]);
+
   const bloomIntensityRef = useRef(bloomIntensity);
   useEffect(() => {
     bloomIntensityRef.current = bloomIntensity;
@@ -910,7 +915,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         try {
-          if (!isARMode && composerRef.current && bloomIntensity !== 'off') {
+          if (!isARModeRef.current && composerRef.current && bloomIntensityRef.current !== 'off') {
             composerRef.current.render();
           } else {
             rendererRef.current.render(sceneRef.current, cameraRef.current);
