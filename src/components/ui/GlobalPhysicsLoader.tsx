@@ -369,6 +369,11 @@ export const GlobalPhysicsLoader: React.FC<GlobalPhysicsLoaderProps> = ({
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
+  const mountTimeRef = useRef(Date.now());
+  useEffect(() => {
+    mountTimeRef.current = Date.now();
+  }, []);
+
   // Safe manual skip handler for instant entry
   const handleInstantSkip = useCallback(() => {
     setProgress(100);
@@ -376,9 +381,13 @@ export const GlobalPhysicsLoader: React.FC<GlobalPhysicsLoaderProps> = ({
     onCompleteRef.current?.();
   }, []);
 
-  // Keyboard shortcut listener (Space, Enter, Escape to instantly bypass loading)
+  // Keyboard shortcut listener (Space, Enter, Escape to bypass loading after initial grace period)
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      // Prevent accidental skip from the Enter key pressed during name submission
+      if (Date.now() - mountTimeRef.current < 500) {
+        return;
+      }
       if (e.key === ' ' || e.key === 'Enter' || e.key === 'Escape') {
         e.preventDefault();
         handleInstantSkip();

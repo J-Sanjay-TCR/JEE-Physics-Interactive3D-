@@ -27,7 +27,6 @@ import {
   Keyboard,
   TrendingUp,
   MoreVertical,
-  Github,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -46,11 +45,12 @@ interface HeaderProps {
   onOpenShortcuts?: () => void;
   onOpenAnalytics?: () => void;
   onOpenLoadingScreen?: () => void;
-  onOpenGithubPublish?: () => void;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
   currentView?: 'home' | 'lab';
   onSetView?: (view: 'home' | 'lab') => void;
+  userName?: string;
+  onOpenProfile?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -69,11 +69,12 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenShortcuts,
   onOpenAnalytics,
   onOpenLoadingScreen,
-  onOpenGithubPublish,
   onToggleSidebar,
   isSidebarOpen,
   currentView = 'home',
   onSetView,
+  userName,
+  onOpenProfile,
 }) => {
   const { theme, isDark, isCyberpunk, cycleTheme, setTheme } = useTheme();
   const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
@@ -295,20 +296,45 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {onOpenGithubPublish && (
+        {/* Direct Quantum Calibration / Loading Screen Launcher */}
+        {onOpenLoadingScreen && (
           <button
-            onClick={onOpenGithubPublish}
+            onClick={onOpenLoadingScreen}
             className={`flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 cursor-pointer ${
               isCyberpunk
-                ? 'bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border-purple-400/40 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                ? 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-400/40 shadow-[0_0_10px_rgba(0,240,255,0.2)]'
                 : isDark
-                ? 'bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border-purple-500/30'
-                : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200'
+                ? 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border-cyan-200'
             }`}
-            title="Push Changes to GitHub & Publish Applet"
+            title="Launch Full 3D Quantum Laboratory Calibration Loading Screen"
           >
-            <Github className="w-3.5 h-3.5 text-purple-400" />
-            <span className="hidden sm:inline">GitHub & Publish</span>
+            <Atom className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Loading Screen</span>
+          </button>
+        )}
+
+        {/* Student Profile Identity Button */}
+        {onOpenProfile && (
+          <button
+            onClick={onOpenProfile}
+            className={`flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 cursor-pointer ${
+              userName
+                ? isCyberpunk
+                  ? 'bg-cyan-950/70 hover:bg-cyan-900/80 text-cyan-200 border-cyan-400/40 shadow-[0_0_10px_rgba(0,240,255,0.15)]'
+                  : isDark
+                  ? 'bg-[#181824] hover:bg-[#202030] text-zinc-200 border-white/[0.12]'
+                  : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 shadow-sm'
+                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+            }`}
+            title={userName ? `Registered Student: ${userName} (Click to view/edit profile)` : 'Register Student Profile'}
+          >
+            <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-cyan-400 to-emerald-400 flex items-center justify-center text-[10px] text-black font-black uppercase shrink-0">
+              {userName ? userName.charAt(0) : '?'}
+            </div>
+            <span className="max-w-[85px] sm:max-w-[120px] truncate font-medium">
+              {userName || 'Register'}
+            </span>
           </button>
         )}
 
@@ -514,26 +540,6 @@ export const Header: React.FC<HeaderProps> = ({
                     <div className="min-w-0">
                       <div className="font-bold text-xs">Calibrate Laboratory</div>
                       <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Reset shaders & stage physics engine</div>
-                    </div>
-                  </button>
-                )}
-
-                {onOpenGithubPublish && (
-                  <button
-                    onClick={() => {
-                      onOpenGithubPublish();
-                      setIsMoreToolsOpen(false);
-                    }}
-                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
-                      isCyberpunk ? 'hover:bg-purple-500/15 text-purple-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
-                    }`}
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
-                      <Github className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-bold text-xs">Push to GitHub & Publish</div>
-                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Export repository or share live app link</div>
                     </div>
                   </button>
                 )}

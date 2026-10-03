@@ -23,6 +23,7 @@
           @keyframes preloader-pulse { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 16px rgba(0,240,255,0.7)); } 50% { transform: scale(1.15); filter: drop-shadow(0 0 28px rgba(0,240,255,0.95)) drop-shadow(0 0 35px rgba(16,185,129,0.5)); } }
           @keyframes preloader-radar { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
           @keyframes preloader-quark { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+          @keyframes preloader-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
 
           .p-atom { position: relative; width: 140px; height: 140px; aspect-ratio: 1/1; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-bottom: 24px; perspective: 800px; transform-style: preserve-3d; }
           .p-wave { position: absolute; width: 100px; height: 100px; aspect-ratio: 1/1; border-radius: 50%; border: 1px solid rgba(0,240,255,0.4); animation: preloader-wave 2.8s cubic-bezier(0.1,0.8,0.3,1) infinite; pointer-events: none; }
@@ -94,7 +95,7 @@
         <div style="font-size:12px;color:#94a3b8;margin-top:6px;max-width:320px;text-align:center;line-height:1.4;">Allocating WebGL 3D framebuffers & numerical differential pipelines</div>
         
         <div style="width:200px;height:3px;background:rgba(255,255,255,0.1);border-radius:9999px;overflow:hidden;margin-top:16px;">
-          <div style="height:100%;width:60%;background:linear-gradient(90deg,#00f0ff,#10b981);border-radius:9999px;animation:preloader-radar 2s ease-in-out infinite alternate;box-shadow:0 0 10px #00f0ff;"></div>
+          <div style="height:100%;width:60%;background:linear-gradient(90deg,#00f0ff,#10b981);border-radius:9999px;animation:preloader-slide 1.6s ease-in-out infinite;box-shadow:0 0 10px #00f0ff;"></div>
         </div>
       </div>
     </div>

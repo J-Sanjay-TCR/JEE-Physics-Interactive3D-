@@ -28,7 +28,6 @@ import { GlobalErrorBoundary } from './components/ui/GlobalErrorBoundary';
 import { CursorEffect } from './components/ui/CursorEffect';
 import { JeeWeightageAnalyticsModal } from './components/ui/JeeWeightageAnalyticsModal';
 import { GlobalPhysicsLoader } from './components/ui/GlobalPhysicsLoader';
-import { GithubPublishModal } from './components/ui/GithubPublishModal';
 import { stopAllAudio } from './utils/audioPlayer';
 import {
   Menu,
@@ -57,8 +56,10 @@ import {
 export default function App() {
   const { isDark, isCyberpunk, theme, toggleTheme, cycleTheme, setTheme } = useTheme();
   const [userName, setUserName] = useState<string>(() => localStorage.getItem('ai_physics_user_name') || '');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isLoadingScreenOpen, setIsLoadingScreenOpen] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(0);
   const [currentConcept, setCurrentConcept] = useState<PhysicsConcept>(ALL_CONCEPTS[0]);
   const [currentView, setCurrentView] = useState<'home' | 'lab'>('home');
   const [showRestorePrompt, setShowRestorePrompt] = useState(false);
@@ -117,7 +118,6 @@ export default function App() {
   const [isAiTutorOpen, setIsAiTutorOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
-  const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(() => {
     try {
       return localStorage.getItem('jee_physics_tutorial_seen') !== 'true';
@@ -213,6 +213,11 @@ export default function App() {
   // Global Keyboard Shortcuts (Press ? for Cheat Sheet, F for Focus, P for Play/Pause, S for Speed, etc.)
   useEffect(() => {
     const handleGlobalKey = (e: KeyboardEvent) => {
+      // Complete shield: When onboarding/registration is active or profile modal is open, completely suppress all global hotkeys
+      if (!userName || isProfileModalOpen) {
+        return;
+      }
+
       // Ignore if user is currently typing in an input, textarea, select, or contenteditable
       const target = e.target as HTMLElement | null;
       if (
@@ -254,11 +259,6 @@ export default function App() {
         if (isTutorialOpen) {
           e.preventDefault();
           setIsTutorialOpen(false);
-          return;
-        }
-        if (isGithubModalOpen) {
-          e.preventDefault();
-          setIsGithubModalOpen(false);
           return;
         }
         if (isARMode) {
@@ -459,6 +459,8 @@ export default function App() {
     speed,
     currentConcept.id,
     cycleTheme,
+    userName,
+    isProfileModalOpen,
   ]);
 
   // Persistence (Favorites & Completed concepts)
@@ -540,6 +542,7 @@ export default function App() {
     }
     
     setSimTime(0);
+    setLoadingSession((prev) => prev + 1);
     setIsLoadingScreenOpen(true);
     setCurrentView('lab');
     window.history.pushState({ view: 'lab', conceptId: concept.id }, '', `#lab-${concept.id}`);
@@ -617,6 +620,12 @@ export default function App() {
     setIsLoadingScreenOpen(false);
   }, []);
 
+  // Safe handler to launch calibration loading screen freshly
+  const handleOpenLoadingScreen = useCallback(() => {
+    setLoadingSession((prev) => prev + 1);
+    setIsLoadingScreenOpen(true);
+  }, []);
+
   // Expose switch to lab view on window for interactive tours
   useEffect(() => {
     (window as any).__switchToLabView = () => {
@@ -665,19 +674,27 @@ export default function App() {
       <AnimatePresence mode="wait">
         {isLoadingScreenOpen && (
           <GlobalPhysicsLoader
-            key={`quantum-concept-loader-${currentConcept.id}`}
+            key={`quantum-concept-loader-${currentConcept.id}-${loadingSession}`}
             onComplete={handleLoaderComplete}
             conceptTitle={currentConcept.title}
-            isInitial={false}
+            isInitial={true}
           />
         )}
       </AnimatePresence>
 
-      {!userName && (
-        <OnboardingScreen 
+      {(!userName || isProfileModalOpen) && (
+        <OnboardingScreen
           onComplete={(name) => {
-            localStorage.setItem('ai_physics_user_name', name);
+            try {
+              localStorage.setItem('ai_physics_user_name', name);
+            } catch (e) {
+              console.warn(e);
+            }
             setUserName(name);
+            setIsProfileModalOpen(false);
+            // Seamlessly launch the calibration loading screen!
+            setLoadingSession((prev) => prev + 1);
+            setIsLoadingScreenOpen(true);
           }}
         />
       )}
@@ -689,6 +706,8 @@ export default function App() {
         onToggleFavorite={handleToggleFavorite}
         isDark={isDark}
         onToggleDark={toggleTheme}
+        userName={userName}
+        onOpenProfile={() => setIsProfileModalOpen(true)}
         onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
         onOpenPdfModal={handleOpenPdfModal}
         onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
@@ -697,8 +716,7 @@ export default function App() {
         onOpenSpotlightTour={handleStartSpotlightTour}
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
-        onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
-        onOpenGithubPublish={() => setIsGithubModalOpen(true)}
+        onOpenLoadingScreen={handleOpenLoadingScreen}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         isSidebarOpen={isSidebarOpen}
         currentView={currentView}
@@ -1376,12 +1394,6 @@ export default function App() {
       <KeyboardShortcutsModal
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
-      />
-
-      {/* GitHub Repository Connection & Publishing Assistant Modal */}
-      <GithubPublishModal
-        isOpen={isGithubModalOpen}
-        onClose={() => setIsGithubModalOpen(false)}
       />
 
       {/* Interactive 3D Physics Lab User Tutorial Modal */}
