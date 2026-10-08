@@ -27,6 +27,7 @@ import {
   Keyboard,
   TrendingUp,
   MoreVertical,
+  Award,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -47,8 +48,8 @@ interface HeaderProps {
   onOpenLoadingScreen?: () => void;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
-  currentView?: 'home' | 'lab';
-  onSetView?: (view: 'home' | 'lab') => void;
+  currentView?: 'home' | 'lab' | 'arena';
+  onSetView?: (view: 'home' | 'lab' | 'arena') => void;
   userName?: string;
   onOpenProfile?: () => void;
 }
@@ -202,7 +203,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={() => onSetView('lab')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
               currentView === 'lab'
                 ? isCyberpunk
                   ? 'bg-gradient-to-r from-cyan-500 to-emerald-500 text-black font-extrabold shadow-[0_0_12px_rgba(0,240,255,0.3)]'
@@ -212,6 +213,23 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Compass className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">3D Studio</span>
+          </button>
+          <button
+            onClick={() => onSetView('arena')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              currentView === 'arena'
+                ? isCyberpunk
+                  ? 'bg-gradient-to-r from-cyan-500 to-emerald-500 text-black font-extrabold shadow-[0_0_12px_rgba(0,240,255,0.3)]'
+                  : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm shadow-cyan-500/20'
+                : isDark ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-600 hover:text-slate-900'
+            }`}
+            title="Open JEE Questions Arena (2015-2026 Archive & Mocks)"
+          >
+            <Award className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">JEE Arena</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-purple-500/20 text-purple-300 border border-purple-400/30 hidden xl:inline">
+              '15–'26
+            </span>
           </button>
         </div>
       )}
@@ -293,24 +311,6 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
             <span>Analytics</span>
-          </button>
-        )}
-
-        {/* Direct Quantum Calibration / Loading Screen Launcher */}
-        {onOpenLoadingScreen && (
-          <button
-            onClick={onOpenLoadingScreen}
-            className={`flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 cursor-pointer ${
-              isCyberpunk
-                ? 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-400/40 shadow-[0_0_10px_rgba(0,240,255,0.2)]'
-                : isDark
-                ? 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
-                : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border-cyan-200'
-            }`}
-            title="Launch Full 3D Quantum Laboratory Calibration Loading Screen"
-          >
-            <Atom className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">Loading Screen</span>
           </button>
         )}
 
@@ -520,26 +520,6 @@ export const Header: React.FC<HeaderProps> = ({
                         <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Hotkeys for power users</div>
                       </div>
                       <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-black/30 border border-white/10">?</kbd>
-                    </div>
-                  </button>
-                )}
-
-                {onOpenLoadingScreen && (
-                  <button
-                    onClick={() => {
-                      onOpenLoadingScreen();
-                      setIsMoreToolsOpen(false);
-                    }}
-                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center gap-2.5 ${
-                      isCyberpunk ? 'hover:bg-cyan-500/15 text-cyan-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
-                    }`}
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0">
-                      <Atom className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-bold text-xs">Calibrate Laboratory</div>
-                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Reset shaders & stage physics engine</div>
                     </div>
                   </button>
                 )}

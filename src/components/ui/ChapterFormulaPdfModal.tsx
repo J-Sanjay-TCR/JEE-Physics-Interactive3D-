@@ -531,11 +531,11 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                   onClick={handleDownloadMaster}
                   disabled={downloadingChapterId === 'master'}
                   className="px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 shadow-md shadow-cyan-500/20 transition flex items-center gap-1.5 active:scale-95 disabled:opacity-50 min-h-[36px]"
-                  title="Download All 18 Chapters combined into one Master PDF"
+                  title="Download All Chapters combined into one Master Syllabus PDF"
                 >
                   <ArrowDownToLine className="w-4 h-4 shrink-0" />
                   <span className="hidden sm:inline">
-                    {downloadingChapterId === 'master' ? 'Generating...' : 'Download Master PDF (18 Ch)'}
+                    {downloadingChapterId === 'master' ? 'Generating...' : 'Download Master PDF (Full Syllabus)'}
                   </span>
                   <span className="sm:hidden font-bold">Master PDF</span>
                 </button>

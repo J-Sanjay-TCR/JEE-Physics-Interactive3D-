@@ -4,6 +4,7 @@ import { ALL_CONCEPTS, CHAPTERS, CATEGORIES } from '../../data/allConcepts';
 import { useTheme } from '../../context/ThemeContext';
 import { Latex } from './Latex';
 import { ChapterPdfSection } from './ChapterPdfSection';
+import { JeeQuestionsArena } from '../arena/JeeQuestionsArena';
 import {
   Atom,
   Sparkles,
@@ -50,6 +51,7 @@ interface HomePageProps {
   onOpenAiTutor: () => void;
   onOpenTutorial: () => void;
   onOpenAnalytics: () => void;
+  onOpenArena?: () => void;
   completedConcepts: string[];
   favorites: string[];
   onToggleFavorite: (id: string) => void;
@@ -66,20 +68,29 @@ const CLASS_11_CHAPTER_IDS = new Set([
   'gravitation',
   'properties-matter',
   'fluid-mechanics',
+  'thermal-properties',
+  'kinetic-theory-gases',
   'thermodynamics',
   'heat-transfer',
   'oscillations',
   'waves',
+  'experimental-physics',
 ]);
 
 const CLASS_12_CHAPTER_IDS = new Set([
   'electrostatics',
+  'capacitance',
+  'current-electricity',
   'magnetism',
+  'magnetism-matter',
   'emi-ac',
+  'em-waves',
   'ray-optics',
   'wave-optics',
   'modern-physics',
+  'atomic-physics',
   'nuclear-physics',
+  'semiconductors',
 ]);
 
 const CATEGORY_META: Record<string, { label: string; icon: React.ReactNode; color: string; badge: string }> = {
@@ -135,6 +146,7 @@ export const HomePage: React.FC<HomePageProps> = ({
   onOpenAiTutor,
   onOpenTutorial,
   onOpenAnalytics,
+  onOpenArena,
   completedConcepts,
   favorites,
   onToggleFavorite,
@@ -374,6 +386,22 @@ export const HomePage: React.FC<HomePageProps> = ({
               >
                 <Layers className="w-4 h-4 text-fuchsia-400" />
                 <span>Syllabus & 3D Specs</span>
+              </button>
+            )}
+
+            {onOpenArena && (
+              <button
+                onClick={onOpenArena}
+                className={`px-4 py-3 rounded-2xl border font-semibold text-xs sm:text-sm transition-all flex items-center gap-2 min-h-[44px] ${
+                  isCyberpunk
+                    ? 'bg-purple-950/50 hover:bg-purple-900/60 text-purple-300 border-purple-500/40 shadow-[0_0_12px_rgba(217,70,239,0.25)]'
+                    : isDark
+                    ? 'bg-purple-950/40 hover:bg-purple-900/60 text-purple-200 border-purple-500/30'
+                    : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200 shadow-xs'
+                }`}
+              >
+                <HelpCircle className="w-4 h-4 text-purple-400" />
+                <span>JEE Question Arena (PYQs)</span>
               </button>
             )}
 
@@ -877,6 +905,45 @@ export const HomePage: React.FC<HomePageProps> = ({
             })}
           </div>
         )}
+      </section>
+
+      {/* ================= JEE QUESTION ARENA DIRECT HOME PANEL ================= */}
+      <section id="home-question-arena" className="space-y-4 scroll-mt-20">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/[0.08]">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+              <h2 className={`text-xl sm:text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                JEE Questions Arena & Mock Simulator
+              </h2>
+              <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                2015–2026 Archive
+              </span>
+            </div>
+            <p className={`text-xs sm:text-sm ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+              Official JEE Main & Advanced questions bank with live progress donut charts, topic-wise drills, and timed mock simulator.
+            </p>
+          </div>
+          {onOpenArena && (
+            <button
+              onClick={onOpenArena}
+              className="px-4 py-2 rounded-xl text-xs font-mono font-bold bg-white/[0.06] hover:bg-white/[0.12] text-zinc-200 border border-white/[0.1] flex items-center gap-2 transition cursor-pointer self-start sm:self-auto shrink-0 shadow-sm"
+            >
+              <span>Full Screen Arena</span>
+              <ArrowRight className="w-3.5 h-3.5 text-cyan-400" />
+            </button>
+          )}
+        </div>
+
+        {/* Embedded JEE Questions Arena Component */}
+        <div className="rounded-3xl border border-white/[0.08] overflow-hidden shadow-2xl bg-[#030611]">
+          <JeeQuestionsArena
+            onAskAiTutor={onOpenAiTutor}
+            onSwitchToLab={() => onSelectConcept(ALL_CONCEPTS[0])}
+            isEmbedded={true}
+            onOpenFullScreen={onOpenArena}
+          />
+        </div>
       </section>
 
       {/* Dedicated Downloadable PDF Formula Sheets Section */}

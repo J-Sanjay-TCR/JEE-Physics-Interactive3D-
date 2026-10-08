@@ -46,8 +46,8 @@ import {
 export type MobileLabTab = 'syllabus' | 'controls' | 'graphs' | 'equations' | 'jee' | 'questions';
 
 interface MobileNavBottomSheetProps {
-  currentView: 'home' | 'lab';
-  onSetView: (view: 'home' | 'lab') => void;
+  currentView: 'home' | 'lab' | 'arena';
+  onSetView: (view: 'home' | 'lab' | 'arena') => void;
   currentConcept: PhysicsConcept;
   onSelectConcept: (concept: PhysicsConcept) => void;
   favorites: string[];

@@ -211,7 +211,7 @@ export const SHORTCUTS_LIST: ShortcutItem[] = [
     category: 'navigation',
     keys: ['B'],
     label: 'Toggle Syllabus Sidebar',
-    description: 'Expand or collapse the full 18-chapter JEE physics hierarchy sidebar.',
+    description: 'Expand or collapse the full JEE physics syllabus hierarchy sidebar.',
     icon: <Layers className="w-4 h-4 text-indigo-400" />,
   },
   {

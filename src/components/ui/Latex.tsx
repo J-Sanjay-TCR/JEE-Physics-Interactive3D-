@@ -15,10 +15,7 @@ interface LatexProps {
  * for rich inline text rendering in descriptions, shortcuts, and exam traps.
  */
 function enrichTextMathTokens(text: string): string {
-  // If already full of $ delimiters, let standard parser handle it
-  if (text.includes('$$') || text.includes('\\(') || text.includes('\\[') || text.includes('\\begin{equation}')) {
-    return text;
-  }
+  if (!text) return '';
 
   let enriched = text;
 
@@ -53,7 +50,9 @@ function enrichTextMathTokens(text: string): string {
   };
 
   for (const [char, repl] of Object.entries(greekInlineMap)) {
-    enriched = enriched.split(char).join(repl);
+    if (enriched.includes(char)) {
+      enriched = enriched.split(char).join(repl);
+    }
   }
 
   // Degrees: 45° -> $45^\circ$
@@ -67,11 +66,12 @@ function enrichTextMathTokens(text: string): string {
     .replace(/²/g, '$^2$')
     .replace(/³/g, '$^3$');
 
-  // Subscripts: _max, _min
-  enriched = enriched.replace(/_max\b/g, '$_{\\max}$');
-  enriched = enriched.replace(/_min\b/g, '$_{\\min}$');
-
   return enriched;
+}
+
+function sanitizeKatexHtml(html: string): string {
+  // Replace jarring bright red error font (#cc0000) with a visually appealing, luminous cyan accent
+  return html.replace(/#cc0000/gi, '#38bdf8');
 }
 
 export const Latex: React.FC<LatexProps> = ({
@@ -82,164 +82,145 @@ export const Latex: React.FC<LatexProps> = ({
   className = '',
 }) => {
   const isDisplay = displayMode || block;
-  const isExplicitMath = math !== undefined;
-  const rawInput = (isExplicitMath ? math : children) || '';
+  const rawInput = (math !== undefined ? math : children) || '';
 
   const renderedContent = useMemo(() => {
-    const text = rawInput.trim();
+    const text = String(rawInput).trim();
     if (!text) return '';
 
-    // If caller explicitly passed `math` prop, normalize into clean standard LaTeX and render
-    if (isExplicitMath) {
-      let formula = text;
-      let display = isDisplay;
-
-      if (formula.startsWith('$$') && formula.endsWith('$$') && formula.length >= 4) {
-        formula = formula.slice(2, -2).trim();
-        display = true;
-      } else if (formula.startsWith('$') && formula.endsWith('$') && formula.length >= 2) {
-        formula = formula.slice(1, -1).trim();
-      } else if (formula.startsWith('\\(') && formula.endsWith('\\)')) {
-        formula = formula.slice(2, -2).trim();
-      } else if (formula.startsWith('\\[') && formula.endsWith('\\]')) {
-        formula = formula.slice(2, -2).trim();
-        display = true;
-      } else if (formula.includes('\\begin{equation}') || formula.includes('\\begin{align}')) {
-        display = true;
-      }
-
-      // Convert Unicode Greek, powers, fractions to standard LaTeX
-      const cleanFormula = formatToStandardLatexMath(formula);
-
-      try {
-        return katex.renderToString(cleanFormula, {
-          displayMode: display,
-          throwOnError: false,
-          strict: false,
-        });
-      } catch {
-        return text;
-      }
-    }
-
-    // Check if the children string is a display equation environment
-    if (/^\\begin\{equation\*?\}[\s\S]*\\end\{equation\*?\}$/.test(text)) {
+    // Case 1: Environment equations like \begin{equation}...\end{equation}
+    if (/^\\begin\{equation\*?\}[\s\S]*\\end\{equation\*?\}$/.test(text) ||
+        /^\\begin\{align\*?\}[\s\S]*\\end\{align\*?\}$/.test(text)) {
       const inner = formatToStandardLatexMath(text);
       try {
-        return katex.renderToString(inner, {
+        const out = katex.renderToString(inner, {
           displayMode: true,
           throwOnError: false,
           strict: false,
         });
+        return sanitizeKatexHtml(out);
       } catch {
         return text;
       }
     }
 
-    // Case 1: Children wrapped entirely in $$...$$
-    if (text.startsWith('$$') && text.endsWith('$$') && text.length >= 4) {
-      const inner = formatToStandardLatexMath(text.slice(2, -2).trim());
+    // Case 2: Pure standalone formula wrapped in $$...$$ or \[...\]
+    if ((text.startsWith('$$') && text.endsWith('$$') && text.length >= 4) ||
+        (text.startsWith('\\[') && text.endsWith('\\]') && text.length >= 4)) {
+      const formula = text.slice(2, -2).trim();
+      const inner = formatToStandardLatexMath(formula);
       try {
-        return katex.renderToString(inner, {
+        const out = katex.renderToString(inner, {
           displayMode: true,
           throwOnError: false,
           strict: false,
         });
+        return sanitizeKatexHtml(out);
       } catch {
-        return inner;
+        return formula;
       }
     }
 
-    // Case 2: Children wrapped entirely in $...$
-    if (text.startsWith('$') && text.endsWith('$') && text.length >= 2 && !text.slice(1, -1).includes('$')) {
-      const inner = formatToStandardLatexMath(text.slice(1, -1).trim());
+    // Case 3: Pure standalone formula wrapped in $...$ or \(...\) with no text outside
+    if ((text.startsWith('$') && text.endsWith('$') && text.length >= 2 && !text.slice(1, -1).includes('$')) ||
+        (text.startsWith('\\(') && text.endsWith('\\)') && text.length >= 4 && !text.slice(2, -2).includes('\\('))) {
+      const formula = text.startsWith('$') ? text.slice(1, -1).trim() : text.slice(2, -2).trim();
+      const inner = formatToStandardLatexMath(formula);
       try {
-        return katex.renderToString(inner, {
+        const out = katex.renderToString(inner, {
           displayMode: isDisplay,
           throwOnError: false,
           strict: false,
         });
+        return sanitizeKatexHtml(out);
       } catch {
-        return inner;
+        return formula;
       }
     }
 
-    // Auto-enrich raw math symbols in text so KaTeX can render them
+    // Check if string contains math delimiters or needs Greek symbol enrichment
     const enrichedText = enrichTextMathTokens(text);
+    const hasMathDelimiters = enrichedText.includes('$') ||
+                              enrichedText.includes('\\(') ||
+                              enrichedText.includes('\\[') ||
+                              enrichedText.includes('$$');
 
-    // Case 3: Mixed text with embedded $...$ or $$...$$ or \(...\) or \[...\]
-    if (enrichedText.includes('$') || enrichedText.includes('\\(') || enrichedText.includes('\\[') || enrichedText.includes('\\[')) {
-      const regex = /(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g;
+    // Case 4: Text with embedded math delimiters ($...$, $$...$$, \(...\), \[...\])
+    if (hasMathDelimiters) {
+      const regex = /(\$\$[\s\S]*?\$\$|\$[^\$]+?\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g;
       const parts = enrichedText.split(regex);
 
       const htmlChunks = parts.map((part) => {
         if (!part) return '';
-        if (part.startsWith('$$') && part.endsWith('$$') && part.length >= 4) {
-          const formula = formatToStandardLatexMath(part.slice(2, -2).trim());
+
+        const isBlockMath = (part.startsWith('$$') && part.endsWith('$$') && part.length >= 4) ||
+                            (part.startsWith('\\[') && part.endsWith('\\]') && part.length >= 4);
+        const isInlineMath = (part.startsWith('$') && part.endsWith('$') && part.length >= 2) ||
+                             (part.startsWith('\\(') && part.endsWith('\\)') && part.length >= 4);
+
+        if (isBlockMath || isInlineMath) {
+          let formula = part;
+          if (part.startsWith('$$') && part.endsWith('$$')) formula = part.slice(2, -2).trim();
+          else if (part.startsWith('\\[') && part.endsWith('\\]')) formula = part.slice(2, -2).trim();
+          else if (part.startsWith('$') && part.endsWith('$')) formula = part.slice(1, -1).trim();
+          else if (part.startsWith('\\(') && part.endsWith('\\)')) formula = part.slice(2, -2).trim();
+
+          const cleanFormula = formatToStandardLatexMath(formula);
           try {
-            return katex.renderToString(formula, { displayMode: true, throwOnError: false, strict: false });
+            const out = katex.renderToString(cleanFormula, {
+              displayMode: isBlockMath || isDisplay,
+              throwOnError: false,
+              strict: false,
+            });
+            return sanitizeKatexHtml(out);
           } catch {
-            return formula;
+            return `<span class="katex-fallback font-mono text-cyan-300">${cleanFormula}</span>`;
           }
         }
-        if (part.startsWith('\\[') && part.endsWith('\\]') && part.length >= 4) {
-          const formula = formatToStandardLatexMath(part.slice(2, -2).trim());
-          try {
-            return katex.renderToString(formula, { displayMode: true, throwOnError: false, strict: false });
-          } catch {
-            return formula;
-          }
-        }
-        if (part.startsWith('$') && part.endsWith('$') && part.length >= 2) {
-          const formula = formatToStandardLatexMath(part.slice(1, -1).trim());
-          try {
-            return katex.renderToString(formula, { displayMode: false, throwOnError: false, strict: false });
-          } catch {
-            return formula;
-          }
-        }
-        if (part.startsWith('\\(') && part.endsWith('\\)') && part.length >= 4) {
-          const formula = formatToStandardLatexMath(part.slice(2, -2).trim());
-          try {
-            return katex.renderToString(formula, { displayMode: false, throwOnError: false, strict: false });
-          } catch {
-            return formula;
-          }
-        }
-        // Plain text segment - escape HTML while preserving all spaces
+
+        // Regular text segment: escape HTML entities, support Markdown formatting (**bold**, *italic*, \n)
         return part
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
+          .replace(/>/g, '&gt;')
+          .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-white">$1</strong>')
+          .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+          .replace(/\n\n/g, '<br /><br />')
+          .replace(/\n/g, '<br />');
       });
 
       return htmlChunks.join('');
     }
 
-    // Case 4: Check if string is a pure LaTeX command sequence (e.g. "\frac{1}{2}" without $)
-    const isPureMathMacro = text.startsWith('\\') || (
-      !text.includes(' ') && (text.includes('^') || text.includes('_') || text.includes('='))
-    );
+    // Case 5: Pure LaTeX macro without delimiters (e.g. \frac{1}{2}mv^2 or E = mc^2)
+    // Only if it doesn't look like English prose (no long words with spaces)
+    const words = text.split(/\s+/);
+    const looksLikeProse = words.length > 3 && words.some((w) => /^[a-zA-Z]{4,}$/.test(w));
 
-    if (isPureMathMacro) {
+    if (!looksLikeProse && (text.startsWith('\\') || text.includes('^') || text.includes('_') || text.includes('='))) {
       const cleanFormula = formatToStandardLatexMath(text);
       try {
-        return katex.renderToString(cleanFormula, {
+        const out = katex.renderToString(cleanFormula, {
           displayMode: isDisplay,
           throwOnError: false,
           strict: false,
         });
+        return sanitizeKatexHtml(out);
       } catch {
-        // Fallback to text
+        // Fall back to text
       }
     }
 
-    // Default Case: Regular text paragraph or synopsis. Escape HTML and preserve normal word spacing.
+    // Default Case: Regular prose text
     return text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }, [rawInput, isDisplay, isExplicitMath]);
+      .replace(/>/g, '&gt;')
+      .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-white">$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+      .replace(/\n\n/g, '<br /><br />')
+      .replace(/\n/g, '<br />');
+  }, [rawInput, isDisplay]);
 
   if (!rawInput.trim()) return null;
 

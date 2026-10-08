@@ -145,7 +145,7 @@ export const ChapterPdfSection: React.FC<ChapterPdfSectionProps> = ({
       const result = generateMasterCompendiumPdf();
       setDownloadToast({
         fileName: result.fileName,
-        chapterName: 'Master 18-Chapter Compendium',
+        chapterName: 'Complete Master Syllabus Compendium',
       });
       setTimeout(() => setDownloadToast(null), 5000);
     } catch (err) {
@@ -201,7 +201,7 @@ export const ChapterPdfSection: React.FC<ChapterPdfSectionProps> = ({
                   isDark ? 'bg-indigo-500/15 text-indigo-300' : 'bg-indigo-50 text-indigo-700'
                 }`}
               >
-                18 Chapters • Clean & Concise
+                Complete JEE Syllabus • Clean & Concise
               </span>
             </div>
 
@@ -233,7 +233,7 @@ export const ChapterPdfSection: React.FC<ChapterPdfSectionProps> = ({
               <span>
                 {downloadingId === 'master'
                   ? 'Generating Compendium...'
-                  : 'Download Master Compendium (All 18 Chapters)'}
+                  : 'Download Master Compendium (Complete Syllabus)'}
               </span>
             </button>
 

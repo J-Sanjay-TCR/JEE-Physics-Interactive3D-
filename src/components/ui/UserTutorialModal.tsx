@@ -153,7 +153,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
                   <div className="w-4 h-4 rounded bg-cyan-500/20 border border-cyan-500/50 flex items-center justify-center">
                     <div className="w-2 h-0.5 bg-cyan-400 rounded-full" />
                   </div>
-                  <span className="text-cyan-300 font-bold">Menu / 18 Chapters</span>
+                  <span className="text-cyan-300 font-bold">Menu / All Chapters</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="px-2 py-0.5 rounded-lg bg-indigo-500/20 border border-indigo-500/50 text-indigo-300 font-bold flex items-center gap-1">
@@ -268,7 +268,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
                   <Layers className="w-4 h-4 text-cyan-400" />
                 </div>
                 <div>
-                  <strong className="text-zinc-100 block mb-0.5 font-bold">Bottom Dock: 18 JEE Chapters</strong>
+                  <strong className="text-zinc-100 block mb-0.5 font-bold">Bottom Dock: Complete JEE Chapters</strong>
                   <p className="text-[11px] text-zinc-400 leading-relaxed">
                     Quickly switch across Classical Mechanics, Thermodynamics, Waves, Electromagnetism, and Modern Physics.
                   </p>
@@ -1055,7 +1055,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
         badge: 'Step 08 • Export',
         title: 'Publication-Grade PDF Formula Compendiums & Hotkeys',
         shortTitle: 'PDF Notes & Hotkeys',
-        subtitle: 'Export high-resolution vector cheat sheets for all 18 JEE chapters and use pro keyboard shortcuts.',
+        subtitle: 'Export high-resolution vector cheat sheets for all complete JEE chapters and use pro keyboard shortcuts.',
         icon: BookOpen,
         accentColor: 'text-indigo-400',
         borderColor: 'border-indigo-500/30',
@@ -1064,7 +1064,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
         content: (
           <div className="space-y-4">
             <p className="text-xs text-zinc-300 leading-relaxed">
-              Export high-resolution study cheat sheets covering all 18 JEE Physics chapters with formulas, calculus derivations, exam traps, and dimensional breakdowns:
+              Export high-resolution study cheat sheets covering all complete JEE Physics chapters with formulas, calculus derivations, exam traps, and dimensional breakdowns:
             </p>
 
             <div className="p-4 bg-gradient-to-r from-indigo-950/40 via-blue-950/30 to-cyan-950/40 border border-indigo-500/30 rounded-2xl space-y-3 shadow-md">
@@ -1074,7 +1074,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
                   <span className="text-sm font-bold text-white">Chapter PDF Compendiums</span>
                 </div>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-bold">
-                  18 Chapters Ready
+                  Complete Syllabus Ready
                 </span>
               </div>
 

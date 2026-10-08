@@ -720,11 +720,18 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xf8fafc),
       isARMode ? 0 : 1
     );
+    const isMobileDevice =
+      typeof window !== 'undefined' &&
+      (window.innerWidth < 768 || ('ontouchstart' in window && window.innerWidth < 1024));
+
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = isCyberpunk ? 1.05 : 1.0;
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
+    renderer.setPixelRatio(
+      isMobileDevice ? Math.min(window.devicePixelRatio, 1.2) : Math.min(window.devicePixelRatio, 2)
+    );
+    // Disable expensive shadow map recalculations on mobile GPUs
+    renderer.shadowMap.enabled = !isMobileDevice;
     rendererRef.current = renderer;
 
     containerRef.current.innerHTML = '';
@@ -737,11 +744,25 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       composer.addPass(renderPass);
 
       const isDarkEnv = isDark || isCyberpunk || envType === 'space' || (envType === 'lab' && isDark);
-      const strength = bloomIntensity === 'vibrant' ? 1.35 : bloomIntensity === 'subtle' ? 0.58 : 0;
+      const strength = isMobileDevice
+        ? bloomIntensity === 'vibrant'
+          ? 0.75
+          : bloomIntensity === 'subtle'
+          ? 0.35
+          : 0
+        : bloomIntensity === 'vibrant'
+        ? 1.35
+        : bloomIntensity === 'subtle'
+        ? 0.58
+        : 0;
       const threshold = isDarkEnv
-        ? (bloomIntensity === 'vibrant' ? 0.15 : 0.38)
-        : (bloomIntensity === 'vibrant' ? 0.28 : 0.52);
-      const radius = bloomIntensity === 'vibrant' ? 0.65 : 0.38;
+        ? bloomIntensity === 'vibrant'
+          ? 0.15
+          : 0.38
+        : bloomIntensity === 'vibrant'
+        ? 0.28
+        : 0.52;
+      const radius = isMobileDevice ? 0.35 : bloomIntensity === 'vibrant' ? 0.65 : 0.38;
 
       const bloomPass = new UnrealBloomPass(
         new THREE.Vector2(width, height),
@@ -884,8 +905,8 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         }
       }
 
-      // Smoothly update FPS state every 300ms to eliminate UI flicker
-      if (now - lastFpsUpdateRef.current > 300 && frameTimesRef.current.length > 0) {
+      // Smoothly update FPS state every 1200ms to eliminate unnecessary React component re-renders
+      if (now - lastFpsUpdateRef.current > 1200 && frameTimesRef.current.length > 0) {
         const avgDelta =
           frameTimesRef.current.reduce((sum, val) => sum + val, 0) /
           frameTimesRef.current.length;
@@ -1281,20 +1302,6 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               {bloomIntensity}
             </span>
           </button>
-
-          {/* Laboratory Calibration Screen Quick Access */}
-          {onOpenLoadingScreen && (
-            <button
-              type="button"
-              onClick={onOpenLoadingScreen}
-              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer bg-[#111114]/90 border-white/[0.08] text-zinc-300 hover:text-cyan-300 hover:border-cyan-500/30"
-              title="Open 3D Physics Laboratory Calibration & Loading Screen"
-              aria-label="Calibrate Laboratory"
-            >
-              <Atom className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Calibrate</span>
-            </button>
-          )}
 
           {/* Adaptive Performance Auto-Optimization Pill */}
           <button
@@ -2099,7 +2106,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       <AnimatePresence>
         {isSceneInitializing && (
           <ViewportApparatusSkeleton
-            conceptTitle={conceptTitle || simulationType}
+            conceptTitle={conceptTitle || 'Apparatus'}
             isDark={isDark}
           />
         )}

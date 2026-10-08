@@ -28,6 +28,7 @@ import { GlobalErrorBoundary } from './components/ui/GlobalErrorBoundary';
 import { CursorEffect } from './components/ui/CursorEffect';
 import { JeeWeightageAnalyticsModal } from './components/ui/JeeWeightageAnalyticsModal';
 import { GlobalPhysicsLoader } from './components/ui/GlobalPhysicsLoader';
+import { JeeQuestionsArena } from './components/arena/JeeQuestionsArena';
 import { stopAllAudio } from './utils/audioPlayer';
 import {
   Menu,
@@ -61,7 +62,7 @@ export default function App() {
   const [isLoadingScreenOpen, setIsLoadingScreenOpen] = useState(false);
   const [loadingSession, setLoadingSession] = useState(0);
   const [currentConcept, setCurrentConcept] = useState<PhysicsConcept>(ALL_CONCEPTS[0]);
-  const [currentView, setCurrentView] = useState<'home' | 'lab'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'lab' | 'arena'>('home');
   const [showRestorePrompt, setShowRestorePrompt] = useState(false);
   const [savedSessionParams, setSavedSessionParams] = useState<Record<string, number> | null>(null);
 
@@ -145,12 +146,21 @@ export default function App() {
   }, [currentConcept.id, currentView]);
 
   // Active section scroll tracking for Sidebar navigation synchronization
+  const activeSectionIdRef = useRef(activeSectionId);
+  activeSectionIdRef.current = activeSectionId;
+
   useEffect(() => {
     const container = mainScrollRef.current;
     if (!container) return;
 
     let ticking = false;
+    let lastCheck = 0;
+
     const handleScroll = () => {
+      const now = Date.now();
+      if (now - lastCheck < 160) return; // Throttle to max ~6 checks per second to keep mobile scrolling buttery smooth
+      lastCheck = now;
+
       if (!ticking) {
         requestAnimationFrame(() => {
           const sectionIds =
@@ -181,7 +191,10 @@ export default function App() {
               }
             }
           }
-          setActiveSectionId(current);
+          if (current !== activeSectionIdRef.current) {
+            activeSectionIdRef.current = current;
+            setActiveSectionId(current);
+          }
           ticking = false;
         });
         ticking = true;
@@ -192,6 +205,84 @@ export default function App() {
     handleScroll();
     return () => container.removeEventListener('scroll', handleScroll);
   }, [currentView, currentConcept.id, activeTab]);
+
+  // Debounced ResizeObserver on main scroll container to prevent layout reflow thrashing during orientation changes
+  useEffect(() => {
+    const container = mainScrollRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let prevWidth = container.clientWidth;
+    let prevHeight = container.clientHeight;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        // Ignore micro-fluctuations (sub-pixel rounding or shifts under 2px)
+        if (Math.abs(width - prevWidth) < 2 && Math.abs(height - prevHeight) < 2) {
+          continue;
+        }
+        prevWidth = width;
+        prevHeight = height;
+
+        // Clear previous debounce timer to batch rapid orientation flip frames
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+        }
+
+        debounceTimer = setTimeout(() => {
+          // Stabilization pass: recalculate active section smoothly once orientation finishes settling (120ms)
+          const sectionIds =
+            currentView === 'home'
+              ? [
+                  'home-hero-section',
+                  'home-flagship-section',
+                  'home-chapters-grid',
+                  'home-pdf-section',
+                  'home-founder-section',
+                ]
+              : [
+                  'section-top',
+                  'section-3d',
+                  `section-${activeTab}`,
+                  'section-chapter-roadmap',
+                ];
+
+          const containerRect = container.getBoundingClientRect();
+          let current = sectionIds[0];
+
+          for (const id of sectionIds) {
+            const el = document.getElementById(id);
+            if (el) {
+              const rect = el.getBoundingClientRect();
+              if (rect.top - containerRect.top <= 240) {
+                current = id;
+              }
+            }
+          }
+
+          if (current !== activeSectionIdRef.current) {
+            activeSectionIdRef.current = current;
+            setActiveSectionId(current);
+          }
+
+          // Dispatch event to inform child viewports (like Three.js canvas or graphs) that orientation has stabilized
+          window.dispatchEvent(
+            new CustomEvent('main-scroll-resize-stabilized', {
+              detail: { width, height },
+            })
+          );
+        }, 120);
+      }
+    });
+
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
+  }, [currentView, activeTab]);
 
   // Browser Back/Forward history listener
   useEffect(() => {
@@ -560,7 +651,7 @@ export default function App() {
     }
   };
 
-  const handleSetView = useCallback((view: 'home' | 'lab') => {
+  const handleSetView = useCallback((view: 'home' | 'lab' | 'arena') => {
     setCurrentView(view);
     window.history.pushState({ view, conceptId: currentConcept.id }, '', `#${view}`);
   }, [currentConcept.id]);
@@ -661,6 +752,7 @@ export default function App() {
       <GlobalPhysicsLoader
         key="quantum-init-loader"
         onComplete={handleLoaderComplete}
+        conceptTitle="JEE 3D Physics Laboratory"
         isInitial={true}
       />
     );
@@ -676,8 +768,8 @@ export default function App() {
           <GlobalPhysicsLoader
             key={`quantum-concept-loader-${currentConcept.id}-${loadingSession}`}
             onComplete={handleLoaderComplete}
-            conceptTitle={currentConcept.title}
-            isInitial={true}
+            conceptTitle={currentView === 'lab' ? currentConcept.title : 'JEE 3D Physics Laboratory'}
+            isInitial={false}
           />
         )}
       </AnimatePresence>
@@ -741,11 +833,11 @@ export default function App() {
           activeSectionId={activeSectionId}
         />
 
-        {/* Unified Global Scroll Container: smooth scrollable for both Home & Lab */}
+        {/* Unified Global Scroll Container: native momentum scrollable on mobile */}
         <main
           id="main-scroll-container"
           ref={mainScrollRef}
-          className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden scroll-smooth transition-all ${
+          className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden ${
             isAiTutorOpen ? 'pointer-events-none select-none filter blur-xs opacity-30' : ''
           }`}
           aria-hidden={isAiTutorOpen}
@@ -759,9 +851,18 @@ export default function App() {
               onOpenAiTutor={() => setIsAiTutorOpen(true)}
               onOpenTutorial={handleStartSpotlightTour}
               onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+              onOpenArena={() => handleSetView('arena')}
               completedConcepts={completedConcepts}
               favorites={favorites}
               onToggleFavorite={handleToggleFavorite}
+            />
+          ) : currentView === 'arena' ? (
+            <JeeQuestionsArena
+              onAskAiTutor={(questionText) => {
+                setTutorInitialQuestion(questionText);
+                setIsAiTutorOpen(true);
+              }}
+              onSwitchToLab={() => handleSetView('lab')}
             />
           ) : (
             <div className="p-3 sm:p-5 pb-24 lg:pb-10 flex flex-col gap-5 max-w-[1600px] mx-auto w-full">

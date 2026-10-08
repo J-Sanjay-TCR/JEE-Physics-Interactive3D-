@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Latex } from './Latex';
 import confetti from 'canvas-confetti';
+import { recordQuestionAttempt, loadArenaProgress } from '../../utils/arenaProgress';
 
 interface QuestionArenaProps {
   questions: Question[];
@@ -160,6 +161,11 @@ export const QuestionArena: React.FC<QuestionArenaProps> = ({
         origin: { y: 0.8 },
       });
     }
+
+    try {
+      recordQuestionAttempt(q.id, conceptTitle || 'simulation-mechanics', isCorrect);
+      window.dispatchEvent(new Event('jee_arena_progress_updated'));
+    } catch {}
   };
 
   const handleNext = () => {

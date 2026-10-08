@@ -45,8 +45,8 @@ interface SidebarProps {
   isOpen: boolean;
   onToggleOpen: () => void;
   onOpenAnalytics?: () => void;
-  currentView?: 'home' | 'lab';
-  onSetView?: (view: 'home' | 'lab') => void;
+  currentView?: 'home' | 'lab' | 'arena';
+  onSetView?: (view: 'home' | 'lab' | 'arena') => void;
   activeTab?: string;
   onSetActiveTab?: (tab: 'controls' | 'coaching' | 'graphs' | 'equations' | 'jee' | 'questions') => void;
   activeSectionId?: string;

@@ -93,7 +93,7 @@ export const CALIBRATION_STAGES = [
     badge: 'dE/dt = 0',
   },
   {
-    label: 'Indexing 18-Chapter JEE Syllabus & Question Bank',
+    label: 'Indexing Complete JEE Physics Syllabus & Question Bank',
     icon: Zap,
     detail: 'Connecting 499+ formulas, past JEE Advanced problems, and interactive simulations',
     badge: '499+ Formulas',
@@ -381,22 +381,6 @@ export const GlobalPhysicsLoader: React.FC<GlobalPhysicsLoaderProps> = ({
     onCompleteRef.current?.();
   }, []);
 
-  // Keyboard shortcut listener (Space, Enter, Escape to bypass loading after initial grace period)
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      // Prevent accidental skip from the Enter key pressed during name submission
-      if (Date.now() - mountTimeRef.current < 500) {
-        return;
-      }
-      if (e.key === ' ' || e.key === 'Enter' || e.key === 'Escape') {
-        e.preventDefault();
-        handleInstantSkip();
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [handleInstantSkip]);
-
   // Periodically cycle through JEE insights if loading takes time
   useEffect(() => {
     const timer = setInterval(() => {
@@ -569,7 +553,7 @@ export const GlobalPhysicsLoader: React.FC<GlobalPhysicsLoaderProps> = ({
               {conceptTitle ? (
                 <span>Calibrating {conceptTitle}</span>
               ) : (
-                <span>Calibrating 3D Quantum Apparatus</span>
+                <span>Calibrating JEE 3D Physics Laboratory</span>
               )}
             </h1>
 
@@ -676,32 +660,16 @@ export const GlobalPhysicsLoader: React.FC<GlobalPhysicsLoaderProps> = ({
         </div>
       </main>
 
-      {/* Bottom Cockpit Footer Bar with Keyboard Controls & Instant Skip */}
-      <footer className="relative z-10 w-full max-w-5xl flex items-center justify-between py-2 border-t border-white/[0.06] mt-auto">
+      {/* Bottom Cockpit Footer Bar */}
+      <footer className="relative z-10 w-full max-w-5xl flex items-center justify-between py-2.5 border-t border-white/[0.06] mt-auto">
         <div className="flex items-center gap-3">
-          <span className="text-[11px] text-zinc-400 font-mono hidden sm:inline-flex items-center gap-1">
-            Press{' '}
-            <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 border border-white/[0.15] text-cyan-300 text-[10px] font-semibold">
-              Space
-            </kbd>{' '}
-            or{' '}
-            <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 border border-white/[0.15] text-cyan-300 text-[10px] font-semibold">
-              Enter
-            </kbd>{' '}
-            to skip
-          </span>
-          <span className="text-[10px] text-zinc-500 font-mono hidden md:inline">
-            • 499+ JEE Master Formulas Loaded
+          <span className="text-[11px] text-zinc-400 font-mono">
+            • 499+ JEE Master Formulas Loaded • Symplectic RK4 Mechanics Engine
           </span>
         </div>
-
-        <button
-          onClick={handleInstantSkip}
-          className="text-xs text-cyan-300 hover:text-white transition-all font-mono font-bold flex items-center gap-1.5 py-1.5 px-4 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/35 hover:border-cyan-400 shadow-[0_0_14px_rgba(0,240,255,0.2)] ml-auto cursor-pointer"
-        >
-          <span>Skip Calibration & Enter Lab</span>
-          <FastForward className="w-3.5 h-3.5 text-cyan-400" />
-        </button>
+        <div className="text-[11px] font-mono text-cyan-400/80">
+          Auto-entering upon apparatus synchronization...
+        </div>
       </footer>
     </motion.div>
   );

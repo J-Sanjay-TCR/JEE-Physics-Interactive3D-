@@ -28,14 +28,14 @@ function getGenAI(): GoogleGenAI {
 }
 
 // Gemini Models (strictly following official @google/genai guidelines)
-const PRIMARY_FLASH_MODEL = 'gemini-2.5-flash';
-const SECONDARY_FLASH_MODEL = 'gemini-2.5-flash-lite';
-const TERTIARY_FLASH_MODEL = 'gemini-flash-latest';
-const ALL_FLASH_MODELS = [PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', TERTIARY_FLASH_MODEL];
-const TTS_MODEL = 'gemini-2.5-flash';
-// Fastest, lowest latency TTS models first: gemini-2.5-flash-lite followed by gemini-2.5-flash
-const TTS_CANDIDATE_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
-const TRANSCRIBE_MODELS = ['gemini-3.5-transcribe', PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, TERTIARY_FLASH_MODEL];
+const PRIMARY_FLASH_MODEL = 'gemini-3.8-flash';
+const SECONDARY_FLASH_MODEL = 'gemini-flash-latest';
+const TERTIARY_FLASH_MODEL = 'gemini-3.1-flash-lite';
+const ALL_FLASH_MODELS = [PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, TERTIARY_FLASH_MODEL];
+const TTS_MODEL = 'gemini-3.8-flash-lite-tts';
+// Fastest, lowest latency TTS models first: gemini-3.8-flash-lite-tts followed by gemini-3.8-flash
+const TTS_CANDIDATE_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash'];
+const TRANSCRIBE_MODELS = ['gemini-3.5-transcribe', PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL];
 
 /**
  * Helper to construct compliant model configurations per model specification
@@ -610,6 +610,93 @@ Concept: ${conceptTitle || ''}`;
       hint: 'Apply conservation of mechanical energy and analyze instantaneous equilibrium conditions.',
       isFallback: true,
     });
+  }
+});
+
+// 3b. Real-Time JEE 2015-2026 Question Generator & Real Exam Discovery
+app.post('/api/jee/generate-questions', async (req, res) => {
+  try {
+    const {
+      chapterTitle = 'Mechanics',
+      chapterId = 'rotational-motion',
+      topic = '',
+      exam = 'All',
+      year = '2024',
+      era = 'recent',
+      count = 3,
+    } = req.body || {};
+
+    const systemInstruction = `You are the master JEE Physics question setter and curator for JEE Main & Advanced.
+Your mission is to provide authentic, mathematically precise physics problems from the specified year range (2015 to 2026) for ${chapterTitle} (Topic: ${topic || 'Comprehensive'}).
+If the requested year is 2025 or 2026, include authentic recent shifts or high-yield NTA predicted problems following the latest paper patterns.
+
+FORMAT REQUIREMENTS:
+Return valid JSON matching this schema:
+{
+  "questions": [
+    {
+      "id": "gen-${Date.now()}-1",
+      "chapterId": "${chapterId}",
+      "chapterTitle": "${chapterTitle}",
+      "topic": "Topic Name",
+      "exam": "JEE Main" or "JEE Advanced",
+      "year": 2024,
+      "sessionOrPaper": "Jan 31 Shift 2" or "Paper 1",
+      "isPredicted2026": false,
+      "difficulty": "Medium" | "Hard" | "Advanced",
+      "questionType": "single_correct",
+      "statement": "Question statement in clear English with KaTeX math enclosed in $...$ for inline or $$...$$ for block",
+      "options": [
+        { "id": "A", "text": "$option A$" },
+        { "id": "B", "text": "$option B$" },
+        { "id": "C", "text": "$option C$" },
+        { "id": "D", "text": "$option D$" }
+      ],
+      "correctAnswer": "A",
+      "hint": "High-yield clue without spoiling",
+      "stepByStepSolution": [
+        "1. First principles equation...",
+        "2. Calculus integration step...",
+        "3. Final answer calculation..."
+      ],
+      "keyConcept": "Core physical theorem name",
+      "examTrap": "Common student pitfall",
+      "shortcutTrick": "30-second trick if applicable"
+    }
+  ]
+}`;
+
+    const prompt = `Generate ${count} authentic, challenging JEE Physics questions for chapter: "${chapterTitle}", topic: "${topic || 'All Topics'}", target year: ${year || '2024'} (Era: ${era}), exam level: ${exam}. Ensure step-by-step calculus derivations and publication-grade KaTeX formulas.`;
+
+    const ai = getGenAI();
+    const response = await ai.models.generateContent({
+      model: PRIMARY_FLASH_MODEL,
+      contents: prompt,
+      config: {
+        systemInstruction,
+        temperature: 0.3,
+        responseMimeType: 'application/json',
+        tools: [{ googleSearch: {} }],
+      },
+    });
+
+    const text = response.text || '';
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) parsed = JSON.parse(match[0]);
+    }
+
+    if (parsed && Array.isArray(parsed.questions) && parsed.questions.length > 0) {
+      return res.json({ questions: parsed.questions, isFallback: false });
+    }
+
+    res.json({ questions: [], isFallback: true });
+  } catch (error) {
+    console.error('Error generating JEE questions:', error);
+    res.json({ questions: [], isFallback: true });
   }
 });
 

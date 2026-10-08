@@ -73,7 +73,7 @@ interface AiPhysicsTutorModalProps {
   initialScreenImage?: string | null;
   onClearInitialQuestion?: () => void;
   onSelectConcept?: (concept: PhysicsConcept) => void;
-  currentView?: 'home' | 'lab';
+  currentView?: 'home' | 'lab' | 'arena';
 }
 
 export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({

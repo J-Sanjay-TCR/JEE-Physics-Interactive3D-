@@ -1128,7 +1128,7 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-    doc.text(`JEE 3D PHYSICS LAB • MASTER FORMULA COMPENDIUM (18 CHAPTERS)`, margin, 6.2);
+    doc.text(`JEE 3D PHYSICS LAB • MASTER FORMULA COMPENDIUM (${CHAPTERS.length} CHAPTERS)`, margin, 6.2);
     doc.text(sanitizeUnicodeForPdf(chapterTitle.toUpperCase()), pageWidth - margin, 6.2, { align: 'right' });
 
     doc.setDrawColor(cardBorder[0], cardBorder[1], cardBorder[2]);
@@ -1170,7 +1170,7 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(accentCyan[0], accentCyan[1], accentCyan[2]);
-  doc.text('COMPLETE 18-CHAPTER REVISION VAULT • JEE MAIN & ADVANCED', margin, 73);
+  doc.text(`COMPLETE ${CHAPTERS.length}-CHAPTER REVISION VAULT • JEE MAIN & ADVANCED`, margin, 73);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
@@ -1194,20 +1194,21 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(accentCyan[0], accentCyan[1], accentCyan[2]);
-  doc.text('INCLUDED CHAPTERS (18 COMPLETE SYLLABUS UNITS):', margin, 142);
+  doc.text(`INCLUDED CHAPTERS (${CHAPTERS.length} COMPLETE SYLLABUS UNITS):`, margin, 138);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
+  doc.setFontSize(7.2);
   doc.setTextColor(226, 232, 240);
 
-  const col1 = CHAPTERS.slice(0, 9);
-  const col2 = CHAPTERS.slice(9, 18);
+  const half = Math.ceil(CHAPTERS.length / 2);
+  const col1 = CHAPTERS.slice(0, half);
+  const col2 = CHAPTERS.slice(half);
 
   col1.forEach((ch, idx) => {
-    doc.text(`${idx + 1}. ${sanitizeUnicodeForPdf(ch.name)}`, margin + 4, 152 + idx * 6.5);
+    doc.text(`${idx + 1}. ${sanitizeUnicodeForPdf(ch.name)}`, margin + 4, 146 + idx * 4.8);
   });
   col2.forEach((ch, idx) => {
-    doc.text(`${idx + 10}. ${sanitizeUnicodeForPdf(ch.name)}`, margin + contentWidth / 2 + 4, 152 + idx * 6.5);
+    doc.text(`${idx + half + 1}. ${sanitizeUnicodeForPdf(ch.name)}`, margin + contentWidth / 2 + 4, 146 + idx * 4.8);
   });
 
   doc.setFontSize(7.5);
@@ -1370,7 +1371,7 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
     drawPageDecoration(chapter.name);
   });
 
-  const fileName = 'JEE-Physics-Master-18-Chapters-Formula-Compendium.pdf';
+  const fileName = 'JEE-Physics-Complete-Syllabus-Master-Formula-Compendium.pdf';
   const blob = doc.output('blob');
   const blobUrl = URL.createObjectURL(blob);
   const totalPages =
@@ -1381,7 +1382,7 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
     blobUrl,
     pageCount: totalPages,
     fileName,
-    chapterName: 'Master 18-Chapter Compendium',
+    chapterName: 'Complete Master Syllabus Compendium',
     categoryName: 'Comprehensive Physics',
   };
 }

@@ -13,10 +13,29 @@
     overflow-y: overlay; /* Allows scrollbars to overlay content gracefully on supported browsers */
   }
 
-  * {
+  button, a, input, select, textarea, .theme-transition {
     transition-property: background-color, border-color, color, fill, stroke, box-shadow;
-    transition-duration: 200ms;
+    transition-duration: 150ms;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Mobile Hardware Scroll Acceleration & GPU Load Reduction */
+  @media (max-width: 768px), (pointer: coarse) {
+    html, body, #main-scroll-container {
+      scroll-behavior: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+      overscroll-behavior-y: auto;
+    }
+
+    /* Disable heavy multi-pass GPU blur during mobile touch scrolling */
+    .backdrop-blur-md,
+    .backdrop-blur-lg,
+    .backdrop-blur-xl,
+    .backdrop-blur-2xl,
+    .backdrop-blur-3xl {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
   }
 
   /* Don't animate canvas to avoid performance overhead */
@@ -725,5 +744,104 @@ canvas {
   }
 }
 
+/* Custom KaTeX Equations & Typography Enhancements */
+.katex {
+  font-size: 1.04em !important;
+  text-rendering: optimizeLegibility;
+}
 
+.katex-display {
+  margin: 0.75em 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+}
 
+/* Eliminate harsh bright red #cc0000 font from KaTeX errors completely */
+.katex-error {
+  color: #38bdf8 !important; /* Elegant cyan accent font instead of red */
+  background: rgba(56, 189, 248, 0.08) !important;
+  border-radius: 4px;
+  padding: 1px 4px;
+  border: 1px solid rgba(56, 189, 248, 0.25) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 0.95em !important;
+}
+
+.latex-container {
+  display: inline;
+  line-height: inherit;
+}
+
+/* AI Tutor Floating Glimmer Sphere Animations */
+@keyframes aiOrbFloat {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+  }
+}
+
+@keyframes aiOrbShadowPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(0.8);
+    opacity: 0.25;
+  }
+}
+
+@keyframes aiOrbRingSpin {
+  0% {
+    transform: rotateX(68deg) rotateZ(0deg);
+  }
+  100% {
+    transform: rotateX(68deg) rotateZ(360deg);
+  }
+}
+
+@keyframes aiEyeTwinkle {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(0.94);
+  }
+}
+
+@keyframes aiSparkleRotate {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.15);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+.anim-ai-orb-float {
+  animation: aiOrbFloat 4.2s ease-in-out infinite;
+}
+
+.anim-ai-orb-shadow {
+  animation: aiOrbShadowPulse 4.2s ease-in-out infinite;
+}
+
+.anim-ai-ring-spin {
+  animation: aiOrbRingSpin 9s linear infinite;
+}
+
+.anim-ai-eye-twinkle {
+  animation: aiEyeTwinkle 2.4s ease-in-out infinite;
+}
+
+.anim-ai-sparkle-spin {
+  animation: aiSparkleRotate 6s ease-in-out infinite;
+}

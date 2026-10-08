@@ -9,8 +9,10 @@ export type ChapterId =
   | 'gravitation'
   | 'properties-matter'
   | 'fluid-mechanics'
+  | 'thermal-properties'
   | 'thermal-physics'
   | 'thermodynamics'
+  | 'kinetic-theory-gases'
   | 'heat-transfer'
   | 'oscillations'
   | 'waves'
@@ -18,13 +20,18 @@ export type ChapterId =
   | 'capacitance'
   | 'current-electricity'
   | 'magnetism'
+  | 'magnetism-matter'
+  | 'emi'
   | 'emi-ac'
+  | 'alternating-current'
   | 'em-waves'
   | 'ray-optics'
   | 'wave-optics'
   | 'modern-physics'
+  | 'atomic-physics'
   | 'nuclear-physics'
-  | 'semiconductors';
+  | 'semiconductors'
+  | 'experimental-physics';
 
 export type CategoryId =
   | 'mechanics'
