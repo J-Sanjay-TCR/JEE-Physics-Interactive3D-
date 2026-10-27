@@ -54,10 +54,6 @@
     color-scheme: dark;
     scrollbar-color: #27272F #0E0E11;
   }
-
-  html.dark {
-    color-scheme: dark;
-  }
   
   html.light {
     color-scheme: light;
@@ -75,12 +71,19 @@
   }
 
   html.dark:not(.cyberpunk) body {
-    background-color: #0A0A0B;
+    background-color: #0A0A0E;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.035) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(99, 102, 241, 0.04) 0px, transparent 50%),
+      radial-gradient(at 50% 0%, rgba(16, 185, 129, 0.025) 0px, transparent 40%);
     color: #f4f4f5;
   }
 
   html.light body {
     background-color: #f8fafc;
+    background-image:
+      radial-gradient(at 0% 0%, rgba(2, 132, 199, 0.035) 0px, transparent 40%),
+      radial-gradient(at 100% 100%, rgba(14, 165, 233, 0.035) 0px, transparent 40%);
     color: #0f172a;
   }
 }
@@ -217,6 +220,259 @@ html.light .custom-scrollbar::-webkit-scrollbar-thumb {
 }
 html.light .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(6, 182, 212, 0.7);
+}
+
+/* ==========================================================================
+   Laboratory Apparatus Range Sliders (WebKit & Mozilla cross-browser)
+   ========================================================================== */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: transparent;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+input[type="range"]:focus {
+  outline: none;
+}
+
+/* Track styles */
+input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  border-radius: 9999px;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input[type="range"]::-moz-range-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  border-radius: 9999px;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Thumb styles */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  width: 18px;
+  border-radius: 50%;
+  cursor: grab;
+  margin-top: -6px;
+  transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.16s ease;
+}
+
+input[type="range"]:active::-webkit-slider-thumb {
+  cursor: grabbing;
+  transform: scale(1.22);
+}
+
+input[type="range"]::-moz-range-thumb {
+  height: 18px;
+  width: 18px;
+  border-radius: 50%;
+  cursor: grab;
+  border: none;
+  transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.16s ease;
+}
+
+input[type="range"]:active::-moz-range-thumb {
+  cursor: grabbing;
+  transform: scale(1.22);
+}
+
+/* Theme-specific Range Slider styling */
+html.cyberpunk input[type="range"]::-webkit-slider-runnable-track {
+  background: rgba(0, 240, 255, 0.22);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7), 0 0 8px rgba(0, 240, 255, 0.15);
+}
+html.cyberpunk input[type="range"]::-moz-range-track {
+  background: rgba(0, 240, 255, 0.22);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7), 0 0 8px rgba(0, 240, 255, 0.15);
+}
+html.cyberpunk input[type="range"]::-webkit-slider-thumb {
+  background: linear-gradient(135deg, #00f0ff 0%, #00ff9d 100%);
+  border: 2px solid #030712;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.85), 0 0 18px rgba(0, 255, 157, 0.45);
+}
+html.cyberpunk input[type="range"]::-moz-range-thumb {
+  background: linear-gradient(135deg, #00f0ff 0%, #00ff9d 100%);
+  border: 2px solid #030712;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.85), 0 0 18px rgba(0, 255, 157, 0.45);
+}
+html.cyberpunk input[type="range"]:hover::-webkit-slider-thumb {
+  box-shadow: 0 0 14px rgba(0, 240, 255, 1), 0 0 24px rgba(0, 255, 157, 0.7);
+}
+html.cyberpunk input[type="range"]:hover::-moz-range-thumb {
+  box-shadow: 0 0 14px rgba(0, 240, 255, 1), 0 0 24px rgba(0, 255, 157, 0.7);
+}
+
+/* Dark Mode Range Slider */
+html.dark:not(.cyberpunk) input[type="range"]::-webkit-slider-runnable-track {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+html.dark:not(.cyberpunk) input[type="range"]::-moz-range-track {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+html.dark:not(.cyberpunk) input[type="range"]::-webkit-slider-thumb {
+  background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
+  border: 2px solid #0A0A0E;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+}
+html.dark:not(.cyberpunk) input[type="range"]::-moz-range-thumb {
+  background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
+  border: 2px solid #0A0A0E;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+}
+
+/* Light Mode Range Slider */
+html.light input[type="range"]::-webkit-slider-runnable-track {
+  background: #cbd5e1;
+  border: 1px solid #94a3b8;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+html.light input[type="range"]::-moz-range-track {
+  background: #cbd5e1;
+  border: 1px solid #94a3b8;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+html.light input[type="range"]::-webkit-slider-thumb {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.4);
+}
+html.light input[type="range"]::-moz-range-thumb {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.4);
+}
+
+/* ==========================================================================
+   HUD Sci-Fi Corner Brackets & Precision Laboratory Accents
+   ========================================================================== */
+.hud-bracket-card {
+  position: relative;
+}
+
+.hud-bracket-card::before,
+.hud-bracket-card::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  transition: border-color 0.22s ease, width 0.22s ease, height 0.22s ease;
+  z-index: 10;
+}
+
+.hud-bracket-card::before {
+  top: 0;
+  left: 0;
+  border-top: 2px solid rgba(0, 240, 255, 0.4);
+  border-left: 2px solid rgba(0, 240, 255, 0.4);
+  border-top-left-radius: 6px;
+}
+
+.hud-bracket-card::after {
+  bottom: 0;
+  right: 0;
+  border-bottom: 2px solid rgba(0, 240, 255, 0.4);
+  border-right: 2px solid rgba(0, 240, 255, 0.4);
+  border-bottom-right-radius: 6px;
+}
+
+.hud-bracket-card:hover::before,
+.hud-bracket-card:hover::after {
+  width: 16px;
+  height: 16px;
+  border-color: rgba(0, 240, 255, 0.9);
+}
+
+html.dark:not(.cyberpunk) .hud-bracket-card::before {
+  border-color: rgba(56, 189, 248, 0.3);
+}
+html.dark:not(.cyberpunk) .hud-bracket-card::after {
+  border-color: rgba(56, 189, 248, 0.3);
+}
+html.dark:not(.cyberpunk) .hud-bracket-card:hover::before,
+html.dark:not(.cyberpunk) .hud-bracket-card:hover::after {
+  border-color: rgba(56, 189, 248, 0.7);
+}
+
+html.light .hud-bracket-card::before {
+  border-color: rgba(2, 132, 199, 0.25);
+}
+html.light .hud-bracket-card::after {
+  border-color: rgba(2, 132, 199, 0.25);
+}
+html.light .hud-bracket-card:hover::before,
+html.light .hud-bracket-card:hover::after {
+  border-color: rgba(2, 132, 199, 0.6);
+}
+
+/* Quantum Mesh Grid Background Pattern */
+.quantum-grid-pattern {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(0, 240, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 240, 255, 0.04) 1px, transparent 1px);
+}
+
+html.dark:not(.cyberpunk) .quantum-grid-pattern {
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+html.light .quantum-grid-pattern {
+  background-image: 
+    linear-gradient(to right, rgba(2, 132, 199, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(2, 132, 199, 0.05) 1px, transparent 1px);
+}
+
+/* Live Apparatus Status Pip */
+.live-pulse-pip {
+  position: relative;
+  display: inline-block;
+}
+
+.live-pulse-pip::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  background: inherit;
+  opacity: 0.7;
+  animation: pip-pulse-ring 2.2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes pip-pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  60% { transform: scale(2.4); opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* Accessible Glowing Focus Rings */
+:focus-visible {
+  outline: 2px solid rgba(0, 240, 255, 0.75);
+  outline-offset: 2px;
+}
+html.light :focus-visible {
+  outline: 2px solid rgba(2, 132, 199, 0.75);
+  outline-offset: 2px;
 }
 
 .math-font {
@@ -616,11 +872,25 @@ canvas {
   animation: neon-border-flow 8s ease infinite;
 }
 
-/* Dynamic Interactive Physics Glass Card Effect */
+/* Dynamic Interactive Physics Glass Card Effect with Top Specular Refraction */
 .physics-glass-card {
   position: relative;
   overflow: hidden;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 8px 24px -6px rgba(0, 0, 0, 0.35);
   transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.28s ease;
+}
+
+html.light .physics-glass-card {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.9), 0 8px 20px -6px rgba(148, 163, 184, 0.3);
+}
+
+.physics-glass-card:hover {
+  transform: translateY(-3px);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.16), 0 18px 36px -8px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 240, 255, 0.1);
+}
+
+html.light .physics-glass-card:hover {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 1), 0 16px 32px -8px rgba(148, 163, 184, 0.45), 0 0 16px rgba(2, 132, 199, 0.1);
 }
 
 .physics-glass-card::before {
@@ -678,7 +948,7 @@ canvas {
 }
 
 /* Sleek High-Performance Quantum Cursor Animations */
-@keyframes quantum-pulse {
+@keyframes cursor-quantum-pulse {
   0%, 100% {
     transform: scale(1);
     opacity: 0.85;
@@ -714,8 +984,8 @@ canvas {
   }
 }
 
-.anim-quantum-pulse {
-  animation: quantum-pulse 2.4s ease-in-out infinite;
+.anim-cursor-pulse {
+  animation: cursor-quantum-pulse 2.4s ease-in-out infinite;
   will-change: transform, opacity;
 }
 
@@ -737,8 +1007,10 @@ canvas {
   .anim-hero-text-pan,
   .anim-border-neon,
   .anim-quantum-pulse,
+  .anim-cursor-pulse,
   .anim-photon-shockwave,
   .anim-reticle-subtle,
+  .live-pulse-pip::after,
   .physics-glass-card:hover::before {
     animation: none !important;
   }
@@ -746,8 +1018,10 @@ canvas {
 
 /* Custom KaTeX Equations & Typography Enhancements */
 .katex {
-  font-size: 1.04em !important;
-  text-rendering: optimizeLegibility;
+  font-size: 1.05em !important;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .katex-display {
@@ -845,3 +1119,185 @@ canvas {
 .anim-ai-sparkle-spin {
   animation: aiSparkleRotate 6s ease-in-out infinite;
 }
+
+@keyframes nemoEyeGlimmer {
+  0%, 100% {
+    filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.95)) drop-shadow(0 0 12px rgba(56, 189, 248, 0.6));
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 10px rgba(56, 189, 248, 1)) drop-shadow(0 0 18px rgba(34, 211, 238, 0.85));
+    transform: scale(1.03);
+  }
+}
+
+@keyframes nemoStarGlimmer {
+  0%, 100% {
+    opacity: 0.95;
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(0.85) rotate(15deg);
+  }
+}
+
+.anim-nemo-glimmer {
+  animation: nemoEyeGlimmer 2.6s ease-in-out infinite;
+}
+
+.anim-nemo-sparkle {
+  animation: nemoStarGlimmer 1.8s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   Nemo AI Tutor — Advanced Cool & Cute Neon Cyan Eyes Animations
+   ========================================================================== */
+
+/* 1. Living Organic Micro-Breathing Float (Cute Pixar-style life) */
+@keyframes nemoCuteEyeFloat {
+  0%, 100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  30% {
+    transform: translateY(-0.8px) scale(1.025, 0.99);
+  }
+  70% {
+    transform: translateY(0.4px) scale(0.99, 1.02);
+  }
+}
+
+/* 2. Crisp, Clean, Bright Round Glimmering Neon Cyan Light Eye (Plasma Bloom Removed) */
+@keyframes nemoNeonCyanPulse {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(0, 240, 255, 0.85), inset 0 0 4px rgba(255, 255, 255, 0.95);
+    filter: drop-shadow(0 0 2px rgba(0, 240, 255, 0.7));
+    opacity: 0.98;
+  }
+  50% {
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.95), inset 0 0 6px #ffffff;
+    filter: drop-shadow(0 0 3px rgba(0, 240, 255, 0.85));
+    opacity: 1;
+  }
+}
+
+/* 3. Futuristic Holographic Quantum Orbit Ring (Cool Sci-Fi) */
+@keyframes nemoNeonHoloRing {
+  0% {
+    transform: rotate(0deg);
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: rotate(360deg);
+    opacity: 0.55;
+  }
+}
+
+/* 4. Cute Primary Diamond-Star Sparkle Gleam (Cuter Anime/Pixar Highlight) */
+@keyframes nemoCuteStarGleam {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.95;
+    filter: drop-shadow(0 0 2px #ffffff);
+  }
+  35% {
+    transform: scale(1.18) rotate(14deg);
+    opacity: 1;
+    filter: drop-shadow(0 0 4px #ffffff) drop-shadow(0 0 5px #a5f3fc);
+  }
+  70% {
+    transform: scale(0.92) rotate(-10deg);
+    opacity: 0.85;
+    filter: drop-shadow(0 0 2px #ffffff);
+  }
+}
+
+/* 5. Playful Secondary Micro-Starlight Catchlight */
+@keyframes nemoMicroFleckOrbit {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-0.6px, -0.5px) scale(1.12);
+    opacity: 1;
+  }
+}
+
+/* 6. Cheerful Happy Lower Reflection Smile Arc */
+@keyframes nemoHappySmileBounce {
+  0%, 100% {
+    transform: scaleX(1) translateY(0);
+    opacity: 0.9;
+    filter: drop-shadow(0 1px 2px rgba(255, 255, 255, 0.9));
+  }
+  50% {
+    transform: scaleX(1.06) translateY(-0.4px);
+    opacity: 1;
+    filter: drop-shadow(0 1px 3px rgba(255, 255, 255, 1)) drop-shadow(0 0 4px #a5f3fc);
+  }
+}
+
+/* 7. Adorable Happy Blink/Wink Spring Curve (Joyful (◠‿◠) expression) */
+@keyframes nemoBlinkSpring {
+  0% {
+    transform: scaleY(0.1) scaleX(0.85);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scaleY(1.12) scaleX(1.04);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1) scaleX(1);
+    opacity: 1;
+  }
+}
+
+@keyframes nemoNeonCyanBlinkGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 3px #00f0ff);
+  }
+  50% {
+    filter: drop-shadow(0 0 5px #00f0ff);
+  }
+}
+
+/* Utility Animation Classes */
+.anim-nemo-cute-float {
+  animation: nemoCuteEyeFloat 3.6s ease-in-out infinite;
+}
+
+.anim-nemo-neon-eye {
+  animation: nemoNeonCyanPulse 2.6s ease-in-out infinite;
+}
+
+.anim-nemo-holo-ring {
+  animation: nemoNeonHoloRing 8s linear infinite;
+}
+
+.anim-nemo-star-gleam,
+.anim-nemo-neon-twinkle {
+  animation: nemoCuteStarGleam 2.2s ease-in-out infinite;
+}
+
+.anim-nemo-fleck-orbit {
+  animation: nemoMicroFleckOrbit 2.8s ease-in-out infinite;
+}
+
+.anim-nemo-smile-arc {
+  animation: nemoHappySmileBounce 2.4s ease-in-out infinite;
+}
+
+.anim-nemo-blink-spring {
+  animation: nemoBlinkSpring 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.anim-nemo-neon-blink {
+  animation: nemoNeonCyanBlinkGlow 1.2s ease-in-out infinite;
+}
+
+

@@ -309,6 +309,230 @@ export const CONCEPT_DERIVATIONS: Record<string, ConceptDerivationData> = {
     ],
     jeeInsight: 'Immersing the YDSE apparatus in a liquid of refractive index μ compresses the fringe width to β\' = β/μ because λ\' = λ/μ.',
   },
+  'lcr-circuit': {
+    conceptId: 'lcr-circuit',
+    title: 'Series LCR Resonance, Impedance & Quality Factor Derivation',
+    coreLaw: "Kirchhoff's Loop Rule: $L\\frac{d^2q}{dt^2} + R\\frac{dq}{dt} + \\frac{q}{C} = V_0 \\sin(\\omega t)$",
+    steps: [
+      {
+        stepNumber: 1,
+        title: 'Phasor Decomposition of Series Voltages',
+        latex: 'V(t) = V_R(t) + V_L(t) + V_C(t) \\implies V_0^2 = V_R^2 + (V_L - V_C)^2 = I_0^2 \\left[ R^2 + \\left(\\omega L - \\frac{1}{\\omega C}\\right)^2 \\right]',
+        explanation: 'In a series circuit, current I is common. VL leads I by π/2 while VC lags I by π/2, putting them in opposite directions on the phasor diagram.',
+      },
+      {
+        stepNumber: 2,
+        title: 'Total Circuit Impedance (Z) Formulation',
+        latex: 'Z = \\sqrt{R^2 + (X_L - X_C)^2} = \\sqrt{R^2 + \\left(\\omega L - \\frac{1}{\\omega C}\\right)^2}, \\quad \\tan\\phi = \\frac{X_L - X_C}{R}',
+        explanation: 'Impedance represents total opposition to AC current flow, with phase angle ϕ between voltage and current.',
+      },
+      {
+        stepNumber: 3,
+        title: 'Resonance Condition & Natural Frequency',
+        latex: 'X_L = X_C \\implies \\omega_0 L = \\frac{1}{\\omega_0 C} \\implies \\omega_0 = \\frac{1}{\\sqrt{LC}}, \\quad f_0 = \\frac{1}{2\\pi\\sqrt{LC}}',
+        explanation: 'At resonance, inductive and capacitive reactances cancel out completely. Impedance drops to its minimum pure resistance Z = R, maximizing current amplitude I_max = V_0 / R.',
+      },
+      {
+        stepNumber: 4,
+        title: 'Bandwidth (Δω) and Quality Factor (Q)',
+        latex: 'I(\\omega) = \\frac{I_0}{\\sqrt{2}} \\implies \\Delta\\omega = \\frac{R}{L} \\implies Q = \\frac{\\omega_0}{\\Delta\\omega} = \\frac{\\omega_0 L}{R} = \\frac{1}{R}\\sqrt{\\frac{L}{C}}',
+        explanation: 'Quality factor measures sharpness of resonance peak. High Q indicates high voltage magnification across L and C (V_L = Q V_0).',
+      },
+    ],
+    finalResultLatex: '\\boxed{Z = \\sqrt{R^2 + \\left(\\omega L - \\frac{1}{\\omega C}\\right)^2}, \\quad f_0 = \\frac{1}{2\\pi\\sqrt{LC}}, \\quad Q = \\frac{1}{R}\\sqrt{\\frac{L}{C}}}',
+    boundaryConditions: [
+      'Pure sinusoidal steady-state AC source driving series components.',
+      'At resonance, power factor cos(ϕ) = 1 (purely resistive in-phase power transfer).',
+      'If ω < ω₀, circuit is capacitive (current leads); if ω > ω₀, circuit is inductive (current lags).',
+    ],
+    jeeInsight: 'At resonance, individual voltages VL and VC can each be much greater than the applied source voltage by factor Q: V_L = V_C = Q V_source!',
+  },
+  'electric-field-charges': {
+    conceptId: 'electric-field-charges',
+    title: 'Electric Dipole Field Derivation (Axial & Equatorial Points)',
+    coreLaw: "Coulomb's Law & Principle of Superposition: $\\vec{E} = \\sum \\frac{k q_i}{r_i^2}\\hat{r}_i$",
+    steps: [
+      {
+        stepNumber: 1,
+        title: 'Axial Point (End-on) Superposition',
+        latex: 'E_{\\text{axial}} = \\frac{kq}{(r - a)^2} - \\frac{kq}{(r + a)^2} = kq\\left[\\frac{4ra}{(r^2 - a^2)^2}\\right] = \\frac{2k(2qa)r}{(r^2 - a^2)^2}',
+        explanation: 'A point at distance r from dipole center along its axis experiences opposing electric fields from +q and -q separated by 2a.',
+      },
+      {
+        stepNumber: 2,
+        title: 'Far-Field Axial Approximation (r >> a)',
+        latex: 'r \\gg a \\implies (r^2 - a^2)^2 \\approx r^4 \\implies E_{\\text{axial}} = \\frac{2k p r}{r^4} = \\frac{2k p}{r^3} = \\frac{1}{4\\pi\\epsilon_0}\\frac{2\\vec{p}}{r^3}',
+        explanation: 'Substitute dipole moment p = 2qa. Electric field falls off inversely with the cube of distance (1/r³).',
+      },
+      {
+        stepNumber: 3,
+        title: 'Equatorial (Broadside-on) Superposition',
+        latex: 'E_\\perp = 2 \\cdot \\frac{kq}{r^2 + a^2}\\cos\\theta = 2 \\cdot \\frac{kq}{r^2 + a^2}\\left(\\frac{a}{\\sqrt{r^2 + a^2}}\\right) = \\frac{k(2qa)}{(r^2 + a^2)^{3/2}}',
+        explanation: 'Vertical field components cancel due to symmetry; only horizontal components parallel to -p add constructively.',
+      },
+      {
+        stepNumber: 4,
+        title: 'Far-Field Equatorial Approximation',
+        latex: 'r \\gg a \\implies E_{\\text{equatorial}} = \\frac{kp}{r^3} = -\\frac{1}{4\\pi\\epsilon_0}\\frac{\\vec{p}}{r^3} = \\frac{1}{2} E_{\\text{axial}}',
+        explanation: 'Equatorial field is antiparallel to dipole moment vector p and has exactly half the magnitude of the axial field at the same distance.',
+      },
+    ],
+    finalResultLatex: '\\boxed{E_{\\text{axial}} = \\frac{1}{4\\pi\\epsilon_0}\\frac{2p}{r^3}, \\quad E_{\\text{equatorial}} = \\frac{1}{4\\pi\\epsilon_0}\\frac{p}{r^3}, \\quad E_{\\text{gen}} = \\frac{kp}{r^3}\\sqrt{1 + 3\\cos^2\\theta}}',
+    boundaryConditions: [
+      'Valid for short ideal dipole approximation r >> a.',
+      'Torque in uniform external field: τ = p × E; Potential energy: U = -p · E.',
+    ],
+    jeeInsight: 'Field decays as 1/r³ for dipoles, contrasted with 1/r² for isolated point monopoles.',
+  },
+  'lorentz-force-cyclotron': {
+    conceptId: 'lorentz-force-cyclotron',
+    title: 'Magnetic Lorentz Force, Helical Radius & Cyclotron Frequency Derivation',
+    coreLaw: "Lorentz Force Law: $\\vec{F} = q(\\vec{E} + \\vec{v} \\times \\vec{B})$",
+    steps: [
+      {
+        stepNumber: 1,
+        title: 'Centripetal Acceleration Balance (Perpendicular Motion)',
+        latex: 'q v_\\perp B = \\frac{m v_\\perp^2}{r} \\implies r = \\frac{m v_\\perp}{q B} = \\frac{p_\\perp}{q B} = \\frac{\\sqrt{2mK}}{q B}',
+        explanation: 'Magnetic force is perpendicular to velocity at every instant, performing zero mechanical work (dW = 0) while curving the charge into a circle.',
+      },
+      {
+        stepNumber: 2,
+        title: 'Time Period & Cyclotron Resonance Frequency (f_c)',
+        latex: 'T = \\frac{2\\pi r}{v_\\perp} = \\frac{2\\pi}{v_\\perp}\\left(\\frac{m v_\\perp}{q B}\\right) = \\frac{2\\pi m}{q B} \\implies f_c = \\frac{1}{T} = \\frac{q B}{2\\pi m}',
+        explanation: 'Crucial insight: Period T and frequency f_c are completely independent of particle speed v and orbit radius r (isochronism).',
+      },
+      {
+        stepNumber: 3,
+        title: 'Helical Pitch with Parallel Velocity Component',
+        latex: 'v_\\parallel = v\\cos\\theta, \\quad v_\\perp = v\\sin\\theta \\implies p = v_\\parallel T = (v\\cos\\theta)\\left(\\frac{2\\pi m}{q B}\\right) = \\frac{2\\pi m v\\cos\\theta}{q B}',
+        explanation: 'When velocity makes angle θ with magnetic field B, parallel velocity translates the circular orbit into a 3D helix.',
+      },
+    ],
+    finalResultLatex: '\\boxed{r = \\frac{mv\\sin\\theta}{qB}, \\quad f_c = \\frac{qB}{2\\pi m}, \\quad p = \\frac{2\\pi m v\\cos\\theta}{qB}}',
+    boundaryConditions: [
+      'Uniform steady magnetic field B perpendicular or inclined to velocity.',
+      'Non-relativistic regime (v << c) so mass m remains rest mass m₀.',
+    ],
+    jeeInsight: 'Because frequency fc does not depend on orbit radius, particles accelerate across the dees in a cyclotron at constant RF frequency until relativistic mass increase kicks in.',
+  },
+  'ray-optics-lens-prism': {
+    conceptId: 'ray-optics-lens-prism',
+    title: "Lens Maker's Formula & Minimum Prism Deviation Derivation",
+    coreLaw: "Snell's Law at Spherical Boundary: $\\frac{\\mu_2}{v} - \\frac{\\mu_1}{u} = \\frac{\\mu_2 - \\mu_1}{R}$",
+    steps: [
+      {
+        stepNumber: 1,
+        title: 'Refraction at First Spherical Surface (Radius R1)',
+        latex: '\\frac{\\mu}{v_1} - \\frac{1}{u} = \\frac{\\mu - 1}{R_1}',
+        explanation: 'Light passes from medium (air, μ₁ = 1) into lens (refractive index μ) forming virtual intermediate image at v1.',
+      },
+      {
+        stepNumber: 2,
+        title: 'Refraction at Second Spherical Surface (Radius R2)',
+        latex: '\\frac{1}{v} - \\frac{\\mu}{v_1} = \\frac{1 - \\mu}{R_2} = -\\frac{\\mu - 1}{R_2}',
+        explanation: 'Intermediate image v1 acts as virtual object for second surface, refracting back into air.',
+      },
+      {
+        stepNumber: 3,
+        title: 'Superposition & Thin Lens Thinness Limit',
+        latex: '\\left(\\frac{\\mu}{v_1} - \\frac{1}{u}\\right) + \\left(\\frac{1}{v} - \\frac{\\mu}{v_1}\\right) = (\\mu - 1)\\left(\\frac{1}{R_1} - \\frac{1}{R_2}\\right) \\implies \\frac{1}{v} - \\frac{1}{u} = (\\mu - 1)\\left(\\frac{1}{R_1} - \\frac{1}{R_2}\\right)',
+        explanation: 'Adding the two surface refraction equations eliminates intermediate image distance v1 for a thin lens (thickness t → 0).',
+      },
+      {
+        stepNumber: 4,
+        title: 'Focal Length Definition (u → -∞, v = f)',
+        latex: '\\frac{1}{f} - 0 = (\\mu - 1)\\left(\\frac{1}{R_1} - \\frac{1}{R_2}\\right) \\implies \\frac{1}{f} = (\\mu - 1)\\left(\\frac{1}{R_1} - \\frac{1}{R_2}\\right)',
+        explanation: 'When incident rays are parallel (u = ∞), they converge at principal focus v = f.',
+      },
+    ],
+    finalResultLatex: '\\boxed{\\frac{1}{f} = (\\mu - 1)\\left(\\frac{1}{R_1} - \\frac{1}{R_2}\\right), \\quad \\mu = \\frac{\\sin\\left(\\frac{A + \\delta_m}{2}\\right)}{\\sin\\left(\\frac{A}{2}\\right)}}',
+    boundaryConditions: [
+      'Paraxial rays (angles small so sin θ ≈ tan θ ≈ θ).',
+      'Lens thickness t negligible compared to radii R1 and R2.',
+      'Sign convention: light travels left to right; distances against light are negative.',
+    ],
+    jeeInsight: 'If an equiconvex lens of focal length f is cut transversely into two plano-convex lenses, each half has double focal length f\' = 2f and half the power P\' = P/2.',
+  },
+  'thermo-pv-cycle': {
+    conceptId: 'thermo-pv-cycle',
+    title: 'Carnot Heat Engine Cycle & Maximum Thermodynamic Efficiency Derivation',
+    coreLaw: "First & Second Laws of Thermodynamics: $dQ = dU + dW, \\quad \\Delta S_{\\text{cycle}} = 0$",
+    steps: [
+      {
+        stepNumber: 1,
+        title: 'Step 1: Isothermal Expansion at High Temperature TH',
+        latex: 'T_H = \\text{const} \\implies \\Delta U_1 = 0 \\implies Q_H = W_1 = n R T_H \\ln\\left(\\frac{V_2}{V_1}\\right)',
+        explanation: 'Gas absorbs heat QH from reservoir at TH, expanding isothermally from V1 to V2.',
+      },
+      {
+        stepNumber: 2,
+        title: 'Step 2: Adiabatic Expansion from TH to TC',
+        latex: 'Q = 0 \\implies T_H V_2^{\\gamma - 1} = T_C V_3^{\\gamma - 1} \\implies W_2 = \\frac{n R (T_H - T_C)}{\\gamma - 1}',
+        explanation: 'Gas expands adiabatically, doing work against internal energy and dropping in temperature.',
+      },
+      {
+        stepNumber: 3,
+        title: 'Step 3: Isothermal Compression at Low Temperature TC',
+        latex: 'T_C = \\text{const} \\implies Q_C = -W_3 = n R T_C \\ln\\left(\\frac{V_3}{V_4}\\right)',
+        explanation: 'Gas rejects heat QC to cold sink at TC while being compressed.',
+      },
+      {
+        stepNumber: 4,
+        title: 'Step 4: Adiabatic Compression returning to TH',
+        latex: 'T_C V_4^{\\gamma - 1} = T_H V_1^{\\gamma - 1} \\implies \\frac{V_2}{V_1} = \\frac{V_3}{V_4} \\implies \\frac{Q_C}{Q_H} = \\frac{T_C}{T_H}',
+        explanation: 'Equating adiabatic volume ratios connects heat rejection ratio directly to absolute temperatures.',
+      },
+      {
+        stepNumber: 5,
+        title: 'Net Work & Carnot Thermal Efficiency (η)',
+        latex: '\\eta = \\frac{W_{\\text{net}}}{Q_H} = \\frac{Q_H - Q_C}{Q_H} = 1 - \\frac{Q_C}{Q_H} = 1 - \\frac{T_C}{T_H}',
+        explanation: 'No heat engine operating between two thermal reservoirs can be more efficient than a reversible Carnot engine.',
+      },
+    ],
+    finalResultLatex: '\\boxed{\\eta_{\\text{Carnot}} = 1 - \\frac{T_C}{T_H} = \\frac{T_H - T_C}{T_H}, \\quad \\frac{Q_H}{T_H} = \\frac{Q_C}{T_C}}',
+    boundaryConditions: [
+      'Reversible quasi-static thermodynamic processes throughout.',
+      'Absolute temperatures TH and TC expressed in Kelvin.',
+    ],
+    jeeInsight: 'To increase Carnot efficiency most effectively, lowering sink temperature TC yields a greater percentage boost than raising source temperature TH by the same amount!',
+  },
+  'bohr-atom-spectrum': {
+    conceptId: 'bohr-atom-spectrum',
+    title: 'Bohr Hydrogen Energy Quantization & Rydberg Spectral Formula Derivation',
+    coreLaw: "Bohr Angular Momentum Postulate: $L = m v r = \\frac{n h}{2\\pi} = n \\hbar$",
+    steps: [
+      {
+        stepNumber: 1,
+        title: 'Coulomb Force Provides Centripetal Acceleration',
+        latex: '\\frac{1}{4\\pi\\epsilon_0}\\frac{e^2}{r^2} = \\frac{m v^2}{r} \\implies m v^2 r = \\frac{e^2}{4\\pi\\epsilon_0}',
+        explanation: 'Planetary orbit equilibrium between electrostatics and circular motion dynamics.',
+      },
+      {
+        stepNumber: 2,
+        title: 'Bohr Quantized Orbital Radii (r_n)',
+        latex: 'v = \\frac{n h}{2\\pi m r} \\implies m\\left(\\frac{n^2 h^2}{4\\pi^2 m^2 r^2}\\right)r = \\frac{e^2}{4\\pi\\epsilon_0} \\implies r_n = \\frac{\\epsilon_0 h^2}{\\pi m e^2} \\cdot n^2 = a_0 n^2 \\approx 0.529 n^2 \\text{ \\AA}',
+        explanation: 'Substituting orbital velocity into centripetal balance gives radii scaling with n².',
+      },
+      {
+        stepNumber: 3,
+        title: 'Total Energy Quantization (E_n)',
+        latex: 'K = \\frac{1}{2}mv^2 = \\frac{e^2}{8\\pi\\epsilon_0 r}, \\quad U = -\\frac{e^2}{4\\pi\\epsilon_0 r} \\implies E = K + U = -\\frac{e^2}{8\\pi\\epsilon_0 r_n} = -\\frac{m e^4}{8 \\epsilon_0^2 h^2} \\cdot \\frac{1}{n^2} = -\\frac{13.6}{n^2} \\text{ eV}',
+        explanation: 'Total energy is negative, confirming the electron is gravitationally/electrostatically bound to the nucleus.',
+      },
+      {
+        stepNumber: 4,
+        title: 'Spectral Transition & Rydberg Formula',
+        latex: '\\Delta E = E_{n_2} - E_{n_1} = h\\nu = \\frac{hc}{\\lambda} \\implies \\frac{1}{\\lambda} = R_\\infty \\left(\\frac{1}{n_1^2} - \\frac{1}{n_2^2}\\right), \\quad R_\\infty = \\frac{m e^4}{8\\epsilon_0^2 h^3 c} \\approx 1.097 \\times 10^7 \\text{ m}^{-1}',
+        explanation: 'Photon emission upon de-excitation matches the empirical Balmer, Lyman, and Paschen spectral series.',
+      },
+    ],
+    finalResultLatex: '\\boxed{r_n = 0.529 n^2 \\text{ \\AA}, \\quad E_n = -\\frac{13.6 Z^2}{n^2} \\text{ eV}, \\quad \\frac{1}{\\lambda} = R Z^2 \\left(\\frac{1}{n_1^2} - \\frac{1}{n_2^2}\\right)}',
+    boundaryConditions: [
+      'Single-electron hydrogenic systems (H, He⁺, Li²⁺, Be³⁺) with nuclear charge Z.',
+      'Circular orbits under classical mechanics except for quantum angular momentum condition.',
+    ],
+    jeeInsight: 'Total energy En is equal in magnitude to Kinetic energy (E = -K) and equal to half the Potential energy (E = U / 2) by the Virial Theorem.',
+  },
 };
 
 export const getConceptDerivation = (conceptId: string): ConceptDerivationData => {

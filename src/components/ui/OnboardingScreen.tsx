@@ -1,23 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Sparkles, X } from 'lucide-react';
 
 interface OnboardingScreenProps {
   onComplete: (name: string) => void;
+  onClose?: () => void;
+  currentName?: string;
 }
 
-export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
-  const [name, setName] = useState('');
+export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete, onClose, currentName = '' }) => {
+  const [name, setName] = useState(currentName);
   const [mounted, setMounted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
+    if (currentName) {
+      setName(currentName);
+    }
     const timer = setTimeout(() => {
       inputRef.current?.focus();
     }, 100);
     return () => clearTimeout(timer);
-  }, []);
+  }, [currentName]);
 
   const handleConfirm = () => {
     const trimmed = name.trim();
@@ -34,7 +39,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
 
   return (
     <div
-      className="fixed inset-0 z-[100] w-screen h-screen bg-[#070709] flex flex-col items-center justify-center p-4 select-none"
+      className="fixed inset-0 z-[9999] w-screen h-screen bg-[#070709] flex flex-col items-center justify-center p-4 select-none"
       onKeyDown={(e) => e.stopPropagation()}
     >
       {/* Dynamic Background */}
@@ -50,13 +55,23 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
         className="w-full max-w-md bg-white/[0.02] border border-white/[0.05] p-8 rounded-3xl backdrop-blur-xl relative z-10 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
+        {Boolean(currentName) && onClose && (
+          <button
+            onClick={onClose}
+            className="absolute top-6 right-6 p-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-zinc-400 hover:text-white transition cursor-pointer"
+            title="Close Profile"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+
         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-emerald-500 flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/20">
           <Sparkles className="w-6 h-6 text-white" />
         </div>
 
         <h1 className="text-3xl font-bold text-white mb-2">Welcome to AI Physics Lab</h1>
         <p className="text-zinc-400 mb-8 leading-relaxed">
-          Before we begin your interactive 3D physics journey, what should your AI Tutor call you?
+          Before we begin your interactive 3D physics journey, what should Nemo, your AI Tutor, call you?
         </p>
 
         {/* Div container preventing any native browser form submit and page reload */}
@@ -92,6 +107,20 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           >
             <span>Start Learning</span>
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const guestName = 'Physics Scholar';
+              try {
+                localStorage.setItem('ai_physics_user_name', guestName);
+              } catch {}
+              onComplete(guestName);
+            }}
+            className="w-full py-2.5 text-xs text-zinc-400 hover:text-white transition font-medium text-center cursor-pointer"
+          >
+            Skip and explore as Guest →
           </button>
         </div>
       </motion.div>

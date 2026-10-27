@@ -74,15 +74,18 @@ export const InteractiveLatexBlock: React.FC<InteractiveLatexBlockProps> = ({
     // Highlight target variable with KaTeX color
     // e.g. replacing 'u' or '\theta' or 'g' with '\textcolor{#38bdf8}{\mathbf{...}}'
     const target = focusedVariable;
-    if (target.length === 1 && /[a-zA-Z]/.test(target)) {
-      // Single letter variable - replace occurrences that are whole tokens or not inside macros
-      const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`(?<!\\\\[a-zA-Z]*)(${escaped})(?![a-zA-Z])`, 'g');
-      latex = latex.replace(regex, `\\textcolor{#38bdf8}{\\mathbf{$1}}`);
-    } else if (target.startsWith('\\')) {
+    if (target.startsWith('\\')) {
       const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(`(${escaped})`, 'g');
       latex = latex.replace(regex, `\\textcolor{#38bdf8}{\\mathbf{$1}}`);
+    } else if (target.length === 1 && /[a-zA-Z]/.test(target)) {
+      // Safely match single letter variable not preceded by backslash macro
+      latex = latex.replace(/(\\[a-zA-Z]+|[a-zA-Z]+|[^a-zA-Z\\]+)/g, (token) => {
+        if (token === target) {
+          return `\\textcolor{#38bdf8}{\\mathbf{${token}}}`;
+        }
+        return token;
+      });
     }
     return latex;
   }, [formula.latex, focusedVariable]);
@@ -100,8 +103,12 @@ export const InteractiveLatexBlock: React.FC<InteractiveLatexBlockProps> = ({
       const sym = p.symbol;
 
       if (sym && sym.length === 1) {
-        const regex = new RegExp(`(?<!\\\\[a-zA-Z]*)(${sym})(?![a-zA-Z])`, 'g');
-        substituted = substituted.replace(regex, `(${formattedVal})`);
+        substituted = substituted.replace(/(\\[a-zA-Z]+|[a-zA-Z]+|[^a-zA-Z\\]+)/g, (token) => {
+          if (token === sym) {
+            return `(${formattedVal})`;
+          }
+          return token;
+        });
       } else if (sym && sym.startsWith('\\')) {
         const regex = new RegExp(`(${sym.replace(/\\/g, '\\\\')})`, 'g');
         substituted = substituted.replace(regex, `(${formattedVal}^\\circ)`);

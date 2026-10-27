@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PhysicsConcept, CategoryId } from '../../types';
 import { CHAPTERS, CATEGORIES, ALL_CONCEPTS, isClass11Chapter, isClass12Chapter } from '../../data/allConcepts';
+import { SyllabusCurriculum, JEE_SYLLABUS_DIRECTORY } from '../../data/jeeSyllabusDirectory';
 import { getHomePageSections, getLabPageSections, PageSectionItem } from '../../data/navigationRegistry';
 import { useTheme } from '../../context/ThemeContext';
 import { generateChapterPdf } from '../../utils/pdfGenerator';
@@ -35,6 +36,7 @@ import {
   LayoutGrid,
   TrendingUp,
   ShieldCheck,
+  GraduationCap,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -107,7 +109,7 @@ const CATEGORY_CONFIG: Record<
   },
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({
+const SidebarComponent: React.FC<SidebarProps> = ({
   currentConcept,
   onSelectConcept,
   favorites,
@@ -123,6 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { isDark, isCyberpunk, toggleTheme } = useTheme();
   const [navMode, setNavMode] = useState<'sections' | 'syllabus'>('syllabus');
+  const [selectedCurriculum, setSelectedCurriculum] = useState<SyllabusCurriculum | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<CategoryId | 'all'>('all');
   const [selectedClass, setSelectedClass] = useState<'all' | 'class-11' | 'class-12'>('all');
@@ -237,13 +240,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return getLabPageSections(currentConcept);
   }, [currentView, currentConcept]);
 
-  // Filter concepts based on search, category branch, and status filters
+  // Filter concepts based on search, category branch, curriculum, and status filters
   const filteredData = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
     return CHAPTERS.map((chapter) => {
       // Check branch match
       if (selectedCategory !== 'all' && chapter.category !== selectedCategory) {
+        return null;
+      }
+
+      // Check curriculum match
+      if (selectedCurriculum === 'cbse_12' && !isClass12Chapter(chapter.id)) {
         return null;
       }
 
@@ -283,7 +291,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
         concepts: chapterConcepts,
       };
     }).filter(Boolean) as { chapter: (typeof CHAPTERS)[0]; concepts: PhysicsConcept[] }[];
-  }, [searchQuery, selectedCategory, selectedClass, activeFilter, favorites, completedConcepts]);
+  }, [searchQuery, selectedCategory, selectedCurriculum, selectedClass, activeFilter, favorites, completedConcepts]);
+
+  const sidebarClassCounts = useMemo(() => {
+    let c11 = 0;
+    let c12 = 0;
+    CHAPTERS.forEach((ch) => {
+      if (selectedCategory !== 'all' && ch.category !== selectedCategory) return;
+      if (selectedCurriculum === 'cbse_12' && !isClass12Chapter(ch.id)) return;
+      if (isClass11Chapter(ch.id)) c11++;
+      if (isClass12Chapter(ch.id)) c12++;
+    });
+    return {
+      all: c11 + c12,
+      class11: c11,
+      class12: c12,
+    };
+  }, [selectedCategory, selectedCurriculum]);
 
   const totalMatchingConcepts = useMemo(() => {
     return filteredData.reduce((acc, item) => acc + item.concepts.length, 0);
@@ -654,43 +678,71 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
+            {/* Curriculum Portion Toggle (All / CBSE 12 / JEE Main / JEE Adv) */}
+            <div className="flex items-center gap-1 pt-2 overflow-x-auto no-scrollbar">
+              {[
+                { id: 'all', label: 'All Syllabi' },
+                { id: 'cbse_12', label: 'CBSE 12' },
+                { id: 'jee_main', label: 'JEE Main' },
+                { id: 'jee_advanced', label: 'JEE Adv' },
+              ].map((cur) => (
+                <button
+                  key={cur.id}
+                  onClick={() => {
+                    const next = selectedCurriculum === cur.id && cur.id !== 'all' ? 'all' : (cur.id as any);
+                    setSelectedCurriculum(next);
+                    if (next === 'cbse_12') setSelectedClass('class-12');
+                  }}
+                  className={`flex-1 py-1 px-1 rounded-md text-[10px] font-bold transition text-center min-h-[26px] whitespace-nowrap ${
+                    selectedCurriculum === cur.id
+                      ? 'bg-cyan-500 text-slate-950 font-black shadow-xs'
+                      : isDark
+                      ? 'bg-[#14141E] text-zinc-400 hover:text-zinc-200 border border-white/[0.04]'
+                      : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+                  }`}
+                >
+                  {cur.label}
+                </button>
+              ))}
+            </div>
+
             {/* Class Portion Toggle Buttons (All / Class 11 / Class 12) */}
-            <div className="flex items-center gap-1 pt-2">
+            <div className="flex items-center gap-1 pt-1.5">
               <button
                 onClick={() => handleToggleClass('all')}
                 className={`flex-1 py-1 px-1 rounded-md text-[10px] font-bold transition text-center min-h-[26px] ${
                   selectedClass === 'all'
-                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shadow-xs'
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shadow-xs font-black'
                     : isDark
                     ? 'bg-[#14141E] text-zinc-400 hover:text-zinc-200 border border-white/[0.04]'
                     : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
                 }`}
               >
-                All (21)
+                All ({sidebarClassCounts.all})
               </button>
               <button
                 onClick={() => handleToggleClass('class-11')}
                 className={`flex-1 py-1 px-1 rounded-md text-[10px] font-bold transition text-center min-h-[26px] ${
                   selectedClass === 'class-11'
-                    ? 'bg-blue-500/25 text-blue-400 border border-blue-400/50 shadow-xs'
+                    ? 'bg-blue-500/25 text-blue-400 border border-blue-400/50 shadow-xs font-black'
                     : isDark
                     ? 'bg-[#14141E] text-zinc-400 hover:text-zinc-200 border border-white/[0.04]'
                     : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
                 }`}
               >
-                Class 11 (14)
+                Class 11 ({sidebarClassCounts.class11})
               </button>
               <button
                 onClick={() => handleToggleClass('class-12')}
                 className={`flex-1 py-1 px-1 rounded-md text-[10px] font-bold transition text-center min-h-[26px] ${
                   selectedClass === 'class-12'
-                    ? 'bg-purple-500/25 text-purple-400 border border-purple-400/50 shadow-xs'
+                    ? 'bg-purple-500/25 text-purple-400 border border-purple-400/50 shadow-xs font-black'
                     : isDark
                     ? 'bg-[#14141E] text-zinc-400 hover:text-zinc-200 border border-white/[0.04]'
                     : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
                 }`}
               >
-                Class 12 (7)
+                Class 12 ({sidebarClassCounts.class12})
               </button>
             </div>
           </div>
@@ -1198,3 +1250,5 @@ export const Sidebar: React.FC<SidebarProps> = ({
     </>
   );
 };
+
+export const Sidebar = React.memo(SidebarComponent);

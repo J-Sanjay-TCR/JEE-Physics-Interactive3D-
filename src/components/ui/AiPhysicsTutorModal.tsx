@@ -29,10 +29,23 @@ import {
   Camera,
   Eye,
   ChevronDown,
+  Navigation,
+  Compass,
+  Maximize2,
+  Minimize2,
+  Play,
+  Pause,
+  RotateCcw,
+  Sliders,
+  LineChart,
+  Award,
+  HelpCircle,
+  FolderArchive,
+  LayoutDashboard,
 } from 'lucide-react';
 import { MathMarkdown } from './MathMarkdown';
 import { Latex } from './Latex';
-import { getConceptDerivation } from '../../data/conceptDerivations';
+import { getConceptDerivation, ConceptDerivationData } from '../../data/conceptDerivations';
 import { captureLive3dScreen } from '../../utils/canvasCapture';
 import {
   playPcmBase64,
@@ -48,6 +61,17 @@ import {
 } from '../../utils/audioPlayer';
 import { AudioWaveformVisualizer } from './AudioWaveformVisualizer';
 import { speechLock, safelyDestroySpeechRecognition } from '../../utils/speechLock';
+import { AliveAiTutorAvatar } from './AliveAiTutorAvatar';
+import {
+  detectNemoCommand,
+  findMatchingConcept,
+  NemoCommandResult,
+  ExecutedNemoAction,
+  LabTabKey,
+  ModalType,
+  SimControlAction,
+  NemoCommandContext,
+} from '../../utils/nemoCommandEngine';
 
 interface WebSource {
   title: string;
@@ -60,6 +84,7 @@ interface Message {
   isVoiceInput?: boolean;
   thinkingModeActive?: boolean;
   webSources?: WebSource[];
+  executedAction?: ExecutedNemoAction;
 }
 
 interface AiPhysicsTutorModalProps {
@@ -74,6 +99,31 @@ interface AiPhysicsTutorModalProps {
   onClearInitialQuestion?: () => void;
   onSelectConcept?: (concept: PhysicsConcept) => void;
   currentView?: 'home' | 'lab' | 'arena';
+  // Advanced App Navigation & Control Callbacks
+  onNavigateTab?: (tab: LabTabKey) => void;
+  onSetView?: (view: 'home' | 'lab' | 'arena') => void;
+  onScrollToSection?: (sectionId: string) => void;
+  onOpenFormulaHub?: () => void;
+  onOpenPdfModal?: (chapterId?: string) => void;
+  onOpenSyllabusDirectory?: () => void;
+  onOpenAnalytics?: () => void;
+  onOpenTutorial?: () => void;
+  onOpenShortcuts?: () => void;
+  onTogglePlay?: () => void;
+  onResetSimulation?: () => void;
+  onToggleVectors?: () => void;
+  onToggleGrid?: () => void;
+  onToggleTrajectory?: () => void;
+  onToggleFocusMode?: () => void;
+  onChangeSpeed?: (speed: number) => void;
+  onChangeParam?: (key: string, value: number) => void;
+  isPlaying?: boolean;
+  showVectors?: boolean;
+  showGrid?: boolean;
+  showTrajectory?: boolean;
+  isFocusMode?: boolean;
+  speed?: number;
+  activeLabTab?: string;
 }
 
 export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
@@ -88,10 +138,37 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
   onClearInitialQuestion,
   onSelectConcept,
   currentView = 'home',
+  onNavigateTab,
+  onSetView,
+  onScrollToSection,
+  onOpenFormulaHub,
+  onOpenPdfModal,
+  onOpenSyllabusDirectory,
+  onOpenAnalytics,
+  onOpenTutorial,
+  onOpenShortcuts,
+  onTogglePlay,
+  onResetSimulation,
+  onToggleVectors,
+  onToggleGrid,
+  onToggleTrajectory,
+  onToggleFocusMode,
+  onChangeSpeed,
+  onChangeParam,
+  isPlaying = false,
+  showVectors = true,
+  showGrid = true,
+  showTrajectory = true,
+  isFocusMode = false,
+  speed = 1,
+  activeLabTab = 'controls',
 }) => {
   const [tutorTab, setTutorTab] = useState<'chat' | 'derivation' | 'shortcuts'>('chat');
   const [question, setQuestion] = useState('');
   const [isConceptDropdownOpen, setIsConceptDropdownOpen] = useState(false);
+  const [isDocked, setIsDocked] = useState<boolean>(false);
+  const [activeDerivationConcept, setActiveDerivationConcept] = useState<PhysicsConcept>(currentConcept);
+  const [isDerivationPickerOpen, setIsDerivationPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [liveCapturedSnapshot, setLiveCapturedSnapshot] = useState<string | null>(null);
@@ -713,33 +790,49 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
     }
   };
 
-  // Derivation data for active concept
-  const derivation = useMemo(() => {
-    return getConceptDerivation(currentConcept.id);
+  // Sync active derivation concept when current concept changes
+  useEffect(() => {
+    setActiveDerivationConcept(currentConcept);
   }, [currentConcept.id]);
 
-  // Initial welcome greeting - Casual English Tutor Persona
+  // Derivation data for active concept
+  const derivation = useMemo(() => {
+    return getConceptDerivation(activeDerivationConcept.id);
+  }, [activeDerivationConcept.id]);
+
+  // Initial welcome greeting - Casual English Tutor Persona with Voice Navigation Capabilities
   const initialGreeting = useMemo(() => {
     const formulasList = currentConcept.formulas
       .slice(0, 2)
-      .map((f) => `$\mathbf{${f.name}:} \quad ${f.latex}$`)
+      .map((f) => `$\\mathbf{${f.name}:} \\quad ${f.latex}$`)
       .join('\n\n');
 
-    const greetingStr = userName ? `Oh wow, hey there ${userName}!` : `Oh wow, hey there!`;
+    const greetingStr = userName
+      ? `Oh wow, hey there ${userName}! I'm **Nemo**, your live AI Physics tutor and lab controller!`
+      : `Oh wow, hey there! I'm **Nemo**, your live AI Physics tutor and lab controller!`;
 
     return `${greetingStr} Welcome to the deep dive on **${currentConcept.title}**! Let's unpack the physics together so you get 100% crystal-clear clarity.
 
 ### 📐 Master Formula:
 ${formulasList}
 
-💡 **What do you want to explore first?**
-- *"Right, so why does this formula actually work in real life?"*
-- *"What's the #1 trap that catches almost everyone in JEE on this topic?"*
-- *"Give me a 30-second shortcut to crack numerical questions here."*
-- *"Derive the calculus step-by-step with real-life analogies."*
+🎙️ **You can ask me anything or control the app via Voice Commands:**
+- *"Navigate to derivations"* or *"Show step-by-step calculus proof"*
+- *"Take me to Parameters & HUD Controls"* or *"Go to Analytical Graphs"*
+- *"Open Practice Questions"* or *"Show JEE Strategy & Exam Traps"*
+- *"Open Complete Syllabus Directory"* or *"Show Formula Hub"*
+- *"Play simulation"* / *"Pause"* / *"Reset"* / *"Toggle vectors"*
+- *"Dock Nemo to side"* to view the live 3D apparatus alongside our chat!
 
-Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
-  }, [currentConcept]);
+Hit **Voice Doubt** to speak freely anytime!`;
+  }, [currentConcept, userName]);
+
+  // Safety guard: if modal opens without a registered name, close immediately
+  useEffect(() => {
+    if (isOpen && !userName) {
+      onClose();
+    }
+  }, [isOpen, userName, onClose]);
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -880,7 +973,93 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
     // Barge-in: cut off any playing audio or stream immediately
     handleBargeIn('new_question');
     unlockAudio();
-    setTutorTab('chat');
+
+    // 1. Detect command intent for app navigation, derivations, or simulation controls
+    const commandContext: NemoCommandContext = {
+      currentConcept,
+      currentParams,
+      allConcepts,
+      currentView,
+      activeTab: activeLabTab,
+      isPlaying,
+      showVectors,
+      showGrid,
+      showTrajectory,
+      isFocusMode,
+      speed,
+      userName,
+    };
+
+    const cmd = detectNemoCommand(textToSend, commandContext);
+    let initialExecutedAction: ExecutedNemoAction | undefined = undefined;
+
+    if (cmd.isCommand) {
+      // Execute the navigation or control action immediately!
+      if (cmd.actionType === 'navigate_derivation') {
+        setTutorTab('derivation');
+        if (cmd.targetConcept) {
+          setActiveDerivationConcept(cmd.targetConcept);
+        }
+        if (onNavigateTab) {
+          onNavigateTab('equations');
+        }
+        if (onScrollToSection) {
+          onScrollToSection('section-equations');
+        }
+      } else if (cmd.actionType === 'navigate_tab' && cmd.targetTab) {
+        setTutorTab('chat');
+        if (onNavigateTab) onNavigateTab(cmd.targetTab);
+        if (cmd.targetSectionId && onScrollToSection) onScrollToSection(cmd.targetSectionId);
+      } else if (cmd.actionType === 'navigate_section' && cmd.targetSectionId) {
+        if (onScrollToSection) onScrollToSection(cmd.targetSectionId);
+      } else if (cmd.actionType === 'navigate_view' && cmd.targetView) {
+        if (onSetView) onSetView(cmd.targetView);
+      } else if (cmd.actionType === 'open_modal' && cmd.targetModal) {
+        if (cmd.targetModal === 'formula_hub') onOpenFormulaHub?.();
+        else if (cmd.targetModal === 'pdf_modal') onOpenPdfModal?.();
+        else if (cmd.targetModal === 'syllabus_directory') onOpenSyllabusDirectory?.();
+        else if (cmd.targetModal === 'analytics') onOpenAnalytics?.();
+        else if (cmd.targetModal === 'shortcuts') onOpenShortcuts?.();
+        else if (cmd.targetModal === 'tutorial') onOpenTutorial?.();
+      } else if (cmd.actionType === 'switch_concept' && cmd.targetConcept) {
+        if (onSelectConcept) onSelectConcept(cmd.targetConcept);
+        if (onSetView) onSetView('lab');
+      } else if (cmd.actionType === 'control_simulation' && cmd.controlAction) {
+        if (cmd.controlAction === 'play') {
+          if (!isPlaying) onTogglePlay?.();
+        } else if (cmd.controlAction === 'pause') {
+          if (isPlaying) onTogglePlay?.();
+        } else if (cmd.controlAction === 'toggle_play') {
+          onTogglePlay?.();
+        } else if (cmd.controlAction === 'reset') {
+          onResetSimulation?.();
+        } else if (cmd.controlAction === 'toggle_vectors') {
+          onToggleVectors?.();
+        } else if (cmd.controlAction === 'toggle_grid') {
+          onToggleGrid?.();
+        } else if (cmd.controlAction === 'toggle_trajectory') {
+          onToggleTrajectory?.();
+        } else if (cmd.controlAction === 'toggle_focus') {
+          onToggleFocusMode?.();
+        } else if (cmd.controlAction === 'speed_up') {
+          onChangeSpeed?.(Math.min(3, (speed || 1) + 0.5));
+        } else if (cmd.controlAction === 'slow_down') {
+          onChangeSpeed?.(Math.max(0.2, (speed || 1) - 0.5));
+        }
+      }
+
+      initialExecutedAction = {
+        id: `act-${Date.now()}`,
+        type: cmd.actionType!,
+        title: cmd.actionLabel,
+        description: cmd.spokenConfirmation,
+        target: cmd.targetSectionId || cmd.targetTab || cmd.targetModal || cmd.targetConcept?.title,
+        badge: cmd.actionType === 'navigate_derivation' ? 'Derivation' : 'Command Executed',
+        timestamp: Date.now(),
+      };
+    } else {
+      setTutorTab('chat');
+    }
 
     const userMsg: Message = { role: 'user', text: textToSend, isVoiceInput: wasVoiceInput };
     const assistantMsgIndex = messages.length + 1;
@@ -890,6 +1069,7 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
       role: 'assistant',
       text: '',
       thinkingModeActive: thinkingMode,
+      executedAction: initialExecutedAction,
     };
 
     const newMessages: Message[] = [...messages, userMsg, initialAssistantMsg];
@@ -1003,7 +1183,45 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
         }
       }
 
-      finalText = accumulatedText || generateFallbackResponse(textToSend, currentConcept, derivation, currentParams);
+      // Clean any navigation/control tags from stream and trigger actions if emitted by LLM
+      const cleanStreamText = (raw: string) => {
+        const navMatch = raw.match(/\[\[NAVIGATE:\s*([a-zA-Z0-9_\-]+)\]\]/);
+        const ctrlMatch = raw.match(/\[\[CONTROL:\s*([a-zA-Z0-9_\-]+)\]\]/);
+        if (navMatch && !initialExecutedAction) {
+          const target = navMatch[1].toLowerCase();
+          if (target === 'derivation' || target === 'derivations') {
+            setTutorTab('derivation');
+            onNavigateTab?.('equations');
+          } else if (['controls', 'graphs', 'equations', 'coaching', 'jee', 'questions'].includes(target)) {
+            onNavigateTab?.(target as LabTabKey);
+            onScrollToSection?.(`section-${target}`);
+          } else if (target === 'syllabus') {
+            onOpenSyllabusDirectory?.();
+          } else if (target === 'formula-hub') {
+            onOpenFormulaHub?.();
+          } else if (target === 'pdf') {
+            onOpenPdfModal?.();
+          } else if (target === '3d') {
+            onScrollToSection?.('section-3d');
+          }
+        }
+        if (ctrlMatch && !initialExecutedAction) {
+          const act = ctrlMatch[1].toLowerCase();
+          if (act === 'play' && !isPlaying) onTogglePlay?.();
+          else if (act === 'pause' && isPlaying) onTogglePlay?.();
+          else if (act === 'reset') onResetSimulation?.();
+          else if (act === 'vectors') onToggleVectors?.();
+        }
+        return raw.replace(/\[\[(NAVIGATE|CONTROL|CONCEPT):\s*[^\]]+\]\]/g, '').trim();
+      };
+
+      if (accumulatedText.trim().length > 0) {
+        finalText = cleanStreamText(accumulatedText);
+      } else if (cmd.isCommand && cmd.reasoningText) {
+        finalText = cmd.reasoningText;
+      } else {
+        finalText = generateFallbackResponse(textToSend, currentConcept, derivation, currentParams);
+      }
 
       // Finalize message with complete text and sources
       setMessages((prev) => {
@@ -1030,7 +1248,11 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
         setPlayingMessageIndex(null);
         setIsGeneratingVoice(false);
       }
-      finalText = generateFallbackResponse(textToSend, currentConcept, derivation, currentParams);
+      if (cmd.isCommand && cmd.reasoningText) {
+        finalText = cmd.reasoningText;
+      } else {
+        finalText = generateFallbackResponse(textToSend, currentConcept, derivation, currentParams);
+      }
       setMessages((prev) => {
         const copy = [...prev];
         const lastIdx = copy.length - 1;
@@ -1038,9 +1260,10 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
           copy[lastIdx] = {
             role: 'assistant',
             text: finalText,
+            executedAction: initialExecutedAction,
           };
         } else {
-          copy.push({ role: 'assistant', text: finalText });
+          copy.push({ role: 'assistant', text: finalText, executedAction: initialExecutedAction });
         }
         return copy;
       });
@@ -1075,7 +1298,11 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
               onClose();
             }
           }}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-4 bg-black/95 backdrop-blur-3xl overflow-hidden pointer-events-auto"
+          className={
+            isDocked
+              ? 'fixed inset-0 z-[100] flex justify-end p-0 sm:p-3 pointer-events-none'
+              : 'fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-4 bg-black/90 backdrop-blur-3xl overflow-hidden pointer-events-auto'
+          }
           role="dialog"
           aria-modal="true"
           aria-labelledby="ai-tutor-title"
@@ -1088,7 +1315,11 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#0B0D16] border-0 sm:border sm:border-cyan-500/40 rounded-none sm:rounded-2xl w-full max-w-4xl flex flex-col h-[100dvh] sm:h-[92vh] max-h-[100dvh] shadow-2xl overflow-hidden cursor-default text-zinc-200 select-text touch-auto relative anim-ai-quantum-glow ai-grid-pattern"
+            className={`bg-[#0B0D16] border-0 sm:border sm:border-cyan-500/40 rounded-none sm:rounded-2xl flex flex-col shadow-2xl overflow-hidden cursor-default text-zinc-200 select-text touch-auto relative anim-ai-quantum-glow ai-grid-pattern ${
+              isDocked
+                ? 'w-full sm:w-[500px] lg:w-[540px] h-[100dvh] sm:h-[96vh] max-h-[100dvh] pointer-events-auto shadow-[0_0_50px_rgba(0,0,0,0.8)] border-cyan-500/60'
+                : 'w-full max-w-4xl h-[100dvh] sm:h-[92vh] max-h-[100dvh]'
+            }`}
           >
             {/* Holographic Top Laser Accent Line */}
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent anim-ai-shimmer pointer-events-none z-30 opacity-90" />
@@ -1096,19 +1327,34 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
             {/* Header: Title, Model Badge & Exit */}
             <div className="p-3 sm:p-4 border-b border-white/[0.08] flex items-center justify-between bg-[#121422]/95 backdrop-blur-md gap-2 flex-wrap sm:flex-nowrap relative z-10">
               <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                {/* Advanced Holographic Avatar with Rotating Gyro Ring */}
-                <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 group">
-                  <div className="absolute -inset-1 rounded-xl bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-600 opacity-70 blur-xs anim-ai-quantum-glow" />
-                  <div className="relative w-full h-full rounded-xl bg-gradient-to-tr from-cyan-600 via-indigo-600 to-purple-700 flex items-center justify-center border border-cyan-300/40 shadow-md shadow-cyan-500/30 overflow-hidden">
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent anim-ai-shimmer pointer-events-none" />
-                    <Bot className="w-5 h-5 text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]" />
-                  </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#121422] shadow-[0_0_6px_#34d399]" />
-                </div>
+                {/* Alive AI Tutor 3D Floating Avatar Companion */}
+                <AliveAiTutorAvatar
+                  size="sm"
+                  isThinking={loading && !messages[messages.length - 1]?.text}
+                  isAnswering={loading && Boolean(messages[messages.length - 1]?.text)}
+                  isSpeaking={playingMessageIndex !== null}
+                  isListening={isRecording}
+                  isSurprised={isBargeInActive}
+                  isHappy={!loading && playingMessageIndex === null}
+                  interactive={true}
+                  onClick={() => {
+                    unlockAudio();
+                    const greeting = userName
+                      ? `Hi ${userName}! I'm Nemo, active and ready to conquer physics doubts with you!`
+                      : `Hello! I'm Nemo, active and ready to solve your doubts!`;
+                    playTutorVoice(
+                      greeting,
+                      () => {},
+                      () => {},
+                      { voice: selectedVoiceName, rate: voiceSpeed, pitch: 1.05 }
+                    ).catch(() => {});
+                  }}
+                />
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 id="ai-tutor-title" className="text-sm sm:text-base font-bold text-white truncate flex items-center gap-1.5">
-                      <span>AI Physics Tutor &amp; Doubt Solver</span>
+                      <span>Nemo</span>
+                      <span className="text-xs text-cyan-400 font-semibold">• AI Physics Tutor &amp; Doubt Solver</span>
                     </h3>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex items-center gap-1 shadow-[0_0_8px_rgba(6,182,212,0.2)]">
                       <Zap className="w-3 h-3 text-cyan-400 animate-pulse" />
@@ -1182,6 +1428,22 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                   showLabel={true}
                   className="hidden md:inline-flex"
                 />
+
+                {/* Dock / Full Screen Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setIsDocked(!isDocked)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border min-h-[36px] touch-manipulation active:scale-95 ${
+                    isDocked
+                      ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-500/25 font-black'
+                      : 'bg-white/[0.06] hover:bg-white/[0.1] text-zinc-300 hover:text-white border-white/[0.08]'
+                  }`}
+                  title={isDocked ? 'Expand Full Screen Modal' : 'Dock Nemo to Side (View & Control 3D Lab Simultaneously)'}
+                  aria-label="Toggle Docked Side Mode"
+                >
+                  {isDocked ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">{isDocked ? 'Full Screen' : 'Dock to Side'}</span>
+                </button>
 
                 <button
                   onClick={onClose}
@@ -1370,6 +1632,43 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
               </span>
             </div>
 
+            {/* Voice Commands & App Navigation Quick Bar */}
+            {tutorTab === 'chat' && (
+              <div className="px-3.5 sm:px-4 py-1.5 bg-[#070B16] border-b border-cyan-500/20 flex items-center gap-2 overflow-x-auto no-scrollbar">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 shrink-0 flex items-center gap-1">
+                  <Navigation className="w-3 h-3 text-emerald-400" />
+                  Voice Commands:
+                </span>
+                {[
+                  { label: '📐 Show Derivations', prompt: 'Navigate to derivations for this chapter' },
+                  { label: '🎛️ Controls HUD', prompt: 'Navigate to parameters and controls' },
+                  { label: '📈 Real-Time Graphs', prompt: 'Navigate to analytical graphs panel' },
+                  { label: '🧮 Equations Explorer', prompt: 'Navigate to equations and formulas' },
+                  { label: '🏆 JEE Strategy', prompt: 'Navigate to JEE strategy and exam traps' },
+                  { label: '📝 Practice Arena', prompt: 'Navigate to practice questions arena' },
+                  { label: '📚 CBSE & JEE Syllabus', prompt: 'Open the complete syllabus directory' },
+                  { label: '📖 Formula Hub', prompt: 'Open the global formula directory hub' },
+                  { label: '📥 Download PDF', prompt: 'Open downloadable PDF formula sheets' },
+                  { label: isPlaying ? '⏸️ Pause Sim' : '▶️ Play Sim', prompt: isPlaying ? 'Pause simulation' : 'Play simulation' },
+                  { label: '🔄 Reset Sim', prompt: 'Reset simulation to t=0' },
+                  { label: '↗️ Toggle Vectors', prompt: 'Toggle 3D vector fields' },
+                  { label: '🔲 Focus Mode', prompt: 'Toggle full-screen focus mode' },
+                ].map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      handleBargeIn('cmd_chip_clicked');
+                      handleSend(item.prompt, false);
+                    }}
+                    disabled={loading}
+                    className="px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-emerald-950/40 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-100 border border-emerald-500/30 hover:border-emerald-400/60 whitespace-nowrap transition shrink-0 min-h-[26px] touch-manipulation flex items-center gap-1 shadow-xs hover:shadow-[0_0_10px_rgba(16,185,129,0.25)]"
+                  >
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Quick Suggestion Chips (when in Chat mode) */}
             {tutorTab === 'chat' && (
               <div className="px-3.5 sm:px-4 py-2 bg-[#0E0F17] border-b border-white/[0.06] flex items-center gap-2 overflow-x-auto no-scrollbar">
@@ -1432,6 +1731,39 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
             {/* Main Content Area */}
             {tutorTab === 'chat' && (
               <div className="flex-1 p-3.5 sm:p-4 overflow-y-auto space-y-4 bg-[#090A0E] pb-6 sm:pb-8">
+                {/* JEE Physics Doubts Quick Guide when starting a session */}
+                {messages.length <= 1 && (
+                  <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#0c1228] via-[#090e1f] to-[#060815] border border-cyan-500/30 shadow-xl flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left relative overflow-hidden anim-ai-quantum-glow">
+                    <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+                    <div className="space-y-1.5 min-w-0 flex-1">
+                      <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
+                        <span className="text-sm sm:text-base font-black text-white">
+                          {userName ? `Welcome ${userName}!` : 'Welcome!'} Ready to solve your physics doubts
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                          {currentConcept.title}
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-300 leading-relaxed max-w-xl">
+                        Nemo monitors your 3D apparatus setup in real-time. Ask any JEE doubts, request step-by-step calculus proofs, or tap the microphone to speak freely!
+                      </p>
+                      <div className="flex items-center justify-center sm:justify-start gap-3 pt-1 text-[11px] text-zinc-400">
+                        <span className="flex items-center gap-1 text-cyan-300 font-semibold">
+                          <Eye className="w-3.5 h-3.5" /> Live 3D Vision
+                        </span>
+                        <span>•</span>
+                        <span className="flex items-center gap-1 text-emerald-300 font-semibold">
+                          <Volume2 className="w-3.5 h-3.5" /> Neural Spoken Voice
+                        </span>
+                        <span>•</span>
+                        <span className="flex items-center gap-1 text-purple-300 font-semibold">
+                          <BrainCircuit className="w-3.5 h-3.5" /> Thinking Mode
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {messages.map((msg, idx) => {
                   const isPlayingThis = playingMessageIndex === idx;
 
@@ -1451,8 +1783,9 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                         {msg.role === 'assistant' && (
                           <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-white/[0.08] text-[10px] text-zinc-400 flex-wrap">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-semibold text-cyan-400 flex items-center gap-1">
-                                <Bot className="w-3 h-3" /> AI Physics Tutor
+                              <span className="font-semibold text-cyan-400 flex items-center gap-1.5">
+                                <Bot className="w-3.5 h-3.5 text-cyan-400" />
+                                AI Physics Tutor
                               </span>
 
                               {/* Thinking Mode Tag */}
@@ -1523,6 +1856,30 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                           </div>
                         )}
 
+                        {/* Executed Action Holographic Badge */}
+                        {msg.executedAction && (
+                          <div className="mb-2.5 p-2 sm:p-2.5 rounded-xl bg-gradient-to-r from-cyan-950/80 via-indigo-950/70 to-emerald-950/80 border border-cyan-500/40 shadow-md flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center justify-center shrink-0">
+                                <Navigation className="w-3.5 h-3.5 text-cyan-400" />
+                              </span>
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-[11px] font-bold text-cyan-200 truncate flex items-center gap-1.5">
+                                  <span>{msg.executedAction.title}</span>
+                                </span>
+                                <span className="text-[10px] text-zinc-300 truncate">
+                                  {msg.executedAction.description}
+                                </span>
+                              </div>
+                            </div>
+                            {msg.executedAction.target && (
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shrink-0">
+                                {msg.executedAction.badge || 'Executed'}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
                         {/* High-fidelity MathMarkdown rendering */}
                         <MathMarkdown content={msg.text} />
 
@@ -1560,11 +1917,8 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
                   <div className="relative overflow-hidden flex items-center gap-3.5 text-xs text-cyan-200 bg-gradient-to-r from-[#0C1022] via-[#0F1530] to-[#0A0E1E] p-3.5 sm:p-4 rounded-2xl w-fit max-w-[95%] border border-cyan-400/40 shadow-[0_0_25px_rgba(6,182,212,0.25)] anim-ai-quantum-glow">
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/15 to-transparent anim-ai-shimmer pointer-events-none" />
                     
-                    {/* Multi-orbiting particle gyro */}
-                    <div className="relative w-7 h-7 flex items-center justify-center shrink-0">
-                      <div className="absolute inset-0 rounded-full border border-cyan-400/50 border-dashed animate-spin-slow" />
-                      <div className="absolute inset-1 rounded-full border border-purple-400/50 anim-quantum-spin-ccw" />
-                      <Zap className="w-4 h-4 text-cyan-300 drop-shadow-[0_0_6px_#22d3ee] animate-pulse" />
+                    <div className="w-8 h-8 rounded-full bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center shadow-[0_0_12px_rgba(0,240,255,0.4)] shrink-0">
+                      <BrainCircuit className="w-4 h-4 text-cyan-300 animate-pulse" />
                     </div>
 
                     <div className="flex flex-col gap-0.5 relative z-10">
@@ -1593,6 +1947,73 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
             {/* Tab 2: Full Calculus Derivation View */}
             {tutorTab === 'derivation' && (
               <div className="flex-1 p-3.5 sm:p-5 overflow-y-auto space-y-4 bg-[#090A0E]">
+                {/* Concept Selector & Quick Actions inside Derivation View */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl bg-[#111220] border border-indigo-500/30 shadow-md">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <BookOpen className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span className="text-xs font-bold text-zinc-200 shrink-0">Derivation Topic:</span>
+                    <select
+                      value={activeDerivationConcept.id}
+                      onChange={(e) => {
+                        const found = allConcepts.find((c) => c.id === e.target.value);
+                        if (found) {
+                          setActiveDerivationConcept(found);
+                        }
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-[#0A0B14] border border-cyan-500/40 text-xs text-cyan-200 font-semibold focus:outline-none focus:border-cyan-400 max-w-[220px] truncate"
+                    >
+                      {allConcepts.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {activeDerivationConcept.id !== currentConcept.id && onSelectConcept && (
+                      <button
+                        onClick={() => {
+                          onSelectConcept(activeDerivationConcept);
+                          onSetView?.('lab');
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-bold transition flex items-center gap-1 min-h-[30px]"
+                        title="Load this concept into the 3D physics laboratory"
+                      >
+                        <Compass className="w-3 h-3" />
+                        <span>Load Apparatus</span>
+                      </button>
+                    )}
+
+                    {onNavigateTab && (
+                      <button
+                        onClick={() => {
+                          onNavigateTab('equations');
+                          onScrollToSection?.('section-equations');
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 text-[11px] font-bold transition flex items-center gap-1 min-h-[30px]"
+                        title="Sync with laboratory Equations & Derivations panel"
+                      >
+                        <Layers className="w-3 h-3" />
+                        <span>Sync with Lab</span>
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        const textToRead = `${derivation.title}. Governing Law: ${derivation.coreLaw}. Key result: ${derivation.jeeInsight}`;
+                        unlockAudio();
+                        playTutorVoice(textToRead, () => {}, () => {}, { voice: selectedVoiceName, rate: voiceSpeed, pitch: 1.05 }).catch(() => {});
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold transition flex items-center gap-1 min-h-[30px]"
+                      title="Read derivation overview aloud using Nemo voice"
+                    >
+                      <Volume2 className="w-3 h-3" />
+                      <span>Read Aloud</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="p-4 rounded-2xl bg-[#131426] border border-indigo-500/30 space-y-2">
                   <div className="flex items-center justify-between">
                     <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
@@ -1793,8 +2214,8 @@ Hit **Voice Doubt** to speak or tap **Interrupt** anytime while I'm speaking!`;
             <div className="shrink-0 p-2.5 sm:p-3.5 border-t border-white/[0.08] bg-[#0E1018] shadow-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))] z-30">
               {/* Panel Identifier Pill */}
               <div className="flex items-center justify-between gap-2 mb-1.5 px-0.5">
-                <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold text-cyan-300 uppercase tracking-wider">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                <div className="flex items-center gap-2 text-[10px] sm:text-[11px] font-bold text-cyan-300 uppercase tracking-wider">
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
                   <span>Doubts Typing Panel</span>
                   <span className="text-zinc-400 font-normal lowercase hidden sm:inline">(type question or speak)</span>
                 </div>

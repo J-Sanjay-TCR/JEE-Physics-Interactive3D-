@@ -83,11 +83,23 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
     onSelectAnswer?.(optionId);
   };
 
+  const checkIsCorrect = (ans: string | number | string[]): boolean => {
+    if (question.questionType === 'numerical' && typeof question.correctAnswer === 'number') {
+      const numAns = typeof ans === 'number' ? ans : parseFloat(String(ans));
+      if (isNaN(numAns)) return false;
+      const tol = question.numericalTolerance ?? 0.05;
+      return Math.abs(numAns - question.correctAnswer) <= tol;
+    }
+    return ans === question.correctAnswer;
+  };
+
+  const hasAnswered = activeAnswer !== '' && activeAnswer !== undefined && activeAnswer !== null;
+
   const handleCheckAnswer = () => {
-    if (!activeAnswer) return;
+    if (!hasAnswered) return;
     setIsChecked(true);
     setShowDerivation(true);
-    const correct = activeAnswer === question.correctAnswer;
+    const correct = checkIsCorrect(activeAnswer);
     try {
       recordQuestionAttempt(question.id, question.chapterId, correct);
       window.dispatchEvent(new Event('jee_arena_progress_updated'));
@@ -101,8 +113,8 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
     setShowHint(false);
   };
 
-  const isCorrect = isChecked && activeAnswer === question.correctAnswer;
-  const isIncorrect = isChecked && activeAnswer !== question.correctAnswer;
+  const isCorrect = isChecked && checkIsCorrect(activeAnswer);
+  const isIncorrect = isChecked && !checkIsCorrect(activeAnswer);
 
   const getDifficultyColor = (diff: string) => {
     switch (diff) {
@@ -245,7 +257,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             {!isChecked ? (
               <button
                 onClick={handleCheckAnswer}
-                disabled={!activeAnswer}
+                disabled={!hasAnswered}
                 className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed text-black font-semibold text-xs transition-all shadow-[0_0_15px_rgba(0,240,255,0.3)] active:scale-95 cursor-pointer"
               >
                 Check Answer
@@ -282,7 +294,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
                 className="px-3.5 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 text-xs font-mono font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-[0_0_12px_rgba(168,85,247,0.2)]"
               >
                 <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                <span>Ask AI Tutor Deep Dive</span>
+                <span>Ask Nemo Deep Dive</span>
               </button>
             )}
 

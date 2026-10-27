@@ -3,11 +3,11 @@ import { PhysicsConcept, Chapter, CategoryId } from '../types';
 export const CATEGORIES: { id: CategoryId; name: string; icon: string; count: number }[] = [
   { id: 'mechanics', name: 'Mechanics & Fluids', icon: 'Atom', count: 10 },
   { id: 'thermal', name: 'Thermal Physics & Radiation', icon: 'Flame', count: 2 },
-  { id: 'electromagnetism', name: 'Electrodynamics & Magnetism', icon: 'Zap', count: 6 },
+  { id: 'electromagnetism', name: 'Electrodynamics & Magnetism', icon: 'Zap', count: 7 },
   { id: 'waves-oscillations', name: 'Oscillations & Waves', icon: 'Activity', count: 3 },
   { id: 'optics', name: 'Optics & Wave Phenomena', icon: 'Eye', count: 3 },
   { id: 'modern', name: 'Modern & Nuclear Physics', icon: 'Sun', count: 3 },
-  { id: 'experimental', name: 'Experimental Physics & Instruments', icon: 'Ruler', count: 2 },
+  { id: 'experimental', name: 'Experimental Physics & Instruments', icon: 'Ruler', count: 3 },
 ];
 
 export const CHAPTERS: Chapter[] = [
@@ -144,8 +144,8 @@ export const CHAPTERS: Chapter[] = [
     name: "Electrostatics & Gauss's Law",
     category: 'electromagnetism',
     iconName: 'Sparkles',
-    description: "Coulomb law, Gauss's flux theorem, Dipoles & Equipotential surfaces.",
-    conceptIds: ['electric-field-charges', 'gauss-law-flux'],
+    description: "Coulomb law, Gauss's flux theorem, Van de Graaff high voltage & Equipotential surfaces.",
+    conceptIds: ['electric-field-charges', 'gauss-law-flux', 'van-de-graaff-generator'],
   },
   {
     id: 'capacitance',
@@ -160,8 +160,8 @@ export const CHAPTERS: Chapter[] = [
     name: 'Current Electricity & Circuit Networks',
     category: 'electromagnetism',
     iconName: 'Zap',
-    description: "Ohm's Law, Kirchhoff's Circuit Laws, Wheatstone Bridge, RC transients & power dissipation.",
-    conceptIds: ['lcr-circuit'],
+    description: "Ohm's Law, Kirchhoff's Circuit Laws, Wheatstone Meter Bridge, RC transients & power dissipation.",
+    conceptIds: ['lcr-circuit', 'wheatstone-meter-bridge'],
   },
   {
     id: 'magnetism',
@@ -249,7 +249,7 @@ export const CHAPTERS: Chapter[] = [
     category: 'experimental',
     iconName: 'Ruler',
     description: 'Vernier callipers, screw gauge, meter bridge, potentiometer, resonance tube & error analysis.',
-    conceptIds: ['vernier-caliper', 'screw-gauge'],
+    conceptIds: ['vernier-caliper', 'screw-gauge', 'wheatstone-meter-bridge'],
   },
 ];
 

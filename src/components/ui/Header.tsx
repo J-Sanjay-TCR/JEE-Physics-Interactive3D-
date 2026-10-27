@@ -28,6 +28,7 @@ import {
   TrendingUp,
   MoreVertical,
   Award,
+  MousePointer,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -54,7 +55,7 @@ interface HeaderProps {
   onOpenProfile?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+const HeaderComponent: React.FC<HeaderProps> = ({
   currentConcept,
   onSelectConcept,
   favorites,
@@ -84,6 +85,23 @@ export const Header: React.FC<HeaderProps> = ({
   const themeMenuRef = useRef<HTMLDivElement>(null);
   const moreToolsRef = useRef<HTMLDivElement>(null);
 
+  const [isCursorEnabled, setIsCursorEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('jee_custom_cursor') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleCursor = () => {
+    const next = !isCursorEnabled;
+    setIsCursorEnabled(next);
+    try {
+      localStorage.setItem('jee_custom_cursor', String(next));
+    } catch {}
+    window.dispatchEvent(new CustomEvent('jee-toggle-cursor', { detail: { enabled: next } }));
+  };
+
   const isCurrentFavorite = favorites.includes(currentConcept.id);
 
   useEffect(() => {
@@ -102,7 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header
       id="header-navbar"
-      className={`sticky top-0 z-40 backdrop-blur-xl border-b transition-colors px-4 lg:px-6 py-2.5 flex items-center justify-between gap-3 sm:gap-4 ${
+      className={`sticky top-0 z-40 backdrop-blur-xl border-b transition-colors px-2.5 sm:px-4 lg:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-1.5 sm:gap-4 ${
       isCyberpunk
         ? 'bg-[#030712]/92 border-cyan-500/20 text-zinc-100 shadow-[0_4px_25px_rgba(0,240,255,0.06)]'
         : isDark 
@@ -110,13 +128,13 @@ export const Header: React.FC<HeaderProps> = ({
         : 'bg-white/90 border-slate-200/90 text-slate-900 shadow-xs'
     }`}>
       {/* Brand Logo & Title */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
         {onToggleSidebar && (
           <button
             onClick={onToggleSidebar}
             title={isSidebarOpen ? "Collapse Syllabus Navigation" : "Open Syllabus Navigation"}
             aria-label="Toggle Syllabus Navigation"
-            className={`p-2 rounded-xl border transition shadow-xs flex items-center gap-1.5 text-xs font-semibold ${
+            className={`p-1.5 sm:p-2 rounded-xl border transition shadow-xs flex items-center gap-1.5 text-xs font-semibold shrink-0 ${
               isSidebarOpen
                 ? isCyberpunk
                   ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/50 shadow-[0_0_12px_rgba(0,240,255,0.2)]'
@@ -137,33 +155,33 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={() => onSetView?.('home')}
-          className="flex items-center gap-2.5 text-left group"
+          className="flex items-center gap-2 sm:gap-2.5 text-left group min-w-0 shrink-0"
           title="Return to Home Dashboard"
         >
-          <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition ${
+          <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition ${
             isCyberpunk
               ? 'bg-gradient-to-tr from-cyan-400 via-teal-500 to-emerald-400 shadow-[0_0_18px_rgba(0,240,255,0.45)] text-black'
               : 'bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 shadow-md shadow-cyan-500/20'
           }`}>
-            <Atom className={`w-5 h-5 sm:w-6 sm:h-6 animate-spin-slow ${isCyberpunk ? 'text-slate-950 stroke-[2.5]' : ''}`} />
+            <Atom className={`w-4 h-4 sm:w-6 sm:h-6 animate-spin-slow ${isCyberpunk ? 'text-slate-950 stroke-[2.5]' : ''}`} />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className={`font-extrabold text-sm sm:text-base lg:text-lg tracking-tight transition truncate ${
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <h1 className={`font-extrabold text-xs sm:text-base lg:text-lg tracking-tight transition truncate max-w-[110px] xs:max-w-[150px] sm:max-w-none ${
                 isCyberpunk
                   ? 'text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-teal-200 to-emerald-300 font-mono'
                   : isDark ? 'text-zinc-100 group-hover:text-cyan-400' : 'text-slate-900 group-hover:text-cyan-600'
               }`}>
                 JEE 3D Physics Lab
               </h1>
-              <span className={`hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${
+              <span className={`hidden md:inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${
                 isCyberpunk
                   ? 'bg-cyan-500/15 text-cyan-300 border-cyan-400/30 shadow-[0_0_8px_rgba(0,240,255,0.2)]'
                   : isDark ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' : 'bg-cyan-50 text-cyan-700 border-cyan-200'
               }`}>
                 {isCyberpunk ? '⚡ SYNAPSE HUD' : 'JEE Main & Adv'}
               </span>
-              <div className={`hidden lg:flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-bold shrink-0 ${
+              <div className={`hidden xl:flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-bold shrink-0 ${
                 isCyberpunk
                   ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300 shadow-[0_0_8px_rgba(0,255,157,0.2)]'
                   : isDark ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
@@ -181,42 +199,44 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
       </div>
 
-      {/* View Mode Switcher (Home vs 3D Lab) */}
+      {/* View Mode Switcher (Home vs 3D Lab vs JEE Arena) */}
       {onSetView && (
-        <div className={`flex items-center p-1 rounded-xl border shrink-0 ${
+        <div className={`flex items-center p-0.5 sm:p-1 rounded-xl border shrink-0 ${
           isCyberpunk
             ? 'bg-[#060B18] border-cyan-500/25 shadow-inner'
             : isDark ? 'bg-[#12121A] border-white/[0.08]' : 'bg-slate-100 border-slate-200'
         }`}>
           <button
             onClick={() => onSetView('home')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+            className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 ${
               currentView === 'home'
                 ? isCyberpunk
                   ? 'bg-gradient-to-r from-cyan-500 to-emerald-500 text-black font-extrabold shadow-[0_0_12px_rgba(0,240,255,0.3)]'
                   : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm shadow-cyan-500/20'
                 : isDark ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-600 hover:text-slate-900'
             }`}
+            title="Home Dashboard"
           >
             <Home className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Home Hub</span>
           </button>
           <button
             onClick={() => onSetView('lab')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+            className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 cursor-pointer ${
               currentView === 'lab'
                 ? isCyberpunk
                   ? 'bg-gradient-to-r from-cyan-500 to-emerald-500 text-black font-extrabold shadow-[0_0_12px_rgba(0,240,255,0.3)]'
                   : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm shadow-cyan-500/20'
                 : isDark ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-600 hover:text-slate-900'
             }`}
+            title="3D Physics Studio"
           >
             <Compass className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">3D Studio</span>
           </button>
           <button
             onClick={() => onSetView('arena')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+            className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 cursor-pointer ${
               currentView === 'arena'
                 ? isCyberpunk
                   ? 'bg-gradient-to-r from-cyan-500 to-emerald-500 text-black font-extrabold shadow-[0_0_12px_rgba(0,240,255,0.3)]'
@@ -332,7 +352,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-cyan-400 to-emerald-400 flex items-center justify-center text-[10px] text-black font-black uppercase shrink-0">
               {userName ? userName.charAt(0) : '?'}
             </div>
-            <span className="max-w-[85px] sm:max-w-[120px] truncate font-medium">
+            <span className="max-w-[65px] sm:max-w-[120px] truncate font-medium">
               {userName || 'Register'}
             </span>
           </button>
@@ -523,6 +543,36 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
                   </button>
                 )}
+
+                {/* Quantum HUD Cursor Toggle */}
+                <button
+                  type="button"
+                  onClick={handleToggleCursor}
+                  className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center justify-between gap-2.5 ${
+                    isCyberpunk ? 'hover:bg-cyan-500/15 text-cyan-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0">
+                      <MousePointer className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs">Quantum HUD Cursor</div>
+                      <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
+                        {isCursorEnabled ? 'Active (zero latency)' : 'Disabled (standard OS)'}
+                      </div>
+                    </div>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold shrink-0 ${
+                      isCursorEnabled
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-white/10 text-zinc-400 border border-white/10'
+                    }`}
+                  >
+                    {isCursorEnabled ? 'ON' : 'OFF'}
+                  </span>
+                </button>
               </div>
             </div>
           )}
@@ -599,5 +649,7 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
+
+export const Header = React.memo(HeaderComponent);
 
 

@@ -56,15 +56,25 @@ import {
 
 export default function App() {
   const { isDark, isCyberpunk, theme, toggleTheme, cycleTheme, setTheme } = useTheme();
-  const [userName, setUserName] = useState<string>(() => localStorage.getItem('ai_physics_user_name') || '');
+  const [userName, setUserName] = useState<string>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return localStorage.getItem('ai_physics_user_name') || '';
+      }
+    } catch {
+      // In restricted iframes or private mode, localStorage may be blocked
+    }
+    return '';
+  });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(false);
   const [isLoadingScreenOpen, setIsLoadingScreenOpen] = useState(false);
   const [loadingSession, setLoadingSession] = useState(0);
   const [currentConcept, setCurrentConcept] = useState<PhysicsConcept>(ALL_CONCEPTS[0]);
   const [currentView, setCurrentView] = useState<'home' | 'lab' | 'arena'>('home');
   const [showRestorePrompt, setShowRestorePrompt] = useState(false);
   const [savedSessionParams, setSavedSessionParams] = useState<Record<string, number> | null>(null);
+  const [recoveryKey, setRecoveryKey] = useState(0);
 
   // Parameters map for active simulation
   const [paramValues, setParamValues] = useState<Record<string, number>>(() => {
@@ -80,10 +90,49 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [speed, setSpeed] = useState(1.0);
 
-  // Viewport Toggles
-  const [showVectors, setShowVectors] = useState(true);
-  const [showLabels, setShowLabels] = useState(true);
-  const [showTrajectory, setShowTrajectory] = useState(true);
+  // Viewport Toggles (persisted to localStorage)
+  const [showVectors, setShowVectors] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('jee_show_vectors');
+      if (saved !== null) return JSON.parse(saved);
+      const viewportSaved = localStorage.getItem('jee_viewport_settings');
+      if (viewportSaved) {
+        const parsed = JSON.parse(viewportSaved);
+        if (typeof parsed.showVectors === 'boolean') return parsed.showVectors;
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  });
+  const [showLabels, setShowLabels] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('jee_show_labels');
+      if (saved !== null) return JSON.parse(saved);
+      const viewportSaved = localStorage.getItem('jee_viewport_settings');
+      if (viewportSaved) {
+        const parsed = JSON.parse(viewportSaved);
+        if (typeof parsed.showLabels === 'boolean') return parsed.showLabels;
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  });
+  const [showTrajectory, setShowTrajectory] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('jee_show_trajectory');
+      if (saved !== null) return JSON.parse(saved);
+      const viewportSaved = localStorage.getItem('jee_viewport_settings');
+      if (viewportSaved) {
+        const parsed = JSON.parse(viewportSaved);
+        if (typeof parsed.showTrajectory === 'boolean') return parsed.showTrajectory;
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  });
   const [showGrid, setShowGrid] = useState(true);
   const [showAxes, setShowAxes] = useState(true);
   const [isARMode, setIsARMode] = useState(false);
@@ -121,9 +170,11 @@ export default function App() {
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(() => {
     try {
-      return localStorage.getItem('jee_physics_tutorial_seen') !== 'true';
+      const hasName = Boolean(localStorage.getItem('ai_physics_user_name'));
+      const seen = localStorage.getItem('jee_physics_tutorial_seen') === 'true';
+      return hasName && !seen;
     } catch {
-      return true;
+      return false;
     }
   });
 
@@ -448,20 +499,44 @@ export default function App() {
         return;
       }
 
-      // 3D Canvas visual toggles
+      // 3D Canvas visual toggles (persisted to localStorage)
       if (e.key === 'v' || e.key === 'V') {
         e.preventDefault();
-        setShowVectors((prev) => !prev);
+        setShowVectors((prev) => {
+          const next = !prev;
+          try {
+            localStorage.setItem('jee_show_vectors', JSON.stringify(next));
+            const cur = JSON.parse(localStorage.getItem('jee_viewport_settings') || '{}');
+            localStorage.setItem('jee_viewport_settings', JSON.stringify({ ...cur, showVectors: next }));
+          } catch {}
+          return next;
+        });
         return;
       }
       if (e.key === 'l' || e.key === 'L') {
         e.preventDefault();
-        setShowLabels((prev) => !prev);
+        setShowLabels((prev) => {
+          const next = !prev;
+          try {
+            localStorage.setItem('jee_show_labels', JSON.stringify(next));
+            const cur = JSON.parse(localStorage.getItem('jee_viewport_settings') || '{}');
+            localStorage.setItem('jee_viewport_settings', JSON.stringify({ ...cur, showLabels: next }));
+          } catch {}
+          return next;
+        });
         return;
       }
       if (e.key === 'o' || e.key === 'O') {
         e.preventDefault();
-        setShowTrajectory((prev) => !prev);
+        setShowTrajectory((prev) => {
+          const next = !prev;
+          try {
+            localStorage.setItem('jee_show_trajectory', JSON.stringify(next));
+            const cur = JSON.parse(localStorage.getItem('jee_viewport_settings') || '{}');
+            localStorage.setItem('jee_viewport_settings', JSON.stringify({ ...cur, showTrajectory: next }));
+          } catch {}
+          return next;
+        });
         return;
       }
       if (e.key === 'g' || e.key === 'G') {
@@ -475,10 +550,14 @@ export default function App() {
         return;
       }
 
-      // 'T' or 't' for AI Tutor
+      // 'T' or 't' for AI Tutor (requires registered name)
       if (e.key === 't' || e.key === 'T') {
         e.preventDefault();
-        setIsAiTutorOpen((prev) => !prev);
+        if (isAiTutorOpen) {
+          setIsAiTutorOpen(false);
+        } else {
+          handleOpenAiTutor();
+        }
         return;
       }
 
@@ -573,22 +652,27 @@ export default function App() {
     }
   });
 
-  // Animation Loop for Physics Simulation
+  // Animation Loop for Physics Simulation (Only runs when actively viewing lab simulation)
   const lastTimeRef = useRef<number>(performance.now());
   useEffect(() => {
+    if (currentView !== 'lab') return;
+
+    lastTimeRef.current = performance.now();
     let animId: number;
     const loop = (now: number) => {
       const delta = (now - lastTimeRef.current) / 1000;
       lastTimeRef.current = now;
 
-      if (isPlaying) {
-        setSimTime((t) => t + delta * speed);
+      if (isPlaying && currentView === 'lab') {
+        // Clamp delta to 50ms to prevent numerical instability or runaway physics when switching tabs
+        const safeDelta = Math.min(delta, 0.05);
+        setSimTime((t) => t + safeDelta * speed);
       }
       animId = requestAnimationFrame(loop);
     };
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [isPlaying, speed]);
+  }, [isPlaying, speed, currentView]);
 
   
   // Concept Change Handler
@@ -633,8 +717,6 @@ export default function App() {
     }
     
     setSimTime(0);
-    setLoadingSession((prev) => prev + 1);
-    setIsLoadingScreenOpen(true);
     setCurrentView('lab');
     window.history.pushState({ view: 'lab', conceptId: concept.id }, '', `#lab-${concept.id}`);
     if (typeof window !== 'undefined' && window.innerWidth < 1024) {
@@ -657,9 +739,50 @@ export default function App() {
   }, [currentConcept.id]);
 
   
-  const handleParamChange = (id: string, val: number) => {
+  const handleParamChange = (id: string, val: number | boolean) => {
+    // Local storage sync for showVectors, showLabels, and showTrajectory
+    if (id === 'showVectors') {
+      const boolVal = typeof val === 'boolean' ? val : Boolean(val);
+      setShowVectors(boolVal);
+      try {
+        localStorage.setItem('jee_show_vectors', JSON.stringify(boolVal));
+        const currentViewport = JSON.parse(localStorage.getItem('jee_viewport_settings') || '{}');
+        localStorage.setItem('jee_viewport_settings', JSON.stringify({ ...currentViewport, showVectors: boolVal }));
+      } catch (e) {
+        console.warn('Failed to save showVectors to localStorage', e);
+      }
+      return;
+    }
+
+    if (id === 'showLabels') {
+      const boolVal = typeof val === 'boolean' ? val : Boolean(val);
+      setShowLabels(boolVal);
+      try {
+        localStorage.setItem('jee_show_labels', JSON.stringify(boolVal));
+        const currentViewport = JSON.parse(localStorage.getItem('jee_viewport_settings') || '{}');
+        localStorage.setItem('jee_viewport_settings', JSON.stringify({ ...currentViewport, showLabels: boolVal }));
+      } catch (e) {
+        console.warn('Failed to save showLabels to localStorage', e);
+      }
+      return;
+    }
+
+    if (id === 'showTrajectory') {
+      const boolVal = typeof val === 'boolean' ? val : Boolean(val);
+      setShowTrajectory(boolVal);
+      try {
+        localStorage.setItem('jee_show_trajectory', JSON.stringify(boolVal));
+        const currentViewport = JSON.parse(localStorage.getItem('jee_viewport_settings') || '{}');
+        localStorage.setItem('jee_viewport_settings', JSON.stringify({ ...currentViewport, showTrajectory: boolVal }));
+      } catch (e) {
+        console.warn('Failed to save showTrajectory to localStorage', e);
+      }
+      return;
+    }
+
+    const numVal = typeof val === 'boolean' ? (val ? 1 : 0) : val;
     setParamValues((prev) => {
-      const newParams = { ...prev, [id]: val };
+      const newParams = { ...prev, [id]: numVal };
       // Auto-save to localStorage
       try {
         localStorage.setItem(`jee_physics_params_${currentConcept.id}`, JSON.stringify(newParams));
@@ -670,6 +793,47 @@ export default function App() {
     });
   };
 
+  const handleToggleVectors = useCallback((forceVal?: boolean) => {
+    setShowVectors((prev) => {
+      const next = forceVal !== undefined ? forceVal : !prev;
+      try {
+        localStorage.setItem('jee_show_vectors', JSON.stringify(next));
+        const currentViewport = JSON.parse(localStorage.getItem('jee_viewport_settings') || '{}');
+        localStorage.setItem('jee_viewport_settings', JSON.stringify({ ...currentViewport, showVectors: next }));
+      } catch (e) {
+        console.warn('Failed to save showVectors to localStorage', e);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleToggleLabels = useCallback((forceVal?: boolean) => {
+    setShowLabels((prev) => {
+      const next = forceVal !== undefined ? forceVal : !prev;
+      try {
+        localStorage.setItem('jee_show_labels', JSON.stringify(next));
+        const currentViewport = JSON.parse(localStorage.getItem('jee_viewport_settings') || '{}');
+        localStorage.setItem('jee_viewport_settings', JSON.stringify({ ...currentViewport, showLabels: next }));
+      } catch (e) {
+        console.warn('Failed to save showLabels to localStorage', e);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleToggleTrajectory = useCallback((forceVal?: boolean) => {
+    setShowTrajectory((prev) => {
+      const next = forceVal !== undefined ? forceVal : !prev;
+      try {
+        localStorage.setItem('jee_show_trajectory', JSON.stringify(next));
+        const currentViewport = JSON.parse(localStorage.getItem('jee_viewport_settings') || '{}');
+        localStorage.setItem('jee_viewport_settings', JSON.stringify({ ...currentViewport, showTrajectory: next }));
+      } catch (e) {
+        console.warn('Failed to save showTrajectory to localStorage', e);
+      }
+      return next;
+    });
+  }, []);
 
   const handleResetSimulation = () => {
     setSimTime(0);
@@ -677,6 +841,7 @@ export default function App() {
 
   // Full default simulation state recovery (for ErrorBoundary & recovery triggers)
   const handleFullSimulationRecovery = useCallback(() => {
+    setRecoveryKey((prev) => prev + 1);
     const defaultConcept = ALL_CONCEPTS[0];
     setCurrentConcept(defaultConcept);
     const initialParams: Record<string, number> = {};
@@ -687,9 +852,9 @@ export default function App() {
     setSimTime(0);
     setIsPlaying(true);
     setSpeed(1.0);
-    setShowVectors(true);
-    setShowLabels(true);
-    setShowTrajectory(true);
+    handleParamChange('showVectors', true);
+    handleParamChange('showLabels', true);
+    handleParamChange('showTrajectory', true);
     setShowGrid(true);
     setShowAxes(true);
     setIsFocusMode(false);
@@ -709,6 +874,11 @@ export default function App() {
   const handleLoaderComplete = useCallback(() => {
     setIsInitialLoading(false);
     setIsLoadingScreenOpen(false);
+    try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('jee_initial_loaded', 'true');
+      }
+    } catch {}
   }, []);
 
   // Safe handler to launch calibration loading screen freshly
@@ -727,8 +897,18 @@ export default function App() {
     };
   }, []);
 
+  // Pending action after name registration is completed
+  const [pendingActionAfterRegistration, setPendingActionAfterRegistration] = useState<
+    'ai_tutor' | 'tutorial' | 'spotlight' | null
+  >(null);
+
   // Guided Spotlight Tour Launcher
   const handleStartSpotlightTour = useCallback(() => {
+    if (!userName) {
+      setPendingActionAfterRegistration('spotlight');
+      setIsProfileModalOpen(true);
+      return;
+    }
     if (currentView !== 'lab') {
       setCurrentView('lab');
       setTimeout(() => {
@@ -737,7 +917,27 @@ export default function App() {
     } else {
       startTutorial();
     }
-  }, [currentView]);
+  }, [currentView, userName]);
+
+  // Safe handler to open AI Tutor modal (requires registered user)
+  const handleOpenAiTutor = useCallback(() => {
+    if (!userName) {
+      setPendingActionAfterRegistration('ai_tutor');
+      setIsProfileModalOpen(true);
+      return;
+    }
+    setIsAiTutorOpen(true);
+  }, [userName]);
+
+  // Safe handler to open tutorial modal (requires registered user)
+  const handleOpenTutorial = useCallback(() => {
+    if (!userName) {
+      setPendingActionAfterRegistration('tutorial');
+      setIsProfileModalOpen(true);
+      return;
+    }
+    setIsTutorialOpen(true);
+  }, [userName]);
 
   // AI Physics Tutor initial query / snapshot state
   const [tutorInitialQuestion, setTutorInitialQuestion] = useState('');
@@ -746,17 +946,6 @@ export default function App() {
   // Compute Real-time Quantities
   const liveQuantities = currentConcept.computeLiveQuantities(paramValues, simTime);
 
-  // 1. Initial Laboratory Calibration / Loading Page: Displayed BEFORE app enters its functionality
-  if (isInitialLoading) {
-    return (
-      <GlobalPhysicsLoader
-        key="quantum-init-loader"
-        onComplete={handleLoaderComplete}
-        conceptTitle="JEE 3D Physics Laboratory"
-        isInitial={true}
-      />
-    );
-  }
 
   return (
     <div className={`h-screen h-[100dvh] max-h-screen overflow-hidden flex flex-col transition-colors duration-200 ${
@@ -776,6 +965,8 @@ export default function App() {
 
       {(!userName || isProfileModalOpen) && (
         <OnboardingScreen
+          currentName={userName}
+          onClose={() => setIsProfileModalOpen(false)}
           onComplete={(name) => {
             try {
               localStorage.setItem('ai_physics_user_name', name);
@@ -784,9 +975,25 @@ export default function App() {
             }
             setUserName(name);
             setIsProfileModalOpen(false);
-            // Seamlessly launch the calibration loading screen!
-            setLoadingSession((prev) => prev + 1);
-            setIsLoadingScreenOpen(true);
+
+            const pending = pendingActionAfterRegistration;
+            setPendingActionAfterRegistration(null);
+
+            if (pending === 'ai_tutor') {
+              setIsAiTutorOpen(true);
+            } else if (pending === 'spotlight') {
+              if (currentView !== 'lab') {
+                setCurrentView('lab');
+                setTimeout(() => {
+                  startTutorial();
+                }, 200);
+              } else {
+                startTutorial();
+              }
+            } else if (pending === 'tutorial') {
+              setIsTutorialOpen(true);
+            }
+            // Seamlessly enter application without redundant secondary loading screens!
           }}
         />
       )}
@@ -803,8 +1010,8 @@ export default function App() {
         onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
         onOpenPdfModal={handleOpenPdfModal}
         onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
-        onOpenAiTutor={() => setIsAiTutorOpen(true)}
-        onOpenTutorial={() => setIsTutorialOpen(true)}
+        onOpenAiTutor={handleOpenAiTutor}
+        onOpenTutorial={handleOpenTutorial}
         onOpenSpotlightTour={handleStartSpotlightTour}
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
@@ -848,7 +1055,7 @@ export default function App() {
               onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
               onOpenPdfModal={handleOpenPdfModal}
               onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
-              onOpenAiTutor={() => setIsAiTutorOpen(true)}
+              onOpenAiTutor={handleOpenAiTutor}
               onOpenTutorial={handleStartSpotlightTour}
               onOpenAnalytics={() => setIsAnalyticsOpen(true)}
               onOpenArena={() => handleSetView('arena')}
@@ -860,7 +1067,7 @@ export default function App() {
             <JeeQuestionsArena
               onAskAiTutor={(questionText) => {
                 setTutorInitialQuestion(questionText);
-                setIsAiTutorOpen(true);
+                handleOpenAiTutor();
               }}
               onSwitchToLab={() => handleSetView('lab')}
             />
@@ -1124,8 +1331,9 @@ export default function App() {
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
             {/* Left 3D Viewport (Takes 7 cols on XL) */}
             <div id="section-3d" className="xl:col-span-7 h-[360px] sm:h-[460px] xl:h-[580px] w-full scroll-mt-20">
-              <GlobalErrorBoundary onReset={handleFullSimulationRecovery}>
+              <GlobalErrorBoundary key={`canvas-boundary-${recoveryKey}`} onReset={handleFullSimulationRecovery}>
                 <ThreePhysicsCanvas
+                  key={`three-canvas-${recoveryKey}-${currentConcept.id}`}
                   simulationType={currentConcept.simulationType}
                   conceptTitle={currentConcept.title}
                   params={paramValues}
@@ -1135,9 +1343,9 @@ export default function App() {
                   showTrajectory={showTrajectory}
                   showGrid={showGrid}
                   showAxes={showAxes}
-                  onToggleVectors={() => setShowVectors(!showVectors)}
-                  onToggleLabels={() => setShowLabels(!showLabels)}
-                  onToggleTrajectory={() => setShowTrajectory(!showTrajectory)}
+                  onToggleVectors={handleToggleVectors}
+                  onToggleLabels={handleToggleLabels}
+                  onToggleTrajectory={handleToggleTrajectory}
                   onToggleGrid={() => setShowGrid(!showGrid)}
                   onToggleAxes={() => setShowAxes(!showAxes)}
                   cameraPreset={currentConcept.cameraPreset}
@@ -1148,7 +1356,7 @@ export default function App() {
                   onToggleAR={() => setIsARMode(!isARMode)}
                   bloomIntensity={bloomIntensity}
                   onChangeBloom={handleBloomChange}
-                  onDisableTrajectory={() => setShowTrajectory(false)}
+                  onDisableTrajectory={() => handleToggleTrajectory(false)}
                   onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
                   isPlaying={isPlaying}
                   onTogglePlay={() => setIsPlaying(!isPlaying)}
@@ -1383,9 +1591,9 @@ export default function App() {
               showTrajectory={showTrajectory}
               showGrid={showGrid}
               showAxes={showAxes}
-              onToggleVectors={() => setShowVectors(!showVectors)}
-              onToggleLabels={() => setShowLabels(!showLabels)}
-              onToggleTrajectory={() => setShowTrajectory(!showTrajectory)}
+              onToggleVectors={handleToggleVectors}
+              onToggleLabels={handleToggleLabels}
+              onToggleTrajectory={handleToggleTrajectory}
               onToggleGrid={() => setShowGrid(!showGrid)}
               onToggleAxes={() => setShowAxes(!showAxes)}
               cameraPreset={currentConcept.cameraPreset}
@@ -1396,7 +1604,7 @@ export default function App() {
               onToggleAR={() => setIsARMode(!isARMode)}
               bloomIntensity={bloomIntensity}
               onChangeBloom={handleBloomChange}
-              onDisableTrajectory={() => setShowTrajectory(false)}
+              onDisableTrajectory={() => handleToggleTrajectory(false)}
               onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
               isPlaying={isPlaying}
               onTogglePlay={() => setIsPlaying(!isPlaying)}
@@ -1422,9 +1630,9 @@ export default function App() {
               showTrajectory={showTrajectory}
               showGrid={showGrid}
               showAxes={showAxes}
-              onToggleVectors={() => setShowVectors(!showVectors)}
-              onToggleLabels={() => setShowLabels(!showLabels)}
-              onToggleTrajectory={() => setShowTrajectory(!showTrajectory)}
+              onToggleVectors={handleToggleVectors}
+              onToggleLabels={handleToggleLabels}
+              onToggleTrajectory={handleToggleTrajectory}
               onToggleGrid={() => setShowGrid(!showGrid)}
               onToggleAxes={() => setShowAxes(!showAxes)}
               isARMode={isARMode}
@@ -1440,10 +1648,10 @@ export default function App() {
         </div>
       )}
 
-      {/* Draggable Floating AI Physics Tutor Button */}
-      {!isInitialLoading && !isLoadingScreenOpen && (
+      {/* Draggable Floating AI Physics Tutor Button - Hidden when doubt panel is open */}
+      {!isInitialLoading && !isLoadingScreenOpen && !isAiTutorOpen && (
         <DraggableAiTutorFab
-          onOpenAiTutor={() => setIsAiTutorOpen(true)}
+          onOpenAiTutor={handleOpenAiTutor}
           isOpen={isAiTutorOpen}
         />
       )}
@@ -1472,7 +1680,7 @@ export default function App() {
 
       {/* Global AI Physics Tutor & Instant Doubt Solver Modal */}
       <AiPhysicsTutorModal
-        isOpen={isAiTutorOpen}
+        isOpen={isAiTutorOpen && Boolean(userName)}
         onClose={() => setIsAiTutorOpen(false)}
         currentConcept={currentConcept}
         currentParams={paramValues}
@@ -1486,6 +1694,44 @@ export default function App() {
         }}
         onSelectConcept={handleSelectConcept}
         currentView={currentView}
+        onNavigateTab={(tab) => {
+          setCurrentView('lab');
+          setActiveTab(tab);
+          setTimeout(() => {
+            document.getElementById(`section-${tab}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 60);
+        }}
+        onSetView={setCurrentView}
+        onScrollToSection={(sectionId) => {
+          setCurrentView('lab');
+          setTimeout(() => {
+            document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 60);
+        }}
+        onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
+        onOpenPdfModal={(chId) => handleOpenPdfModal(chId)}
+        onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
+        onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+        onOpenTutorial={() => {
+          setIsTutorialOpen(true);
+          handleStartSpotlightTour();
+        }}
+        onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        onTogglePlay={() => setIsPlaying(!isPlaying)}
+        onResetSimulation={handleResetSimulation}
+        onToggleVectors={handleToggleVectors}
+        onToggleGrid={() => setShowGrid(!showGrid)}
+        onToggleTrajectory={handleToggleTrajectory}
+        onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
+        onChangeSpeed={setSpeed}
+        onChangeParam={handleParamChange}
+        isPlaying={isPlaying}
+        showVectors={showVectors}
+        showGrid={showGrid}
+        showTrajectory={showTrajectory}
+        isFocusMode={isFocusMode}
+        speed={speed}
+        activeLabTab={activeTab}
       />
 
       {/* JEE Weightage Analytics Modal */}
@@ -1499,12 +1745,12 @@ export default function App() {
 
       {/* Interactive 3D Physics Lab User Tutorial Modal */}
       <UserTutorialModal
-        isOpen={!isInitialLoading && !isLoadingScreenOpen && isTutorialOpen}
+        isOpen={!isInitialLoading && !isLoadingScreenOpen && isTutorialOpen && Boolean(userName)}
         onClose={() => {
           setIsTutorialOpen(false);
           setCurrentView('home');
         }}
-        onOpenAiTutor={() => setIsAiTutorOpen(true)}
+        onOpenAiTutor={handleOpenAiTutor}
         onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
         onOpenPdfModal={() => handleOpenPdfModal()}
         onOpenSpotlightTour={handleStartSpotlightTour}
@@ -1542,16 +1788,16 @@ export default function App() {
           showTrajectory={showTrajectory}
           showGrid={showGrid}
           showAxes={showAxes}
-          onToggleVectors={() => setShowVectors(!showVectors)}
-          onToggleLabels={() => setShowLabels(!showLabels)}
-          onToggleTrajectory={() => setShowTrajectory(!showTrajectory)}
+          onToggleVectors={handleToggleVectors}
+          onToggleLabels={handleToggleLabels}
+          onToggleTrajectory={handleToggleTrajectory}
           onToggleGrid={() => setShowGrid(!showGrid)}
           onToggleAxes={() => setShowAxes(!showAxes)}
           onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
           onOpenPdfModal={handleOpenPdfModal}
           onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
-          onOpenAiTutor={() => setIsAiTutorOpen(true)}
-          onOpenTutorial={() => setIsTutorialOpen(true)}
+          onOpenAiTutor={handleOpenAiTutor}
+          onOpenTutorial={handleOpenTutorial}
           onOpenAnalytics={() => setIsAnalyticsOpen(true)}
           onEnterFocusMode={() => setIsFocusMode(true)}
           onOpenShortcuts={() => setIsShortcutsOpen(true)}

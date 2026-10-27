@@ -124,7 +124,16 @@ export const TimedMockExamView: React.FC<TimedMockExamViewProps> = ({
       const userAns = answers[q.id];
       if (userAns !== undefined && userAns !== '') {
         attempted++;
-        if (userAns === q.correctAnswer) {
+        let isRight = false;
+        if (q.questionType === 'numerical' && typeof q.correctAnswer === 'number') {
+          const num = typeof userAns === 'number' ? userAns : parseFloat(String(userAns));
+          const tol = q.numericalTolerance ?? 0.05;
+          isRight = !isNaN(num) && Math.abs(num - q.correctAnswer) <= tol;
+        } else {
+          isRight = userAns === q.correctAnswer;
+        }
+
+        if (isRight) {
           correct++;
         } else {
           incorrect++;

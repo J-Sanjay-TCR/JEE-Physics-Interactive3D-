@@ -41,7 +41,7 @@ interface EquationPanelProps {
   coachingModule?: CoachingInstituteModule;
 }
 
-export const EquationPanel: React.FC<EquationPanelProps> = ({
+const EquationPanelComponent: React.FC<EquationPanelProps> = ({
   formulas = [],
   assumptions = [],
   parameters = [],
@@ -431,3 +431,5 @@ export const EquationPanel: React.FC<EquationPanelProps> = ({
     </div>
   );
 };
+
+export const EquationPanel = React.memo(EquationPanelComponent);

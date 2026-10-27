@@ -150,12 +150,20 @@ export function clearVoiceCache(): VoiceCacheStats {
 export function getAudioContext(): AudioContext {
   if (!audioCtx || audioCtx.state === 'closed') {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    audioCtx = new AudioContextClass({ sampleRate: 24000 });
+    try {
+      audioCtx = new AudioContextClass({ sampleRate: 24000 });
+    } catch {
+      try {
+        audioCtx = new AudioContextClass();
+      } catch (err) {
+        console.warn('Failed to construct AudioContext:', err);
+      }
+    }
   }
-  if (audioCtx.state === 'suspended') {
+  if (audioCtx && audioCtx.state === 'suspended') {
     audioCtx.resume().catch(() => {});
   }
-  return audioCtx;
+  return audioCtx!;
 }
 
 /**

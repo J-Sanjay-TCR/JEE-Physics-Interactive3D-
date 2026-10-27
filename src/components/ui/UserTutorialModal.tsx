@@ -17,7 +17,6 @@ import {
   Pause,
   Compass,
   CheckCircle2,
-  Sparkles,
   MousePointer,
   Move,
   Layers,
@@ -31,7 +30,6 @@ import {
   Search,
   Check,
   HelpCircle,
-  TrendingUp,
   AlertTriangle,
   SlidersHorizontal,
   Loader2,
@@ -281,14 +279,14 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
       {
         id: 'step-viewport',
         badge: 'Step 02 • Visuals',
-        title: '3D Physics Viewport & NEW Neon Glowing Visualizer',
+        title: '3D Physics Viewport & Neon Glowing Visualizer',
         shortTitle: '3D View & Neon Glow',
         subtitle: 'Complete 360° orbital spatial control with real-time vector diagnostics and customizable eye-safe neon glow shaders.',
         icon: Eye,
         accentColor: 'text-cyan-400',
         borderColor: 'border-cyan-500/30',
         accentBg: 'bg-cyan-500/10 text-cyan-400',
-        isNew: true,
+        isNew: false,
         content: (
           <div className="space-y-4">
             {/* Spatial Navigation Instruction Cards */}
@@ -328,7 +326,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
             <div className="p-3.5 bg-[#0e111d] border border-cyan-500/20 rounded-xl space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                  <Eye className="w-3.5 h-3.5 text-cyan-400" />
                   Try Camera Presets:
                 </span>
                 <span className="text-[10px] text-cyan-400 font-mono font-bold bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/25">
@@ -362,9 +360,6 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
             <div className="p-4 bg-gradient-to-br from-[#0c1122] via-[#090d1a] to-[#060812] border border-cyan-500/35 rounded-2xl space-y-3.5 relative overflow-hidden shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.08] pb-2.5">
                 <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 flex items-center gap-1 shadow-[0_0_10px_rgba(0,240,255,0.4)]">
-                    <Sparkles className="w-3 h-3" /> NEW FEATURE
-                  </span>
                   <span className="text-xs font-bold text-white">3D Apparatus Neon Glow Shaders</span>
                 </div>
                 <span className="text-[10px] text-cyan-300 font-mono font-bold uppercase tracking-wider bg-cyan-500/10 px-2.5 py-0.5 rounded border border-cyan-500/30">
@@ -388,7 +383,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
                         : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
                     }`}
                   >
-                    {level === 'vibrant' && <Sparkles className="w-3.5 h-3.5" />}
+                    {level === 'vibrant' && <Activity className="w-3.5 h-3.5" />}
                     {level === 'subtle' && <Zap className="w-3.5 h-3.5" />}
                     {level === 'off' && <Eye className="w-3.5 h-3.5" />}
                     <span>{level}</span>
@@ -597,10 +592,10 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
       },
       {
         id: 'step-ai-tutor',
-        badge: 'Step 04 • AI Mentor',
-        title: 'AI Physics Voice Tutor & Floating Mentor',
-        shortTitle: 'AI Spoken Tutor',
-        subtitle: 'Instant spoken guidance with Ursa voice synthesis, streaming CSS waveform, Thinking Mode, and PYQ search grounding.',
+        badge: 'Step 04 • Meet Nemo',
+        title: 'Nemo: AI Physics Tutor & Alive Doubt Solver',
+        shortTitle: 'Meet Nemo (AI Tutor)',
+        subtitle: 'Your cheerful alive AI tutor with glimmering blinking round eyes, Ursa neural voice synthesis, Thinking Mode, and live doubt resolution.',
         icon: Bot,
         accentColor: 'text-indigo-400',
         borderColor: 'border-indigo-500/30',
@@ -612,10 +607,10 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
               <div className="p-3.5 bg-[#121526] border border-cyan-500/20 rounded-xl space-y-1.5">
                 <div className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
                   <Bot className="w-4 h-4 text-cyan-400" />
-                  <span>Floating Mentor Icon (Top-Right)</span>
+                  <span>Floating Nemo Mentor (Top-Right)</span>
                 </div>
                 <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Click the glowing AI Tutor floating button pinned at the <strong>top-right</strong> to ask questions at any time without losing your 3D apparatus setup.
+                  Click Nemo, the glowing AI Tutor floating orb with glimmering eyes pinned at the <strong>top-right</strong>, to ask questions at any time without losing your 3D apparatus setup.
                 </p>
               </div>
 
@@ -625,7 +620,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
                   <span>Microphone Voice Doubts</span>
                 </div>
                 <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Tap <strong className="text-emerald-300">Voice Doubt</strong> to speak freely. The AI tutor transcribes your speech and speaks the solution immediately.
+                  Tap <strong className="text-emerald-300">Voice Doubt</strong> to speak freely. Nemo transcribes your speech and speaks the solution immediately.
                 </p>
               </div>
             </div>
@@ -634,7 +629,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
             <div className="p-4 bg-[#0e111f] border border-indigo-500/30 rounded-2xl space-y-3 shadow-md">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-cyan-400" />
+                  <Volume2 className="w-4 h-4 text-cyan-400" />
                   <span className="text-xs font-bold text-white">Live CSS Audio Waveform Visualizer</span>
                 </div>
                 <AudioWaveformVisualizer
@@ -647,7 +642,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
 
               <div className="flex items-center justify-between gap-3 p-3 bg-[#15192c] rounded-xl border border-white/[0.06]">
                 <p className="text-xs text-zinc-300">
-                  "{demoVoicePlaying ? 'Unpacking the torque equation tau = r x F in real-time 3D...' : 'Click to test real-time voice playback with live animated waveform:'}"
+                  "{demoVoicePlaying ? 'Hey there! I am Nemo, unpacking the torque equation tau = r x F in real-time 3D...' : 'Click to hear Nemo live voice playback with animated waveform:'}"
                 </p>
                 <button
                   onClick={() => setDemoVoicePlaying(!demoVoicePlaying)}
@@ -719,7 +714,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
             <div className="p-4 bg-[#121422] border border-purple-500/30 rounded-2xl space-y-3 shadow-md">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                  <Activity className="w-3.5 h-3.5 text-purple-400" />
                   Banked Road Maximum Safe Velocity Proof:
                 </span>
                 <span className="text-[10px] font-mono text-zinc-400">Calculus Step 3 of 4</span>
@@ -819,27 +814,24 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
       {
         id: 'step-arena',
         badge: 'Step 07 • AI Practice',
-        title: 'Dynamic JEE Question Arena & NEW AI Custom Generator',
+        title: 'Dynamic JEE Question Arena & AI Custom Generator',
         shortTitle: 'AI Question Arena',
         subtitle: 'Solve dynamically generated JEE Main & Advanced questions derived directly from your live physical simulation parameters.',
         icon: Award,
         accentColor: 'text-teal-400',
         borderColor: 'border-teal-500/30',
         accentBg: 'bg-teal-500/10 text-teal-400',
-        isNew: true,
+        isNew: false,
         content: (
           <div className="space-y-4">
             <p className="text-xs text-zinc-300 leading-relaxed">
-              Click the <strong className="text-teal-300">Practice Arena</strong> tab in the right dock. The system features a built-in question bank and the <strong>NEW AI Custom Question Generator</strong>:
+              Click the <strong className="text-teal-300">Practice Arena</strong> tab in the right dock. The system features a built-in question bank and the <strong>AI Custom Question Generator</strong>:
             </p>
 
             {/* AI Generator Showcase Card */}
             <div className="p-4 bg-gradient-to-br from-[#0c1220] via-[#090e18] to-[#060812] border border-teal-500/35 rounded-2xl space-y-3.5 relative overflow-hidden shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 flex items-center gap-1 shadow-[0_0_10px_rgba(16,185,129,0.4)]">
-                    <Sparkles className="w-3 h-3" /> NEW FEATURE
-                  </span>
                   <span className="text-xs font-bold text-white">AI Parameter-Grounded Question Generator</span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -851,7 +843,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
               </div>
 
               <p className="text-xs text-zinc-300 leading-relaxed">
-                Inside the Question Arena, tap <strong>"Generate Custom Question"</strong>. The AI tutor reads the exact physical parameters you just configured in the 3D simulation and calculates a brand new, syllabus-aligned numerical problem:
+                Inside the Question Arena, tap <strong>"Generate Custom Question"</strong>. Nemo reads the exact physical parameters you just configured in the 3D simulation and calculates a brand new, syllabus-aligned numerical problem:
               </p>
 
               {/* Active Parameter Snapshot Chip */}
@@ -908,7 +900,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-3.5 h-3.5" />
+                      <BrainCircuit className="w-3.5 h-3.5" />
                       <span>Simulate Custom Question Generation</span>
                     </>
                   )}
@@ -1220,7 +1212,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
                     className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-400/40 text-xs font-bold transition flex items-center gap-1.5 shadow-[0_0_12px_rgba(0,240,255,0.2)]"
                     title="Switch to Live On-Screen Spotlight Walkthrough"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                    <Compass className="w-3.5 h-3.5 text-cyan-400" />
                     <span className="hidden md:inline">Spotlight Tour</span>
                   </button>
                 )}
@@ -1258,9 +1250,6 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
                 >
                   <span>{idx + 1}.</span>
                   <span>{step.shortTitle}</span>
-                  {step.isNew && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-                  )}
                 </button>
               ))}
             </div>
@@ -1313,12 +1302,6 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
                             </span>
                           </div>
                         </div>
-
-                        {step.isNew && (
-                          <span className="px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-wider bg-cyan-400 text-slate-950 shrink-0 ml-2">
-                            NEW
-                          </span>
-                        )}
                       </button>
                     );
                   })}
@@ -1350,11 +1333,6 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
                           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${currentStepData.accentBg} ${currentStepData.borderColor}`}>
                             {currentStepData.badge}
                           </span>
-                          {currentStepData.isNew && (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 flex items-center gap-1 shadow-xs">
-                              <Sparkles className="w-3 h-3" /> NEW UPGRADE
-                            </span>
-                          )}
                         </div>
                         <h2 className="text-lg sm:text-2xl font-black text-white tracking-tight">
                           {currentStepData.title}

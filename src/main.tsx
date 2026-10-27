@@ -6,14 +6,27 @@ import { GlobalErrorBoundary } from './components/ui/GlobalErrorBoundary.tsx';
 import './index.css';
 import 'katex/dist/katex.min.css';
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <GlobalErrorBoundary>
-      <ThemeProvider>
-        <App />
-      </ThemeProvider>
-    </GlobalErrorBoundary>
-  </StrictMode>,
-);
+// Ensure initial HTML preloader is cleanly removed when React mounts
+try {
+  const preloader = document.getElementById('app-preloader');
+  if (preloader) {
+    preloader.remove();
+  }
+} catch (e) {
+  console.warn('Preloader cleanup error:', e);
+}
+
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <GlobalErrorBoundary>
+        <ThemeProvider>
+          <App />
+        </ThemeProvider>
+      </GlobalErrorBoundary>
+    </StrictMode>,
+  );
+}
 
 

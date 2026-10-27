@@ -435,4 +435,280 @@ export const EXTRA_CONCEPTS: PhysicsConcept[] = [
       ];
     },
   },
+
+  // 10. VAN DE GRAAFF GENERATOR & DIELECTRIC BREAKDOWN
+  {
+    id: 'van-de-graaff-generator',
+    chapterId: 'electrostatics',
+    category: 'electromagnetism',
+    topic: 'Electrostatics & High-Voltage Physics',
+    title: 'Van de Graaff Generator & Spark Discharge',
+    subtitle: 'High-voltage charge accumulation, corona discharge at sharp points and air dielectric breakdown',
+    badge: 'High Voltage Physics',
+    simulationType: 'van-de-graaff-generator',
+    description:
+      'The Van de Graaff generator accumulates massive electrostatic potentials via a motorized dielectric belt and sharp spray comb electrodes. Electric charge transferred to the inner surface of the hollow conducting dome migrates entirely to its outer surface, reaching potentials limited only by the dielectric breakdown of surrounding air (3 MV/m).',
+    assumptions: [
+      'Isolated spherical conducting terminal of radius R',
+      'Continuous charge delivery rate I_spray by insulated moving belt',
+      'Air dielectric breakdown threshold E_b = 3.0 × 10⁶ V/m at STP',
+    ],
+    cameraPreset: { position: [0, 2, 14], target: [0, 0, 0] },
+    parameters: [
+      { id: 'domeRadius', label: 'Dome Radius (R)', symbol: 'R', unit: 'm', min: 0.1, max: 0.5, step: 0.05, defaultVal: 0.25, description: 'Radius of outer spherical terminal dome' },
+      { id: 'sprayCurrent', label: 'Belt Spray Current (I)', symbol: 'I_{spray}', unit: 'µA', min: 5, max: 50, step: 5, defaultVal: 20, description: 'Electrostatic charge delivery rate to dome' },
+      { id: 'sparkGap', label: 'Discharge Gap (d)', symbol: 'd', unit: 'cm', min: 2, max: 20, step: 1, defaultVal: 8, description: 'Distance between generator dome and grounding sphere' },
+      { id: 'dielectricStrength', label: 'Air Breakdown Field (E_b)', symbol: 'E_b', unit: 'MV/m', min: 1.5, max: 3.5, step: 0.5, defaultVal: 3.0, description: 'Dielectric breakdown threshold of atmosphere' },
+    ],
+    formulas: [
+      { name: 'Dome Potential', latex: 'V = \\frac{Q}{4\\pi\\varepsilon_0 R}', explanation: 'Potential on the outer surface of spherical conductor with charge Q.' },
+      { name: 'Surface Electric Field', latex: 'E = \\frac{V}{R} = \\frac{\\sigma}{\\varepsilon_0}', explanation: 'Surface electric field proportional to surface charge density σ.' },
+      { name: 'Max Potential (Breakdown)', latex: 'V_{\\max} = E_b R', explanation: 'Maximum achievable potential before dielectric breakdown causes corona discharge / spark.' },
+      { name: 'Discharge Spark Energy', latex: 'U = \\frac{1}{2} C V^2 = \\frac{1}{2}(4\\pi\\varepsilon_0 R) V^2', explanation: 'Electrostatic energy discharged per electrical arc.' },
+    ],
+    jeeMain: {
+      weightage: 'High',
+      commonPatterns: [
+        'Principle 1: Discharging action of sharp points (corona discharge) due to high surface charge density σ ∝ 1/r.',
+        'Principle 2: All charge given to the interior cavity of a hollow conductor immediately transfers to the exterior surface.',
+        'Limiting potential of Van de Graaff dome: V_max = E_breakdown × R.',
+      ],
+      keyShortcuts: [
+        'Capacitance of isolated sphere: C = 4πε₀ R ≈ (R / 9 × 10⁹) Farads.',
+        'For R = 0.3 m and E_b = 3 × 10⁶ V/m, V_max = 3 × 10⁶ × 0.3 = 900 kV.',
+      ],
+      trapAlerts: [
+        'Electric field INSIDE the hollow conducting sphere is strictly ZERO (E_inside = 0) despite high external surface charge.',
+        'Immersing the generator in high-pressure freon / SF₆ gas elevates breakdown field E_b up to 10×, allowing potentials > 10 MV.',
+      ],
+    },
+    jeeAdvanced: {
+      weightage: 'High',
+      deepConcepts: [
+        'Concentric spherical shell potentials: If inner sphere has charge q and outer sphere has charge Q, potential difference V_in - V_out = (q / 4πε₀)(1/r₁ - 1/r₂) is INDEPENDENT of outer charge Q.',
+        'Gauss Law integral for charge migration: ∮ E · dA = q_enclosed / ε₀ proves net static charge inside bulk conductor is identically zero.',
+      ],
+      multiConceptLinks: [
+        'Nuclear particle accelerators: Tandem Van de Graaff accelerators used to accelerate protons and deuterons to MeV energies.',
+        'RC Charging analogy: V(t) = V_max (1 - e^(-t / τ_leak)).',
+      ],
+      calculusFormulations: [
+        'Charging rate equation: dQ/dt = I_spray - V / R_leak = I_spray - Q / (4πε₀ R R_leak).',
+      ],
+      advancedPitfalls: [
+        'Do not confuse the electric field between concentric shells with the potential difference. Potential inside is constant, field is zero.',
+      ],
+    },
+    questions: [
+      {
+        id: 'vdg-jee-01',
+        type: 'mcq',
+        difficulty: 'JEE Main',
+        question: 'A Van de Graaff generator has a spherical dome of radius R = 25 cm. If the dielectric breakdown field of air is 3.0 × 10⁶ V/m, the maximum electrical potential that can be sustained on the dome is:',
+        options: [
+          '750 kV',
+          '1500 kV',
+          '375 kV',
+          '3000 kV',
+        ],
+        correctAnswer: 0,
+        explanation: 'At the surface of a sphere, E = V / R. When E reaches the breakdown field E_b, V_max = E_b × R = (3.0 × 10⁶ V/m) × 0.25 m = 7.5 × 10⁵ V = 750 kV.',
+        formulaUsed: 'V_{\\max} = E_b \\cdot R',
+      },
+      {
+        id: 'vdg-jee-02',
+        type: 'numerical',
+        difficulty: 'JEE Advanced',
+        question: 'A spherical metal dome of radius R = 0.3 m is charged to a potential of 600 kV. Taking 1/(4πε₀) = 9 × 10⁹ N·m²/C², the electrostatic energy stored on the dome in Joules is:',
+        numericalAnswer: 6.0,
+        tolerance: 0.2,
+        explanation: 'Capacitance C = 4πε₀ R = 0.3 / (9 × 10⁹) = (1/30) × 10⁻⁹ F = 3.33 × 10⁻¹¹ F. Energy U = (1/2) C V² = 0.5 × (1/30 × 10⁻⁹) × (600 × 10³)² = 0.5 × 0.0333 × 10⁻⁹ × 36 × 10¹⁰ = 6.0 Joules.',
+        formulaUsed: 'U = \\frac{1}{2} C V^2 = \\frac{1}{2}(4\\pi\\varepsilon_0 R) V^2',
+      },
+    ],
+    graphConfigs: [
+      {
+        id: 'v-vs-r',
+        title: 'Max Dome Potential vs Dome Radius',
+        xLabel: 'Dome Radius R',
+        yLabel: 'Max Potential V_max',
+        xUnit: 'm',
+        yUnit: 'kV',
+        color: '#38bdf8',
+        type: 'parametric',
+        calc: (p) => {
+          const Eb = (p.dielectricStrength || 3.0) * 1e3; // in kV/m
+          const pts = [];
+          for (let r = 0.05; r <= 0.6; r += 0.02) {
+            pts.push({ x: r, y: Eb * r });
+          }
+          return pts;
+        },
+      },
+    ],
+    computeLiveQuantities: (p, simTime) => {
+      const R = p.domeRadius || 0.25;
+      const I_uA = p.sprayCurrent || 20;
+      const d_cm = p.sparkGap || 8;
+      const Eb_MV = p.dielectricStrength || 3.0;
+      const Eb = Eb_MV * 1e6; // V/m
+
+      const V_max = Eb * R; // in Volts
+      const tau = 1.2; // charging time constant
+      const chargeCycle = simTime % 3.0;
+      const V_live = V_max * Math.min(1.0, (1 - Math.exp(-chargeCycle / tau)) * 1.05);
+      const E_surface = V_live / R; // V/m
+      const C_pF = (4 * Math.PI * 8.854e-12 * R) * 1e12; // pF
+      const Energy_J = 0.5 * (C_pF * 1e-12) * Math.pow(V_live, 2);
+      const isSpark = V_live >= V_max * 0.98;
+
+      return [
+        { label: 'Dome Potential', symbol: 'V', unit: 'kV', value: V_live / 1000, formatted: `${(V_live / 1000).toFixed(0)} kV`, color: '#38bdf8' },
+        { label: 'Surface Field', symbol: 'E', unit: 'MV/m', value: E_surface / 1e6, formatted: `${(E_surface / 1e6).toFixed(2)} MV/m`, color: '#f59e0b' },
+        { label: 'Breakdown Limit', symbol: 'V_{max}', unit: 'kV', value: V_max / 1000, formatted: `${(V_max / 1000).toFixed(0)} kV`, color: '#ec4899' },
+        { label: 'Stored Energy', symbol: 'U', unit: 'J', value: Energy_J, formatted: `${Energy_J.toFixed(2)} J`, color: '#10b981' },
+        { label: 'Spark State', symbol: 'Spark', unit: '', value: isSpark ? 1 : 0, formatted: isSpark ? '⚡ SPARK DISCHARGE' : 'Charging Belt', color: isSpark ? '#ef4444' : '#06b6d4' },
+      ];
+    },
+  },
+
+  // 11. WHEATSTONE METER BRIDGE LABORATORY APPARATUS
+  {
+    id: 'wheatstone-meter-bridge',
+    chapterId: 'current-electricity',
+    category: 'experimental',
+    topic: 'Electrical Measurements & Bridge Circuits',
+    title: 'Wheatstone Meter Bridge & Null Deflection',
+    subtitle: 'Null deflection galvanometer, uniform 1-meter resistance wire, end corrections and jockey contact',
+    badge: 'JEE Practical Physics',
+    simulationType: 'wheatstone-meter-bridge',
+    description:
+      'The Meter Bridge is the practical laboratory embodiment of the Wheatstone bridge for measuring unknown resistances. A 100 cm uniform resistance wire is stretched along a meter rule between heavy copper strips. When the sliding jockey reaches the balance null point l₁, the galvanometer deflection drops to zero, yielding S = R(100 - l₁) / l₁.',
+    assumptions: [
+      'Uniform cross-section and resistivity along the 100 cm manganin wire',
+      'Negligible resistance of heavy copper connecting strips (end resistance zero)',
+      'High-sensitivity dead-beat galvanometer with zero center',
+    ],
+    cameraPreset: { position: [0, 6, 12], target: [0, -0.5, 0] },
+    parameters: [
+      { id: 'standardR', label: 'Standard Resistance (R)', symbol: 'R', unit: 'Ω', min: 1, max: 50, step: 1, defaultVal: 10, description: 'Known standard resistance from resistance box' },
+      { id: 'unknownS', label: 'Unknown Resistance (S)', symbol: 'S', unit: 'Ω', min: 2, max: 60, step: 1, defaultVal: 15, description: 'Resistance of experimental wire spool' },
+      { id: 'jockeyPos', label: 'Jockey Position (l₁)', symbol: 'l_1', unit: 'cm', min: 5, max: 95, step: 1, defaultVal: 40, description: 'Position of knife-edge sliding jockey on 100 cm wire' },
+      { id: 'cellEmf', label: 'Battery EMF (E)', symbol: 'E', unit: 'V', min: 1.5, max: 6.0, step: 0.5, defaultVal: 2.0, description: 'DC driver cell EMF powering the bridge' },
+    ],
+    formulas: [
+      { name: 'Bridge Balance Condition', latex: '\\frac{R}{S} = \\frac{l_1}{100 - l_1}', explanation: 'Ratio of left arm to right arm equals ratio of wire segment resistances.' },
+      { name: 'Unknown Resistance', latex: 'S = R \\left( \\frac{100 - l_1}{l_1} \\right)', explanation: 'Calculates unknown resistance S from null position l₁.' },
+      { name: 'Bridge Wire Resistance Ratio', latex: '\\frac{R_1}{R_2} = \\frac{\\rho l_1 / A}{\\rho (100 - l_1) / A} = \\frac{l_1}{100 - l_1}', explanation: 'Uniform wire resistance is directly proportional to length.' },
+      { name: 'End Correction Formula', latex: '\\frac{R}{S} = \\frac{l_1 + \\alpha}{(100 - l_1) + \\beta}', explanation: 'Accounting for contact resistances α and β at brass copper terminals.' },
+    ],
+    jeeMain: {
+      weightage: 'High',
+      commonPatterns: [
+        'Finding unknown resistance: S = R(100 - l₁) / l₁.',
+        'Why balance point is preferred near 50 cm: Fractional error ΔS/S is MINIMIZED at l₁ = 50 cm because d(ΔS/S)/dl₁ = 0.',
+        'Interchanging R and S: New balance point becomes (100 - l₁).',
+      ],
+      keyShortcuts: [
+        'Null point condition: R / S = l₁ / (100 - l₁). If R = S, l₁ = 50.0 cm exactly.',
+        'If jockey is shifted to the right of null point, galvanometer deflects in opposite direction.',
+      ],
+      trapAlerts: [
+        'Connecting cell and galvanometer across opposite diagonals does not affect balance condition (Wheatstone conjugate arms property).',
+        'If R is chosen too small or too large compared to S, the null point shifts to the extreme ends (< 10 cm or > 90 cm), causing large percentage errors.',
+      ],
+    },
+    jeeAdvanced: {
+      weightage: 'Critical',
+      deepConcepts: [
+        'Sensitivity of Wheatstone Bridge: Maximum when all four arms have approximately equal resistances: P ≈ Q ≈ R ≈ S.',
+        'End correction determination: By taking two readings with resistances interchanged, the end corrections α and β at both strips are eliminated.',
+      ],
+      multiConceptLinks: [
+        'Temperature coefficient of resistance: Resistance S measured at different temperatures to determine α_t in R(T) = R₀(1 + α_t ΔT).',
+        'Potentiometer vs Meter Bridge: Meter bridge uses deflection galvanometer for null, while potentiometer measures true EMF without drawing current.',
+      ],
+      calculusFormulations: [
+        'Error analysis: S = R (100 - l₁) / l₁ => ln S = ln R + ln(100 - l₁) - ln l₁. Differentiating: ΔS / S = Δl₁ / l₁ + Δl₁ / (100 - l₁).',
+      ],
+      advancedPitfalls: [
+        'Do not press the jockey sliding hard along the wire; scraping causes non-uniform wire diameter, violating the fundamental assumption.',
+      ],
+    },
+    questions: [
+      {
+        id: 'mb-jee-01',
+        type: 'mcq',
+        difficulty: 'JEE Main',
+        question: 'In a meter bridge experiment, a standard resistance R = 12 Ω is in the left gap and an unknown resistance S is in the right gap. The null deflection is obtained at l₁ = 40.0 cm. The value of unknown resistance S is:',
+        options: [
+          '18.0 Ω',
+          '8.0 Ω',
+          '15.0 Ω',
+          '20.0 Ω',
+        ],
+        correctAnswer: 0,
+        explanation: 'At null point, R / S = l₁ / (100 - l₁) => 12 / S = 40 / (100 - 40) = 40 / 60 = 2 / 3 => S = 12 × 3 / 2 = 18.0 Ω.',
+        formulaUsed: 'S = R \\frac{100 - l_1}{l_1}',
+      },
+      {
+        id: 'mb-jee-02',
+        type: 'mcq',
+        difficulty: 'JEE Advanced',
+        question: 'To minimize the fractional percentage error ΔS/S in measuring an unknown resistance S using a meter bridge, the value of standard resistance R should be chosen such that the null point lies near:',
+        options: [
+          '50 cm',
+          '10 cm',
+          '90 cm',
+          '0 cm',
+        ],
+        correctAnswer: 0,
+        explanation: 'The fractional error is ΔS/S = Δl₁ [1/l₁ + 1/(100 - l₁)] = Δl₁ [100 / (l₁(100 - l₁))]. The denominator l₁(100 - l₁) is maximum when l₁ = 50 cm, so the error is minimized when the balance point is at the center (50 cm).',
+        formulaUsed: '\\frac{\\Delta S}{S} = \\Delta l_1 \\left( \\frac{1}{l_1} + \\frac{1}{100 - l_1} \\right)',
+      },
+    ],
+    graphConfigs: [
+      {
+        id: 's-vs-l',
+        title: 'Calculated Unknown S vs Null Length l₁',
+        xLabel: 'Null Length l₁',
+        yLabel: 'Calculated S',
+        xUnit: 'cm',
+        yUnit: 'Ω',
+        color: '#10b981',
+        type: 'distribution',
+        calc: (p) => {
+          const R = p.standardR || 10;
+          const pts = [];
+          for (let l = 10; l <= 90; l += 2) {
+            pts.push({ x: l, y: R * (100 - l) / l });
+          }
+          return pts;
+        },
+      },
+    ],
+    computeLiveQuantities: (p) => {
+      const R = p.standardR || 10;
+      const S_true = p.unknownS || 15;
+      const l1 = p.jockeyPos || 40;
+      const E = p.cellEmf || 2.0;
+
+      // Exact theoretical null point
+      const l_null = (R / (R + S_true)) * 100;
+      // Calculated S from current jockey position
+      const S_calc = R * ((100 - l1) / Math.max(0.1, l1));
+      // Imbalance deflection proportional to difference
+      const imbalance = (l1 - l_null);
+      const I_galv = (imbalance / 50) * (E / 50) * 1000; // in mA
+      const isNull = Math.abs(imbalance) < 0.5;
+
+      return [
+        { label: 'Null Point (Theory)', symbol: 'l_{null}', unit: 'cm', value: l_null, formatted: `${l_null.toFixed(1)} cm`, color: '#38bdf8' },
+        { label: 'Current Jockey Pos', symbol: 'l_1', unit: 'cm', value: l1, formatted: `${l1.toFixed(1)} cm`, color: '#f59e0b' },
+        { label: 'Calculated S', symbol: 'S_{calc}', unit: 'Ω', value: S_calc, formatted: `${S_calc.toFixed(2)} Ω`, color: '#10b981' },
+        { label: 'Galvanometer Current', symbol: 'I_g', unit: 'mA', value: I_galv, formatted: `${I_galv.toFixed(2)} mA`, color: Math.abs(I_galv) < 0.05 ? '#10b981' : '#ef4444' },
+        { label: 'Bridge State', symbol: 'State', unit: '', value: isNull ? 1 : 0, formatted: isNull ? '⭐ NULL DEFLECTION (BALANCED)' : (imbalance > 0 ? 'Deflection → Right' : 'Deflection ← Left'), color: isNull ? '#10b981' : '#ec4899' },
+      ];
+    },
+  },
 ];

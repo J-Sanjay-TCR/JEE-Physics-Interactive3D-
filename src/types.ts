@@ -142,7 +142,9 @@ export type SimulationType =
   | 'newton-laws-pulley'
   | 'relative-motion-kinematics'
   | 'elasticity-viscosity-stokes'
-  | 'center-of-mass-ragdoll';
+  | 'center-of-mass-ragdoll'
+  | 'van-de-graaff-generator'
+  | 'wheatstone-meter-bridge';
 
 export interface SpecialCase {
   id: string;

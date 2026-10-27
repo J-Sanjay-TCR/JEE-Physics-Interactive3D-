@@ -142,7 +142,9 @@ export function formatToStandardLatexMath(rawFormula: string): string {
 
   // 5. Functions (convert plain text sin, cos, etc. to proper LaTeX operators)
   // Ensure we do not double prefix e.g. \\sin
-  str = str.replace(/(?<!\\)\b(sin|cos|tan|cot|sec|csc|ln|log|exp|arcsin|arccos|arctan)\b/g, '\\$1 ');
+  str = str.replace(/(\\\\)?\b(sin|cos|tan|cot|sec|csc|ln|log|exp|arcsin|arccos|arctan)\b/g, (match, slash) => {
+    return slash ? match : `\\${match} `;
+  });
 
   // 6. Subscript naming patterns (H_max -> H_{\max}, R_max -> R_{\max}, etc.)
   str = str.replace(/_max\b/g, '_{\\max}');
@@ -176,8 +178,12 @@ export function formatToStandardLatexMath(rawFormula: string): string {
     str = str.replace(/\(([^()]+)\)\s*\/\s*([a-zA-Z0-9_\\^·\\]+)/g, '\\frac{$1}{$2}');
     // A / (B)
     str = str.replace(/([a-zA-Z0-9_\\^·\\]+)\s*\/\s*\(([^()]+)\)/g, '\\frac{$1}{$2}');
-    // Single term / single term: e.g. 2·u_y / g or u^2 / g (avoiding already formed \frac)
-    str = str.replace(/(?<!\\frac\{[^{}]*\}\{)(?<!\\frac\{)([a-zA-Z0-9_\^·\\]+)\s*\/\s*([a-zA-Z0-9_\^·\\]+)(?!\})/g, '\\frac{$1}{$2}');
+    // Single term / single term (e.g. u^2 / g) avoiding already-wrapped \frac tokens
+    str = str.replace(/(?:^|[^{\\a-zA-Z0-9_\^·])([a-zA-Z0-9_\^·\\]+)\s*\/\s*([a-zA-Z0-9_\^·\\]+)(?!\})/g, (m, num, den) => {
+      if (m.startsWith('\\frac')) return m;
+      const prefix = m.slice(0, m.indexOf(num));
+      return `${prefix}\\frac{${num}}{${den}}`;
+    });
   }
 
   // Clean redundant whitespace

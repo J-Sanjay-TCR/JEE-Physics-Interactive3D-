@@ -770,7 +770,7 @@ export const MobileNavBottomSheet: React.FC<MobileNavBottomSheetProps> = ({
               <div className="p-1 rounded-lg bg-purple-500/20 text-purple-400">
                 <Bot className="w-4 h-4" />
               </div>
-              <span className="text-[10px] mt-0.5">AI Tutor</span>
+              <span className="text-[10px] mt-0.5">Nemo AI</span>
             </button>
 
             {/* 6. Analytics */}

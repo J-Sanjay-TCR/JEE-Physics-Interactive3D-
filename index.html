@@ -86,20 +86,27 @@
           </div>
         </div>
 
-        <div style="display:inline-flex;align-items:center;gap:8px;padding:3px 12px;border-radius:9999px;background:rgba(0,240,255,0.1);border:1px solid rgba(0,240,255,0.3);color:#67e8f9;font-size:11px;font-family:monospace;font-weight:700;letter-spacing:0.1em;margin-bottom:10px;box-shadow:0 0 12px rgba(0,240,255,0.2);">
-          <span>JEE 3D QUANTUM LAB</span>
+        <div style="display:inline-flex;align-items:center;gap:8px;padding:4px 14px;border-radius:9999px;background:rgba(0,240,255,0.08);border:1px solid rgba(0,240,255,0.25);color:#67e8f9;font-size:11px;font-family:monospace;font-weight:700;letter-spacing:0.1em;margin-bottom:8px;box-shadow:0 0 12px rgba(0,240,255,0.15);">
+          <span>JEE 3D PHYSICS LAB</span>
           <span style="color:#64748b;">•</span>
-          <span style="color:#34d399;">RK4 SOLVER</span>
+          <span style="color:#34d399;">QUANTUM 3D</span>
         </div>
-        <div style="font-size:18px;font-weight:800;color:#f8fafc;letter-spacing:-0.02em;">Calibrating Physics Apparatus...</div>
-        <div style="font-size:12px;color:#94a3b8;margin-top:6px;max-width:320px;text-align:center;line-height:1.4;">Allocating WebGL 3D framebuffers & numerical differential pipelines</div>
-        
-        <div style="width:200px;height:3px;background:rgba(255,255,255,0.1);border-radius:9999px;overflow:hidden;margin-top:16px;">
-          <div style="height:100%;width:60%;background:linear-gradient(90deg,#00f0ff,#10b981);border-radius:9999px;animation:preloader-slide 1.6s ease-in-out infinite;box-shadow:0 0 10px #00f0ff;"></div>
-        </div>
+        <div style="font-size:17px;font-weight:700;color:#f8fafc;letter-spacing:-0.02em;">Initializing Laboratory</div>
       </div>
-    </div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Fallback timer: guarantees the initial preloader never hangs indefinitely on the screen
+      setTimeout(function() {
+        var el = document.getElementById('app-preloader');
+        if (el && el.parentNode) {
+          el.style.transition = 'opacity 0.3s ease';
+          el.style.opacity = '0';
+          setTimeout(function() {
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+          }, 300);
+        }
+      }, 1600);
+    </script>
   </body>
 </html>
 

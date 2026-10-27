@@ -15,11 +15,12 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
   // Default: Prominently located on the BOTTOM-RIGHT for intuitive accessibility
   const [position, setPosition] = useState<{ x: number; y: number }>(() => {
     if (typeof window !== 'undefined') {
-      const isMobile = window.innerWidth < 640;
-      const fabSize = isMobile ? 62 : 70;
+      const isMobile = window.innerWidth < 768;
+      const fabSize = isMobile ? 60 : 70;
+      const bottomSafePadding = isMobile ? 96 : 32;
       return {
         x: Math.max(16, window.innerWidth - fabSize - (isMobile ? 16 : 24)),
-        y: Math.max(80, window.innerHeight - fabSize - (isMobile ? 84 : 32)),
+        y: Math.max(80, window.innerHeight - fabSize - bottomSafePadding),
       };
     }
     return { x: 300, y: 550 };
@@ -148,14 +149,15 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
   useEffect(() => {
     const updateDefaultPos = () => {
       if (typeof window !== 'undefined') {
-        const isMobile = window.innerWidth < 640;
-        const fabSize = isMobile ? 62 : 70;
+        const isMobile = window.innerWidth < 768;
+        const fabSize = isMobile ? 60 : 70;
+        const bottomSafePadding = isMobile ? 96 : 32;
         const initialX = Math.max(16, window.innerWidth - fabSize - (isMobile ? 16 : 24));
-        const initialY = Math.max(80, window.innerHeight - fabSize - (isMobile ? 84 : 32));
+        const initialY = Math.max(80, window.innerHeight - fabSize - bottomSafePadding);
 
         setPosition((prev) => {
           const clampedX = Math.min(Math.max(12, prev.x || initialX), window.innerWidth - fabSize - 12);
-          const clampedY = Math.min(Math.max(70, prev.y || initialY), window.innerHeight - fabSize - 12);
+          const clampedY = Math.min(Math.max(70, prev.y || initialY), window.innerHeight - fabSize - (isMobile ? 88 : 16));
           return { x: clampedX, y: clampedY };
         });
       }
@@ -201,9 +203,12 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
     const newX = dragStartRef.current.fabX + dx;
     const newY = dragStartRef.current.fabY + dy;
 
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const bottomSafeArea = isMobile ? 88 : 16;
+
     // Constrain within safe viewport boundaries
     const clampedX = Math.min(Math.max(12, newX), window.innerWidth - fabWidth - 12);
-    const clampedY = Math.min(Math.max(70, newY), window.innerHeight - fabHeight - 12);
+    const clampedY = Math.min(Math.max(70, newY), window.innerHeight - fabHeight - bottomSafeArea);
 
     setPosition({ x: clampedX, y: clampedY });
   };
@@ -254,7 +259,7 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
         >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/50 to-transparent anim-ai-shimmer pointer-events-none" />
           <Sparkles className="w-2.5 h-2.5 fill-slate-950 text-slate-950 anim-ai-sparkle-spin shrink-0" />
-          <span className="relative z-10 font-mono">AI TUTOR</span>
+          <span className="relative z-10 font-mono">NEMO AI</span>
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399] animate-pulse shrink-0" />
         </div>
 
@@ -292,7 +297,7 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
               onOpenAiTutor();
             }
           }}
-          aria-label="Open AI Physics Tutor"
+          aria-label="Open Nemo — AI Physics Tutor Companion"
           className="anim-ai-orb-float relative w-15 h-15 sm:w-17 sm:h-17 rounded-full p-[2px] flex items-center justify-center overflow-hidden transition-all duration-200 group-hover:scale-105 active:scale-95 shadow-[0_8px_30px_rgba(0,240,255,0.4)] border border-cyan-400/80 ring-2 ring-cyan-400/30"
           style={{
             background: 'conic-gradient(from 180deg at 50% 50%, #00f0ff 0deg, #6366f1 120deg, #38bdf8 240deg, #00f0ff 360deg)',
@@ -340,82 +345,121 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
                 }}
               />
 
-              {/* Innocent Blush Cheeks (Subtle cute rosy-cyan glow on hover or happy) */}
+              {/* Cute Rosy Blushing Cheeks */}
               <div
-                className={`absolute bottom-0.5 left-1.5 w-2 h-1 rounded-full bg-cyan-400/40 blur-[1px] transition-opacity duration-300 ${
-                  isHovered || eyeEmotion === 'happy' ? 'opacity-90' : 'opacity-25'
+                className={`absolute bottom-0.5 left-1.5 w-2 h-1 rounded-full bg-rose-400/60 blur-[0.8px] shadow-[0_0_6px_rgba(251,113,133,0.7)] transition-opacity duration-300 ${
+                  isHovered || eyeEmotion === 'happy' ? 'opacity-95' : 'opacity-40'
                 }`}
               />
               <div
-                className={`absolute bottom-0.5 right-1.5 w-2 h-1 rounded-full bg-cyan-400/40 blur-[1px] transition-opacity duration-300 ${
-                  isHovered || eyeEmotion === 'happy' ? 'opacity-90' : 'opacity-25'
+                className={`absolute bottom-0.5 right-1.5 w-2 h-1 rounded-full bg-rose-400/60 blur-[0.8px] shadow-[0_0_6px_rgba(251,113,133,0.7)] transition-opacity duration-300 ${
+                  isHovered || eyeEmotion === 'happy' ? 'opacity-95' : 'opacity-40'
                 }`}
               />
 
               {/* ===================================== */}
-              {/* LEFT BRIGHT GLIMMER EYE              */}
+              {/* FACE: EYES & CUTE SMILING MOUTH       */}
               {/* ===================================== */}
               <div
-                className="relative flex items-center justify-center transition-all duration-150 ease-out"
+                className="flex flex-col items-center justify-center transition-all duration-150 ease-out z-10"
                 style={{
-                  transform: `translate3d(${eyeOffset.x}px, ${eyeOffset.y}px, 0) scaleY(${isBlinking ? 0.08 : 1})`,
+                  transform: `translate3d(${eyeOffset.x}px, ${eyeOffset.y}px, 0)`,
                 }}
               >
-                {isHovered || eyeEmotion === 'happy' ? (
-                  // Happy Curved Eye Arc ^ _ ^
-                  <div className="w-3.5 h-3.5 border-t-2 border-white rounded-t-full shadow-[0_0_10px_#22d3ee] anim-ai-eye-twinkle" />
-                ) : (
-                  // Normal Innocent Glimmer Eye
-                  <div
-                    className="relative w-3 h-4 sm:w-3.5 sm:h-4.5 rounded-[50%] bg-gradient-to-b from-white via-cyan-300 to-sky-400 shadow-[0_0_12px_#22d3ee,0_0_24px_rgba(6,182,212,0.8)] border border-cyan-100 flex items-center justify-center anim-ai-eye-twinkle overflow-hidden"
-                  >
-                    {/* Darker Inner Iris Core */}
-                    <div className="absolute inset-[1.5px] rounded-full bg-gradient-to-b from-sky-400 to-cyan-600 opacity-70" />
-
-                    {/* Primary Bright Glimmer Star Sparkle (Top-Right) */}
-                    <div
-                      className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_6px_#ffffff] z-10"
-                    />
-
-                    {/* Secondary Innocent Micro-Twinkle Dot (Bottom-Left) */}
-                    <div
-                      className="absolute bottom-1 left-0.5 w-0.5 h-0.5 rounded-full bg-white/95 z-10"
-                    />
+                <div className="flex items-center justify-center gap-2 sm:gap-2.5">
+                  {/* LEFT EYE */}
+                  <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center overflow-visible">
+                    {isBlinking ? (
+                      <div className="w-full h-full flex items-center justify-center anim-nemo-blink-spring">
+                        <div
+                          className="w-[88%] h-[44%] rounded-b-full border-b-[2.6px] border-cyan-200 anim-nemo-neon-blink"
+                          style={{
+                            filter: 'drop-shadow(0 0 3px #00f0ff)',
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="relative w-full h-full rounded-full flex items-center justify-center anim-nemo-cute-float">
+                        <div
+                          className="relative w-full h-full rounded-full border border-cyan-200/90 overflow-hidden anim-nemo-neon-eye"
+                          style={{
+                            background: 'radial-gradient(circle at 45% 38%, #ffffff 0%, #a5f3fc 22%, #00f0ff 52%, #0284c7 80%, #034975 100%)',
+                            boxShadow: '0 0 7px #00f0ff, inset 0 0 4px #ffffff',
+                          }}
+                        >
+                          {/* Spinning Holographic Quantum Ring */}
+                          <div
+                            className="absolute inset-[8%] rounded-full border border-dotted border-cyan-200/50 anim-nemo-holo-ring pointer-events-none"
+                          />
+                          {/* Cheerful Happy Bottom Light Reflection Smile Arc */}
+                          <div
+                            className="absolute bottom-[10%] inset-x-[15%] h-[36%] rounded-b-full border-b-[2px] border-white pointer-events-none anim-nemo-smile-arc"
+                            style={{
+                              boxShadow: '0 1px 3px rgba(255,255,255,0.9)',
+                            }}
+                          />
+                          {/* Primary Specular Twinkle Gleam (Top-Left Starlet) */}
+                          <div className="absolute top-[14%] left-[17%] w-[30%] h-[30%] rounded-full bg-white shadow-[0_0_3px_#ffffff] anim-nemo-star-gleam pointer-events-none" />
+                          {/* Secondary Specular Micro Starlet Fleck */}
+                          <div className="absolute bottom-[20%] right-[19%] w-[16%] h-[16%] rounded-full bg-cyan-100 shadow-[0_0_2px_#a5f3fc] anim-nemo-fleck-orbit pointer-events-none" />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {/* ===================================== */}
-              {/* RIGHT BRIGHT GLIMMER EYE             */}
-              {/* ===================================== */}
-              <div
-                className="relative flex items-center justify-center transition-all duration-150 ease-out"
-                style={{
-                  transform: `translate3d(${eyeOffset.x}px, ${eyeOffset.y}px, 0) scaleY(${isBlinking ? 0.08 : 1})`,
-                }}
-              >
-                {isHovered || eyeEmotion === 'happy' ? (
-                  // Happy Curved Eye Arc ^ _ ^
-                  <div className="w-3.5 h-3.5 border-t-2 border-white rounded-t-full shadow-[0_0_10px_#22d3ee] anim-ai-eye-twinkle" />
-                ) : (
-                  // Normal Innocent Glimmer Eye
-                  <div
-                    className="relative w-3 h-4 sm:w-3.5 sm:h-4.5 rounded-[50%] bg-gradient-to-b from-white via-cyan-300 to-sky-400 shadow-[0_0_12px_#22d3ee,0_0_24px_rgba(6,182,212,0.8)] border border-cyan-100 flex items-center justify-center anim-ai-eye-twinkle overflow-hidden"
-                  >
-                    {/* Darker Inner Iris Core */}
-                    <div className="absolute inset-[1.5px] rounded-full bg-gradient-to-b from-sky-400 to-cyan-600 opacity-70" />
-
-                    {/* Primary Bright Glimmer Star Sparkle (Top-Right) */}
-                    <div
-                      className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_6px_#ffffff] z-10"
-                    />
-
-                    {/* Secondary Innocent Micro-Twinkle Dot (Bottom-Left) */}
-                    <div
-                      className="absolute bottom-1 left-0.5 w-0.5 h-0.5 rounded-full bg-white/95 z-10"
-                    />
+                  {/* RIGHT EYE */}
+                  <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center overflow-visible">
+                    {isBlinking ? (
+                      <div className="w-full h-full flex items-center justify-center anim-nemo-blink-spring">
+                        <div
+                          className="w-[88%] h-[44%] rounded-b-full border-b-[2.6px] border-cyan-200 anim-nemo-neon-blink"
+                          style={{
+                            filter: 'drop-shadow(0 0 3px #00f0ff)',
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="relative w-full h-full rounded-full flex items-center justify-center anim-nemo-cute-float">
+                        <div
+                          className="relative w-full h-full rounded-full border border-cyan-200/90 overflow-hidden anim-nemo-neon-eye"
+                          style={{
+                            background: 'radial-gradient(circle at 45% 38%, #ffffff 0%, #a5f3fc 22%, #00f0ff 52%, #0284c7 80%, #034975 100%)',
+                            boxShadow: '0 0 7px #00f0ff, inset 0 0 4px #ffffff',
+                          }}
+                        >
+                          {/* Spinning Holographic Quantum Ring */}
+                          <div
+                            className="absolute inset-[8%] rounded-full border border-dotted border-cyan-200/50 anim-nemo-holo-ring pointer-events-none"
+                          />
+                          {/* Cheerful Happy Bottom Light Reflection Smile Arc */}
+                          <div
+                            className="absolute bottom-[10%] inset-x-[15%] h-[36%] rounded-b-full border-b-[2px] border-white pointer-events-none anim-nemo-smile-arc"
+                            style={{
+                              boxShadow: '0 1px 3px rgba(255,255,255,0.9)',
+                            }}
+                          />
+                          {/* Primary Specular Twinkle Gleam (Top-Left Starlet) */}
+                          <div className="absolute top-[14%] left-[17%] w-[30%] h-[30%] rounded-full bg-white shadow-[0_0_3px_#ffffff] anim-nemo-star-gleam pointer-events-none" />
+                          {/* Secondary Specular Micro Starlet Fleck */}
+                          <div className="absolute bottom-[20%] right-[19%] w-[16%] h-[16%] rounded-full bg-cyan-100 shadow-[0_0_2px_#a5f3fc] anim-nemo-fleck-orbit pointer-events-none" />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
+
+                {/* CUTE SMILING MOUTH */}
+                <div className="mt-0.5 flex items-center justify-center">
+                  <svg viewBox="0 0 20 10" className="w-3.5 h-1.5 overflow-visible drop-shadow-[0_0_6px_#22d3ee]">
+                    <path
+                      d="M 3 2 C 6 8, 14 8, 17 2"
+                      fill="none"
+                      stroke="#38bdf8"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
               </div>
             </div>
 
@@ -442,11 +486,11 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
             </div>
             <div className="text-left">
               <div className="text-[11.5px] font-bold text-white flex items-center gap-1.5 font-mono">
-                <span>AI Physics Tutor</span>
+                <span>Nemo — AI Physics Tutor</span>
                 <span className="text-[10px] text-cyan-300 font-normal">• Online</span>
               </div>
               <div className="text-[9.5px] text-zinc-300 mt-0.5">
-                Click me to ask doubts, explore 3D calculus & step-by-step solutions
+                Click Nemo to ask doubts, explore 3D calculus & step-by-step solutions
               </div>
             </div>
           </div>

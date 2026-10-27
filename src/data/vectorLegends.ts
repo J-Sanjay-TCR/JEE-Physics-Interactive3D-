@@ -1240,4 +1240,45 @@ export const VECTOR_LEGENDS: Record<SimulationType, VectorLegendItem[]> = {
       getLiveValue: () => '0.000 N',
     },
   ],
+  'van-de-graaff-generator': [
+    {
+      id: 'vdg-field-arrow',
+      name: 'Radial Electric Field',
+      symbol: 'E',
+      color: '#38bdf8',
+      bgBadge: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+      description: 'Outward radial electrostatic field from high-voltage dome surface.',
+      formula: 'E = V / R',
+      getLiveValue: (p) => `${((p.dielectricStrength || 3.0)).toFixed(2)} MV/m`,
+    },
+    {
+      id: 'vdg-current-arrow',
+      name: 'Charge Transport Vector',
+      symbol: 'I_{spray}',
+      color: '#f59e0b',
+      bgBadge: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+      description: 'Upward convective charge transport carried by dielectric belt.',
+      formula: 'I = \\sigma_{belt} w v_{belt}',
+      getLiveValue: (p) => `${(p.sprayCurrent || 20).toFixed(0)} µA`,
+    },
+  ],
+  'wheatstone-meter-bridge': [
+    {
+      id: 'mb-ig-arrow',
+      name: 'Galvanometer Deflection',
+      symbol: 'I_g',
+      color: '#10b981',
+      bgBadge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+      description: 'Bridge diagonal current through moving coil galvanometer.',
+      formula: 'I_g \\propto (R(100 - l_1) - S l_1)',
+      getLiveValue: (p) => {
+        const R = p.standardR || 10;
+        const S = p.unknownS || 15;
+        const l1 = p.jockeyPos || 40;
+        const l_null = (R / (R + S)) * 100;
+        const imb = l1 - l_null;
+        return Math.abs(imb) < 0.5 ? '0.00 mA (Null)' : `${(imb * 0.05).toFixed(2)} mA`;
+      },
+    },
+  ],
 };

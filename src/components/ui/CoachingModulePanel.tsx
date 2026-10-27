@@ -27,7 +27,7 @@ interface CoachingModulePanelProps {
   onSwitchToSimulation?: () => void;
 }
 
-export const CoachingModulePanel: React.FC<CoachingModulePanelProps> = ({
+const CoachingModulePanelComponent: React.FC<CoachingModulePanelProps> = ({
   concept,
   onApplyPreset,
   onSwitchToSimulation,
@@ -498,3 +498,5 @@ export const CoachingModulePanel: React.FC<CoachingModulePanelProps> = ({
     </div>
   );
 };
+
+export const CoachingModulePanel = React.memo(CoachingModulePanelComponent);

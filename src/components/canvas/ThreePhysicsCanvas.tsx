@@ -876,6 +876,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
+      if (w <= 0 || h <= 0) return;
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
@@ -954,10 +955,26 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         }
       }
     };
+
+    const canvasElement = renderer.domElement;
+    const handleContextLost = (e: Event) => {
+      e.preventDefault();
+      console.warn('[ThreePhysicsCanvas] WebGL context lost. Preventing default to allow clean GPU restoration...');
+      cancelAnimationFrame(animFrameId.current);
+    };
+    const handleContextRestored = () => {
+      console.log('[ThreePhysicsCanvas] WebGL context restored. Resuming render loop...');
+      animFrameId.current = requestAnimationFrame(render);
+    };
+    canvasElement.addEventListener('webglcontextlost', handleContextLost, false);
+    canvasElement.addEventListener('webglcontextrestored', handleContextRestored, false);
+
     animFrameId.current = requestAnimationFrame(render);
 
     return () => {
       cancelAnimationFrame(animFrameId.current);
+      canvasElement.removeEventListener('webglcontextlost', handleContextLost);
+      canvasElement.removeEventListener('webglcontextrestored', handleContextRestored);
       resizeObserver.disconnect();
       if (simRendererRef.current) {
         simRendererRef.current.cleanup();
@@ -967,27 +984,25 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         composerRef.current = null;
       }
       bloomPassRef.current = null;
+      if (sceneRef.current) {
+        sceneRef.current.traverse((child) => {
+          const mesh = child as THREE.Mesh;
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.material) {
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            mats.forEach((m) => {
+              if ((m as any).map) (m as any).map.dispose();
+              m.dispose();
+            });
+          }
+        });
+      }
       renderer.dispose();
+      if (canvasElement && canvasElement.parentNode) {
+        canvasElement.parentNode.removeChild(canvasElement);
+      }
     };
   }, [simulationType, isDark, isCyberpunk, envType]);
-
-  // Update simulation type or params
-  useEffect(() => {
-    if (simRendererRef.current && sceneRef.current) {
-      simRendererRef.current.initSimulation(simulationType, {
-        scene: sceneRef.current,
-        params,
-        simTime,
-        showVectors,
-        showLabels,
-        showTrajectory,
-        showGrid,
-        showAxes,
-        isDark,
-        bloomIntensity,
-      });
-    }
-  }, [simulationType]);
 
   // Update real-time physics on time/param changes
   useEffect(() => {
@@ -1246,31 +1261,31 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* Floating Top Controls Bar - Hidden in Focus Mode so FocusModeOverlay is uncluttered */}
       {!isFocusMode && (
-        <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none gap-2">
+        <div className="absolute top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between pointer-events-none gap-1.5 sm:gap-2">
         {/* Left Badges */}
-        <div className="flex items-center gap-2 pointer-events-auto flex-wrap max-w-[calc(50%-100px)]">
+        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
           {isARMode ? (
-            <div className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-emerald-950/90 backdrop-blur-md border border-emerald-400/50 text-[11px] sm:text-xs font-bold text-emerald-300 flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.35)]">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <div className="px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-emerald-950/90 backdrop-blur-md border border-emerald-400/50 text-[10px] sm:text-xs font-bold text-emerald-300 flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.35)]">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
               <Camera className="w-3.5 h-3.5 text-emerald-400" />
-              <span>AR Camera Live</span>
+              <span className="hidden xs:inline">AR Live</span>
               <button
                 onClick={() => setCameraFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
                 title="Switch Camera (Rear / Front)"
-                className="p-1 rounded bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 ml-1 transition"
+                className="p-1 rounded bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 ml-0.5 transition"
               >
                 <RefreshCw className="w-3 h-3" />
               </button>
             </div>
           ) : (
-            <div className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-white/[0.08] text-[11px] sm:text-xs font-semibold text-cyan-400 flex items-center gap-1.5 shadow-lg">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+            <div className="px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-white/[0.08] text-[10px] sm:text-xs font-semibold text-cyan-400 flex items-center gap-1.5 shadow-lg">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
               <span>3D Stage</span>
             </div>
           )}
 
           <div 
-            className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-emerald-500/20 text-[11px] font-medium text-emerald-400 shadow-lg"
+            className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-emerald-500/20 text-[11px] font-medium text-emerald-400 shadow-lg"
             title="Physics Engine Middleware: Fixed-step integration with non-penetration contact manifold and depth-bias z-fighting prevention active."
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
@@ -1284,7 +1299,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               const next = bloomIntensity === 'vibrant' ? 'subtle' : bloomIntensity === 'subtle' ? 'off' : 'vibrant';
               onChangeBloom?.(next);
             }}
-            className={`flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer ${
               bloomIntensity === 'vibrant'
                 ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300 shadow-[0_0_12px_rgba(0,240,255,0.25)]'
                 : bloomIntensity === 'subtle'
@@ -1307,7 +1322,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           <button
             type="button"
             onClick={toggleAdaptivePerformance}
-            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer ${
+            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer ${
               adaptivePerformance
                 ? isDark
                   ? 'bg-[#0A1628]/90 border-cyan-500/30 text-cyan-300 hover:border-cyan-500/50'
@@ -1329,31 +1344,31 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </button>
 
           {/* Perspective Angle Quick Switchers */}
-          <div className="hidden sm:flex items-center gap-1 bg-[#111114]/90 backdrop-blur-md p-1 rounded-xl border border-white/[0.08] text-[10px] font-bold">
+          <div className="hidden lg:flex items-center gap-0.5 bg-[#111114]/90 backdrop-blur-md p-0.5 rounded-xl border border-white/[0.08] text-[10px] font-bold">
             <button
               onClick={() => setCameraPresetView('3d')}
-              className="px-2 py-1 rounded-md text-zinc-300 hover:text-white hover:bg-white/10 transition"
+              className="px-2 py-0.5 rounded-md text-zinc-300 hover:text-white hover:bg-white/10 transition"
               title="Isometric 3D Perspective"
             >
               3D
             </button>
             <button
               onClick={() => setCameraPresetView('front')}
-              className="px-2 py-1 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition"
+              className="px-2 py-0.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition"
               title="Front View (XY Plane)"
             >
               Front
             </button>
             <button
               onClick={() => setCameraPresetView('top')}
-              className="px-2 py-1 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition"
+              className="px-2 py-0.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition"
               title="Top View (XZ Plane)"
             >
               Top
             </button>
             <button
               onClick={() => setCameraPresetView('side')}
-              className="px-2 py-1 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition"
+              className="px-2 py-0.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition"
               title="Side View (YZ Plane)"
             >
               Side
@@ -1362,8 +1377,8 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         </div>
 
         {/* Right Action Tools */}
-        <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto bg-[#111114]/90 backdrop-blur-md p-1 sm:p-1.5 rounded-xl border border-white/[0.08] shadow-xl">
-          {/* Wheel Scroll vs 3D Zoom Toggle */}
+        <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto bg-[#111114]/90 backdrop-blur-md p-1 sm:p-1.5 rounded-xl border border-white/[0.08] shadow-xl shrink-0">
+          {/* Wheel Scroll vs 3D Zoom Toggle - Desktop only */}
           <button
             onClick={() => setWheelMode(wheelMode === 'scroll' ? 'zoom' : 'scroll')}
             title={
@@ -1372,7 +1387,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
                 : 'Wheel Mode: Direct 3D Zoom Active. Click to switch to Natural Page Scrolling.'
             }
             aria-label="Toggle Wheel Scroll Mode"
-            className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+            className={`hidden xl:flex px-2 py-1 rounded-lg text-xs font-semibold items-center gap-1.5 transition ${
               wheelMode === 'scroll'
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                 : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
@@ -1382,7 +1397,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             <span className="hidden lg:inline">{wheelMode === 'scroll' ? 'Scroll Page' : 'Zoom 3D'}</span>
           </button>
 
-          <div className="h-4 w-px bg-white/[0.08]"></div>
+          <div className="hidden xl:block h-4 w-px bg-white/[0.08]"></div>
 
           <button
             onClick={resetCamera}
@@ -1398,7 +1413,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             onClick={toggleFps}
             title={showFps ? "Hide FPS & Performance Monitor" : "Show FPS Counter (Real-time Viewport Render Performance)"}
             aria-label="Toggle FPS Counter"
-            className={`p-1.5 rounded-lg transition flex items-center gap-1 text-xs font-medium ${
+            className={`hidden sm:flex p-1.5 rounded-lg transition items-center gap-1 text-xs font-medium ${
               showFps
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1C1C22]'
@@ -1408,7 +1423,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             <span className="hidden xl:inline">FPS</span>
           </button>
 
-          <div className="h-4 w-px bg-white/[0.08]"></div>
+          <div className="hidden sm:block h-4 w-px bg-white/[0.08]"></div>
 
           {/* Vectors Toggle */}
           <button
@@ -1440,7 +1455,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             onClick={onToggleGrid}
             title="Toggle Floor Grid"
             aria-label="Toggle Grid"
-            className={`p-1.5 rounded-lg transition text-xs ${
+            className={`hidden md:flex p-1.5 rounded-lg transition text-xs ${
               showGrid ? 'bg-[#1C1C22] text-zinc-200' : 'text-zinc-500 hover:bg-[#1C1C22]/50'
             }`}
           >
@@ -1451,7 +1466,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             onClick={onToggleAxes}
             title="Toggle Coordinate Axes"
             aria-label="Toggle Axes"
-            className={`p-1.5 rounded-lg transition text-xs ${
+            className={`hidden md:flex p-1.5 rounded-lg transition text-xs ${
               showAxes ? 'bg-[#1C1C22] text-zinc-200' : 'text-zinc-500 hover:bg-[#1C1C22]/50'
             }`}
           >
@@ -1463,7 +1478,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               onClick={onToggleFocusMode}
               title={isFocusMode ? "Exit Focus Mode (Esc or F)" : "Enter Focus Mode (F) - Full Screen 3D Lab with Floating HUD"}
               aria-label="Toggle Focus Mode"
-              className={`p-1.5 rounded-lg transition flex items-center gap-1 text-xs font-bold ${
+              className={`hidden sm:flex p-1.5 rounded-lg transition items-center gap-1 text-xs font-bold ${
                 isFocusMode
                   ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-md shadow-cyan-500/30'
                   : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30'
@@ -1478,7 +1493,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             onClick={toggleTheme}
             title="Toggle Theme Mode"
             aria-label="Toggle Theme"
-            className="p-1.5 text-zinc-400 hover:text-cyan-300 hover:bg-[#1C1C22] rounded-lg transition flex items-center justify-center"
+            className="hidden lg:flex p-1.5 text-zinc-400 hover:text-cyan-300 hover:bg-[#1C1C22] rounded-lg transition items-center justify-center"
           >
             {theme === 'dark' ? <Moon className="w-4 h-4" /> : theme === 'light' ? <Sun className="w-4 h-4" /> : <Zap className="w-4 h-4 text-cyan-400" />}
           </button>
@@ -1487,7 +1502,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             onClick={toggleEnvironment}
             title={`Toggle 3D Environment (Current: ${envType.charAt(0).toUpperCase() + envType.slice(1)})`}
             aria-label="Toggle Environment"
-            className="p-1.5 text-zinc-400 hover:text-indigo-300 hover:bg-[#1C1C22] rounded-lg transition flex items-center justify-center"
+            className="hidden lg:flex p-1.5 text-zinc-400 hover:text-indigo-300 hover:bg-[#1C1C22] rounded-lg transition items-center justify-center"
           >
             {envType === 'void' ? <Box className="w-4 h-4" /> : envType === 'lab' ? <FlaskConical className="w-4 h-4" /> : <Rocket className="w-4 h-4" />}
           </button>
@@ -1739,7 +1754,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* Floating Bottom Left Vector Legend HUD (Names & Representation of All Colored Arrows) */}
       {showVectors && currentVectors.length > 0 && (
-        <div className={`absolute ${isFocusMode ? 'bottom-20 left-3 sm:left-5' : 'bottom-3 left-3'} max-w-[calc(100%-80px)] sm:max-w-sm pointer-events-auto z-10 select-none`}>
+        <div className={`absolute ${isFocusMode ? 'bottom-20 left-3 sm:left-5' : 'bottom-16 sm:bottom-3 left-3 sm:left-3'} max-w-[calc(100%-80px)] sm:max-w-sm pointer-events-auto z-10 select-none`}>
           {!isLegendExpanded ? (
             /* Compact Collapsed Micro-Capsule (Non-intrusive, never covers 3D models) */
             <div className="flex items-center gap-1.5 p-1 sm:p-1.5 rounded-xl bg-[#0c0d14]/80 hover:bg-[#0c0d14]/95 backdrop-blur-xl border border-white/[0.12] shadow-xl text-xs transition-all">

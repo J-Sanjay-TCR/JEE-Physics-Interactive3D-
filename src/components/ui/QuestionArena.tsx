@@ -64,7 +64,7 @@ export const QuestionArena: React.FC<QuestionArenaProps> = ({
     if (isGenerating) return;
     setIsGenerating(true);
     setStatusFeedback({
-      text: 'AI Tutor is calculating physical constraints and drafting custom problem...',
+      text: 'Nemo is calculating physical constraints and drafting custom problem...',
       isSuccess: true,
     });
 
@@ -108,7 +108,7 @@ export const QuestionArena: React.FC<QuestionArenaProps> = ({
       }
     } catch (err) {
       console.error('Failed to generate custom question:', err);
-      setStatusFeedback({ text: 'Error connecting to AI Tutor. Please check network.', isSuccess: false });
+      setStatusFeedback({ text: 'Error connecting to Nemo AI Tutor. Please check network.', isSuccess: false });
       setTimeout(() => setStatusFeedback(null), 4000);
     } finally {
       setIsGenerating(false);
@@ -205,7 +205,7 @@ export const QuestionArena: React.FC<QuestionArenaProps> = ({
           className="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 flex items-center gap-2 transition"
         >
           {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-          Generate Custom Question with AI Tutor
+          Generate Custom Question with Nemo
         </button>
       </div>
     );
@@ -268,7 +268,7 @@ export const QuestionArena: React.FC<QuestionArenaProps> = ({
             </div>
             <div>
               <div className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
-                <span>AI Tutor Custom Problem Generator</span>
+                <span>Nemo Custom Problem Generator</span>
                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-white/[0.06] text-zinc-400 font-normal">
                   Live Parameters
                 </span>

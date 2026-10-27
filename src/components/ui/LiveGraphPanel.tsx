@@ -483,7 +483,7 @@ export const LiveGraphPanel: React.FC<LiveGraphPanelProps> = ({
             isDark ? 'text-cyan-400' : 'text-slate-800'
           }`}
         >
-          <div className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+          <span className="w-2 h-2 rounded-full bg-cyan-400 live-pulse-pip shrink-0" />
           <LineChart className="w-4 h-4 text-cyan-400 drop-shadow-[0_0_6px_#22d3ee]" />
           <span>Real-Time Physics Analytical Telemetry</span>
         </div>

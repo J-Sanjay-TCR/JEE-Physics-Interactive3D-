@@ -1,6 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { PhysicsConcept } from '../../types';
 import { ALL_CONCEPTS, CHAPTERS, CATEGORIES } from '../../data/allConcepts';
+import {
+  JEE_SYLLABUS_DIRECTORY,
+  JeeChapterSyllabusItem,
+  SyllabusCurriculum,
+  ChapterSubtopicItem,
+} from '../../data/jeeSyllabusDirectory';
 import { useTheme } from '../../context/ThemeContext';
 import { Latex } from './Latex';
 import { ChapterPdfSection } from './ChapterPdfSection';
@@ -21,6 +27,8 @@ import {
   RotateCcw,
   TrendingUp,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Activity,
   Bot,
   Flame,
@@ -41,6 +49,9 @@ import {
   Check,
   Code,
   Terminal,
+  Search,
+  GraduationCap,
+  FileCheck2,
 } from 'lucide-react';
 
 interface HomePageProps {
@@ -152,10 +163,99 @@ export const HomePage: React.FC<HomePageProps> = ({
   onToggleFavorite,
 }) => {
   const { isDark, isCyberpunk, theme, cycleTheme } = useTheme();
+  const [selectedCurriculum, setSelectedCurriculum] = useState<SyllabusCurriculum | 'all'>('all');
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
   const [selectedClass, setSelectedClass] = useState<'all' | 'class-11' | 'class-12'>('all');
+  const [syllabusSearch, setSyllabusSearch] = useState<string>('');
+  const [expandedSyllabusChapters, setExpandedSyllabusChapters] = useState<Record<string, boolean>>({});
+  const [expandedDerivations, setExpandedDerivations] = useState<Record<string, boolean>>({});
+  const [cbseDerivationsOnly, setCbseDerivationsOnly] = useState<boolean>(false);
+  const [copiedDerivation, setCopiedDerivation] = useState<string | null>(null);
   const [showFounderManifesto, setShowFounderManifesto] = useState<boolean>(false);
   const [copiedManifesto, setCopiedManifesto] = useState<boolean>(false);
+
+  const toggleChapterExpanded = (chapterId: string) => {
+    setExpandedSyllabusChapters((prev) => ({
+      ...prev,
+      [chapterId]: !prev[chapterId],
+    }));
+  };
+
+  const toggleDerivationsExpanded = (chapterId: string) => {
+    setExpandedDerivations((prev) => ({
+      ...prev,
+      [chapterId]: !prev[chapterId],
+    }));
+  };
+
+  const handleSelectCurriculum = (curriculum: SyllabusCurriculum | 'all') => {
+    setSelectedCurriculum(curriculum);
+    if (curriculum === 'cbse_12') {
+      setSelectedClass('class-12');
+    }
+  };
+
+  const curriculumCounts = useMemo(() => {
+    return {
+      all: JEE_SYLLABUS_DIRECTORY.length,
+      cbse_12: JEE_SYLLABUS_DIRECTORY.filter((c) => c.curricula.includes('cbse_12')).length,
+      jee_main: JEE_SYLLABUS_DIRECTORY.filter((c) => c.curricula.includes('jee_main')).length,
+      jee_advanced: JEE_SYLLABUS_DIRECTORY.filter((c) => c.curricula.includes('jee_advanced')).length,
+    };
+  }, []);
+
+  const filteredSyllabus = useMemo(() => {
+    return JEE_SYLLABUS_DIRECTORY.filter((item) => {
+      // 1. Curriculum filter
+      if (selectedCurriculum !== 'all') {
+        if (!item.curricula.includes(selectedCurriculum)) return false;
+      }
+
+      // 2. Class filter
+      if (selectedClass === 'class-11' && item.class_level !== 'class-11') return false;
+      if (selectedClass === 'class-12' && item.class_level !== 'class-12') return false;
+
+      // 3. Category/Unit filter
+      if (selectedBranch !== 'all') {
+        const unitMatches =
+          (selectedBranch === 'mechanics' && (item.unit_name === 'Mechanics' || item.unit_name === 'Experimental Physics')) ||
+          (selectedBranch === 'thermal' && item.unit_name === 'Thermal Physics') ||
+          (selectedBranch === 'electromagnetism' && item.unit_name === 'Electricity & Magnetism') ||
+          (selectedBranch === 'waves-oscillations' && item.unit_name === 'Waves & Oscillations') ||
+          (selectedBranch === 'optics' && item.unit_name === 'Optics') ||
+          (selectedBranch === 'modern' && (item.unit_name === 'Modern Physics' || item.unit_name === 'Semiconductors & Devices')) ||
+          (selectedBranch === 'experimental' && item.unit_name === 'Experimental Physics');
+        if (!unitMatches) return false;
+      }
+
+      // 4. CBSE derivation filter
+      if (cbseDerivationsOnly && (!item.board_derivations || item.board_derivations.length === 0)) {
+        return false;
+      }
+
+      // 5. Search query
+      const q = syllabusSearch.toLowerCase().trim();
+      if (q) {
+        const matchChapter = item.chapter_name.toLowerCase().includes(q);
+        const matchUnit = item.unit_name.toLowerCase().includes(q);
+        const matchExpl = item.core_explanation.toLowerCase().includes(q);
+        const matchSub = item.subtopics.some(
+          (st) =>
+            st.title.toLowerCase().includes(q) ||
+            st.description.toLowerCase().includes(q) ||
+            (st.coaching_tip && st.coaching_tip.toLowerCase().includes(q))
+        );
+        const matchDeriv = (item.board_derivations || []).some((d) => d.toLowerCase().includes(q));
+        if (!matchChapter && !matchUnit && !matchExpl && !matchSub && !matchDeriv) return false;
+      }
+
+      return true;
+    });
+  }, [selectedCurriculum, selectedClass, selectedBranch, cbseDerivationsOnly, syllabusSearch]);
+
+  const totalSyllabusSubtopics = useMemo(() => {
+    return filteredSyllabus.reduce((acc, c) => acc + c.subtopics.length, 0);
+  }, [filteredSyllabus]);
 
   // Featured flagship 3D concepts for hero showcase
   const featuredConcepts = [
@@ -296,7 +396,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* Hero Presentation Banner */}
       <section
         id="home-hero-section"
-        className={`relative overflow-hidden rounded-3xl border p-6 sm:p-10 lg:p-12 shadow-2xl transition-colors scroll-mt-20 ${
+        className={`relative overflow-hidden rounded-3xl border p-6 sm:p-10 lg:p-12 shadow-2xl transition-colors scroll-mt-20 hud-bracket-card ${
         isCyberpunk
           ? 'bg-gradient-to-b from-[#061024] via-[#040916] to-[#030712] border-cyan-500/30 shadow-[0_0_40px_rgba(0,240,255,0.12)]'
           : isDark
@@ -499,22 +599,20 @@ export const HomePage: React.FC<HomePageProps> = ({
             isCyberpunk ? 'border-cyan-500/20' : isDark ? 'border-white/[0.06]' : 'border-slate-200'
           }`}>
             <div className={`p-3 rounded-xl border transition-all duration-300 hover:scale-[1.02] ${isCyberpunk ? 'bg-[#060B18]/90 border-cyan-500/30 hover:border-cyan-400 hover:shadow-[0_0_15px_rgba(0,240,255,0.2)]' : isDark ? 'bg-white/[0.02] border-white/[0.06] hover:border-cyan-500/40 hover:bg-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs hover:border-cyan-400'}`}>
-              <span className="text-xl sm:text-2xl font-black text-cyan-400 font-mono">15+</span>
-              <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>JEE Chapters</p>
+              <span className="text-xl sm:text-2xl font-black text-cyan-400 font-mono">23</span>
+              <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>CBSE &amp; JEE Chapters</p>
             </div>
             <div className={`p-3 rounded-xl border transition-all duration-300 hover:scale-[1.02] ${isCyberpunk ? 'bg-[#060B18]/90 border-cyan-500/30 hover:border-emerald-400 hover:shadow-[0_0_15px_rgba(0,255,157,0.2)]' : isDark ? 'bg-white/[0.02] border-white/[0.06] hover:border-emerald-500/40 hover:bg-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs hover:border-emerald-400'}`}>
-              <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">150+</span>
-              <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Formulas & Laws</p>
+              <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">228+</span>
+              <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Official Subtopics</p>
             </div>
             <div className={`p-3 rounded-xl border transition-all duration-300 hover:scale-[1.02] ${isCyberpunk ? 'bg-[#060B18]/90 border-cyan-500/30 hover:border-cyan-400 hover:shadow-[0_0_15px_rgba(0,240,255,0.2)]' : isDark ? 'bg-white/[0.02] border-white/[0.06] hover:border-cyan-500/40 hover:bg-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs hover:border-cyan-400'}`}>
-              <span className="text-xl sm:text-2xl font-black text-cyan-400 font-mono">360°</span>
-              <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Orbital 3D Viewports</p>
+              <span className="text-xl sm:text-2xl font-black text-cyan-400 font-mono">350+</span>
+              <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Formulas &amp; Derivations</p>
             </div>
             <div className={`p-3 rounded-xl border transition-all duration-300 hover:scale-[1.02] ${isCyberpunk ? 'bg-[#060B18]/90 border-cyan-500/30 hover:border-amber-400 hover:shadow-[0_0_15px_rgba(245,158,11,0.2)]' : isDark ? 'bg-white/[0.02] border-white/[0.06] hover:border-amber-500/40 hover:bg-white/[0.04]' : 'bg-white border-slate-200/80 shadow-xs hover:border-amber-400'}`}>
-              <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono">
-                {completedConcepts.length} / {ALL_CONCEPTS.length}
-              </span>
-              <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Labs Mastered</p>
+              <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono">360°</span>
+              <p className={`text-[11px] font-medium ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Orbital 3D Viewports</p>
             </div>
           </div>
         </div>
@@ -551,7 +649,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             return (
               <div
                 key={`featured-${item.id}`}
-                className={`physics-glass-card group relative rounded-2xl bg-gradient-to-b ${item.gradient} border p-5 flex flex-col justify-between gap-4 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1.5 ${
+                className={`physics-glass-card hud-bracket-card group relative rounded-2xl bg-gradient-to-b ${item.gradient} border p-5 flex flex-col justify-between gap-4 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1.5 ${
                   isDark
                     ? 'border-white/[0.08] hover:border-cyan-400/50 hover:shadow-cyan-500/20'
                     : 'border-slate-200 hover:border-cyan-400 hover:shadow-cyan-500/15'
@@ -620,26 +718,87 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
       </section>
 
-      {/* Physics Syllabus Chapters Roadmap */}
-      <section id="home-chapters-grid" className="space-y-5 scroll-mt-20">
-        <div className={`flex flex-col gap-3.5 border-b pb-4 ${
+      {/* Complete Physics Syllabus & Curriculum Hub (CBSE 12 & JEE) */}
+      <section id="home-chapters-grid" className="space-y-6 scroll-mt-20">
+        <div className={`flex flex-col gap-4 border-b pb-5 ${
           isDark ? 'border-white/[0.08]' : 'border-slate-200'
         }`}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Main Title & Curriculum Switcher Tabs */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
-              <h2 className={`text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2 ${
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                  isCyberpunk
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/40 shadow-[0_0_10px_rgba(0,240,255,0.2)]'
+                    : isDark ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' : 'bg-cyan-100 text-cyan-800 border-cyan-300'
+                }`}>
+                  Official NTA &amp; CBSE Academic Curriculum
+                </span>
+                <span className="text-xs text-zinc-400 font-medium">
+                  {filteredSyllabus.length} Chapters &bull; {totalSyllabusSubtopics} Subtopics
+                </span>
+              </div>
+              <h2 className={`text-xl sm:text-3xl font-black tracking-tight flex items-center gap-2.5 ${
                 isDark ? 'text-white' : 'text-slate-900'
               }`}>
-                <BookOpen className="w-5 h-5 text-blue-500" />
-                Complete JEE Physics Syllabus Modules
+                <BookOpen className="w-6 h-6 text-cyan-400" />
+                <span>Complete Physics Syllabus &amp; 3D Lab Matrix</span>
               </h2>
-              <p className={`text-xs ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
-                Filter by syllabus category portion or class level to enter dedicated 3D apparatuses, real-time vector solvers, and coaching synopsis.
+              <p className={`text-xs sm:text-sm mt-1 max-w-3xl leading-relaxed ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                Switch between dedicated tabbed views for <strong>CBSE Class 12 Boards</strong> (with 70-mark theory distribution &amp; mandatory derivations) and <strong>JEE Main &amp; Advanced</strong> (with high-yield weightages, coaching traps, and 10 full subtopics per chapter).
               </p>
             </div>
 
-            {/* Class Portion Toggle */}
-            <div className={`inline-flex items-center p-1 rounded-xl border self-start sm:self-auto shrink-0 ${
+            {/* CURRICULUM SELECTOR TABS (CBSE Class 12 vs JEE Main vs JEE Advanced vs All) */}
+            <div className={`p-1.5 rounded-2xl border flex items-center gap-1.5 flex-wrap shrink-0 ${
+              isCyberpunk
+                ? 'bg-[#060D1E] border-cyan-500/30 shadow-[0_0_15px_rgba(0,240,255,0.15)]'
+                : isDark
+                ? 'bg-[#0f1019] border-white/10'
+                : 'bg-slate-100 border-slate-300'
+            }`}>
+              {[
+                { id: 'all', label: 'All Syllabi (CBSE + JEE)', badge: `${curriculumCounts.all} Ch`, icon: <Layers className="w-3.5 h-3.5" /> },
+                { id: 'cbse_12', label: 'CBSE Class 12 Boards', badge: `${curriculumCounts.cbse_12} Ch • 70M`, icon: <GraduationCap className="w-3.5 h-3.5" /> },
+                { id: 'jee_main', label: 'JEE Main 2026', badge: `${curriculumCounts.jee_main} Ch`, icon: <Sparkles className="w-3.5 h-3.5" /> },
+                { id: 'jee_advanced', label: 'JEE Advanced', badge: `${curriculumCounts.jee_advanced} Ch`, icon: <Flame className="w-3.5 h-3.5" /> },
+              ].map((cur) => {
+                const isActive = selectedCurriculum === cur.id;
+                return (
+                  <button
+                    key={cur.id}
+                    onClick={() => handleSelectCurriculum(cur.id as any)}
+                    className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap min-h-[36px] ${
+                      isActive
+                        ? isCyberpunk
+                          ? 'bg-cyan-500 text-slate-950 shadow-[0_0_15px_rgba(0,240,255,0.4)] font-black'
+                          : isDark
+                          ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black shadow-md'
+                          : 'bg-cyan-600 text-white shadow-md font-bold'
+                        : isDark
+                        ? 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05]'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                    }`}
+                  >
+                    <span>{cur.icon}</span>
+                    <span>{cur.label}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono ${
+                      isActive
+                        ? 'bg-black/25 text-current'
+                        : isDark ? 'bg-white/10 text-zinc-400' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      {cur.badge}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Secondary Filters Bar: Class Portion + Unit Categories + Search */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 pt-2">
+            {/* Class Portion Buttons */}
+            <div className={`flex items-center gap-1.5 p-1 rounded-xl border shrink-0 overflow-x-auto no-scrollbar ${
               isDark ? 'bg-[#101017] border-white/[0.08]' : 'bg-slate-100 border-slate-200'
             }`}>
               {[
@@ -650,7 +809,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                 <button
                   key={cTab.id}
                   onClick={() => handleToggleClass(cTab.id as any)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 min-h-[32px] ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 min-h-[32px] whitespace-nowrap ${
                     selectedClass === cTab.id
                       ? isDark
                         ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-500/30'
@@ -673,19 +832,58 @@ export const HomePage: React.FC<HomePageProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* Search Input & CBSE Derivations Filter Button */}
+            <div className="flex items-center gap-2 flex-1 max-w-xl">
+              <div className={`relative flex-1 rounded-xl border flex items-center px-3 py-1.5 ${
+                isDark ? 'bg-black/40 border-white/10 text-white' : 'bg-white border-slate-300 text-slate-900'
+              }`}>
+                <Search className="w-4 h-4 text-zinc-400 shrink-0 mr-2" />
+                <input
+                  type="text"
+                  placeholder="Search 23 chapters, 228 subtopics, formulas, derivations..."
+                  value={syllabusSearch}
+                  onChange={(e) => setSyllabusSearch(e.target.value)}
+                  className="bg-transparent border-none outline-hidden text-xs w-full placeholder-zinc-500"
+                />
+                {syllabusSearch && (
+                  <button
+                    onClick={() => setSyllabusSearch('')}
+                    className="p-1 text-zinc-400 hover:text-zinc-200 text-xs"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+
+              <button
+                onClick={() => setCbseDerivationsOnly(!cbseDerivationsOnly)}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition shrink-0 min-h-[36px] ${
+                  cbseDerivationsOnly
+                    ? 'bg-purple-600 text-white border-purple-400 shadow-sm'
+                    : isDark
+                    ? 'bg-[#101017] text-zinc-300 border-white/10 hover:border-purple-400/40'
+                    : 'bg-white text-slate-700 border-slate-300 hover:border-purple-400'
+                }`}
+                title="Filter chapters with official CBSE Board Derivations"
+              >
+                <FileCheck2 className="w-3.5 h-3.5 text-purple-400" />
+                <span className="hidden sm:inline">Derivations Only</span>
+              </button>
+            </div>
           </div>
 
-          {/* Category Portion Filter Tabs */}
+          {/* Unit / Category Filter Pills */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             {[
-              { id: 'all', label: 'All Categories', count: totalCategoryCounts.all || 0, icon: <Layers className="w-3.5 h-3.5" /> },
-              { id: 'mechanics', label: 'Mechanics & Fluids', count: totalCategoryCounts.mechanics || 0, icon: <Atom className="w-3.5 h-3.5" /> },
-              { id: 'electromagnetism', label: 'Electrodynamics', count: totalCategoryCounts.electromagnetism || 0, icon: <Zap className="w-3.5 h-3.5" /> },
-              { id: 'thermal', label: 'Thermal & Heat', count: totalCategoryCounts.thermal || 0, icon: <Flame className="w-3.5 h-3.5" /> },
-              { id: 'waves-oscillations', label: 'Waves & SHM', count: totalCategoryCounts['waves-oscillations'] || 0, icon: <Activity className="w-3.5 h-3.5" /> },
-              { id: 'optics', label: 'Ray & Wave Optics', count: totalCategoryCounts.optics || 0, icon: <Eye className="w-3.5 h-3.5" /> },
-              { id: 'modern', label: 'Modern Physics', count: totalCategoryCounts.modern || 0, icon: <Sun className="w-3.5 h-3.5" /> },
-              { id: 'experimental', label: 'Experimental', count: totalCategoryCounts.experimental || 0, icon: <Ruler className="w-3.5 h-3.5" /> },
+              { id: 'all', label: 'All Units', icon: <Layers className="w-3.5 h-3.5" /> },
+              { id: 'mechanics', label: 'Mechanics & Fluids', icon: <Atom className="w-3.5 h-3.5" /> },
+              { id: 'electromagnetism', label: 'Electrodynamics & Magnetism', icon: <Zap className="w-3.5 h-3.5" /> },
+              { id: 'thermal', label: 'Thermal & Thermodynamics', icon: <Flame className="w-3.5 h-3.5" /> },
+              { id: 'waves-oscillations', label: 'Waves & Oscillations', icon: <Activity className="w-3.5 h-3.5" /> },
+              { id: 'optics', label: 'Ray & Wave Optics', icon: <Eye className="w-3.5 h-3.5" /> },
+              { id: 'modern', label: 'Modern & Semiconductors', icon: <Sun className="w-3.5 h-3.5" /> },
+              { id: 'experimental', label: 'Experimental Physics', icon: <Ruler className="w-3.5 h-3.5" /> },
             ].map((tab) => {
               const isActive = selectedBranch === tab.id;
               return (
@@ -706,198 +904,435 @@ export const HomePage: React.FC<HomePageProps> = ({
                 >
                   <span className={isActive ? 'text-cyan-400' : 'text-zinc-400'}>{tab.icon}</span>
                   <span>{tab.label}</span>
-                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                    isActive
-                      ? isDark
-                        ? 'bg-cyan-500/30 text-cyan-200'
-                        : 'bg-cyan-200 text-cyan-900'
-                      : isDark
-                      ? 'bg-white/[0.06] text-zinc-500'
-                      : 'bg-slate-100 text-slate-500'
-                  }`}>
-                    {tab.count}
-                  </span>
                 </button>
               );
             })}
           </div>
 
-          {/* Active Category Filter Status Bar */}
-          {selectedBranch !== 'all' && (
-            <div className={`px-4 py-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs flex-wrap ${
-              isDark ? 'bg-[#101018] border-cyan-500/30 text-zinc-300' : 'bg-cyan-50/80 border-cyan-200 text-cyan-950'
+          {/* Dedicated CBSE Class 12 Board Exam Blueprint Banner */}
+          {selectedCurriculum === 'cbse_12' && (
+            <div className={`p-4 sm:p-5 rounded-2xl border transition-all ${
+              isCyberpunk
+                ? 'bg-gradient-to-r from-purple-950/40 via-[#0a071e] to-[#040914] border-purple-500/30 shadow-[0_0_30px_rgba(168,85,247,0.15)]'
+                : isDark
+                ? 'bg-gradient-to-r from-purple-950/30 via-indigo-950/20 to-zinc-900 border-purple-500/30'
+                : 'bg-gradient-to-r from-purple-50 via-indigo-50 to-white border-purple-200 shadow-sm'
             }`}>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-zinc-400 font-medium">Category Filter Active:</span>
-                <span className={`px-2 py-0.5 rounded-md font-bold text-xs flex items-center gap-1.5 border ${
-                  CATEGORY_META[selectedBranch]?.badge || 'bg-cyan-500/20 text-cyan-300 border-cyan-400/40'
-                }`}>
-                  {CATEGORY_META[selectedBranch]?.icon}
-                  {CATEGORY_META[selectedBranch]?.label || selectedBranch}
-                </span>
-                <span className="text-zinc-500">&bull;</span>
-                <span className="font-semibold text-cyan-400">{filteredChapters.length} Chapters in this category</span>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-400/40">
+                      Official CBSE Academic Year Blueprint
+                    </span>
+                    <span className="text-xs font-bold text-amber-400 font-mono">
+                      Theory: 70 Marks &bull; Practical: 30 Marks
+                    </span>
+                  </div>
+                  <h3 className={`text-base sm:text-lg font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    CBSE Class 12 Physics Official Unit-Wise Marks Distribution
+                  </h3>
+                  <p className={`text-xs max-w-2xl leading-relaxed ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                    Master all 14 NCERT chapters with verified board derivations (Lens Maker&apos;s formula, Gauss&apos;s law applications, LCR resonance, and Bohr&apos;s atom postulates) and high-frequency numerical patterns.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => {
+                      setCbseDerivationsOnly(!cbseDerivationsOnly);
+                    }}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition ${
+                      cbseDerivationsOnly
+                        ? 'bg-purple-600 text-white border-purple-400'
+                        : isDark
+                        ? 'bg-purple-950/50 hover:bg-purple-900/60 text-purple-300 border-purple-500/30'
+                        : 'bg-purple-100 hover:bg-purple-200 text-purple-800 border-purple-300'
+                    }`}
+                  >
+                    <FileCheck2 className="w-3.5 h-3.5" />
+                    <span>{cbseDerivationsOnly ? 'Showing All Topics' : 'Filter 50+ Board Derivations'}</span>
+                  </button>
+                </div>
               </div>
-              <button
-                onClick={() => setSelectedBranch('all')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 border shrink-0 ${
-                  isDark
-                    ? 'bg-white/10 hover:bg-white/20 text-zinc-200 border-white/10'
-                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
-                }`}
-              >
-                <span>Clear Category</span>
-                <span className="text-xs">&times;</span>
-              </button>
+
+              {/* Marks Distribution Cards Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-3 mt-3 border-t border-purple-500/20 text-xs">
+                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                  <span className="font-mono text-xs font-black text-purple-400">16 Marks</span>
+                  <p className="text-[11px] font-semibold text-zinc-300 mt-0.5">Electrostatics &amp; Current</p>
+                  <span className="text-[10px] text-zinc-400">NCERT Chapters 1, 2, 3</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                  <span className="font-mono text-xs font-black text-purple-400">17 Marks</span>
+                  <p className="text-[11px] font-semibold text-zinc-300 mt-0.5">Magnetic Effects &amp; EMI/AC</p>
+                  <span className="text-[10px] text-zinc-400">NCERT Chapters 4, 5, 6, 7</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                  <span className="font-mono text-xs font-black text-purple-400">18 Marks</span>
+                  <p className="text-[11px] font-semibold text-zinc-300 mt-0.5">EM Waves &amp; Optics</p>
+                  <span className="text-[10px] text-zinc-400">NCERT Chapters 8, 9, 10</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                  <span className="font-mono text-xs font-black text-purple-400">12 Marks</span>
+                  <p className="text-[11px] font-semibold text-zinc-300 mt-0.5">Dual Nature, Atoms &amp; Nuclei</p>
+                  <span className="text-[10px] text-zinc-400">NCERT Chapters 11, 12, 13</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 col-span-2 sm:col-span-1">
+                  <span className="font-mono text-xs font-black text-purple-400">7 Marks</span>
+                  <p className="text-[11px] font-semibold text-zinc-300 mt-0.5">Electronic Devices</p>
+                  <span className="text-[10px] text-zinc-400">NCERT Chapter 14 (Semiconductors)</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Empty state if no chapters match */}
-        {filteredChapters.length === 0 ? (
+        {/* Empty state if search or filter yields no results */}
+        {filteredSyllabus.length === 0 ? (
           <div className={`p-10 rounded-2xl border text-center space-y-3 ${
             isDark ? 'bg-[#0E0E14] border-white/[0.08]' : 'bg-slate-50 border-slate-200'
           }`}>
             <p className={`text-sm ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
-              No chapters match the selected category &amp; class filter combination.
+              No syllabus chapters match the current search query or curriculum filter.
             </p>
             <button
               onClick={() => {
+                setSelectedCurriculum('all');
                 setSelectedBranch('all');
                 setSelectedClass('all');
+                setSyllabusSearch('');
+                setCbseDerivationsOnly(false);
               }}
               className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 text-xs font-bold hover:bg-cyan-400 transition"
             >
-              Reset Filters
+              Reset All Filters
             </button>
           </div>
         ) : (
-          /* Chapters Grid */
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredChapters.map((chapter) => {
-              const chapterConcepts = ALL_CONCEPTS.filter((c) => c.chapterId === chapter.id);
-              if (chapterConcepts.length === 0) return null;
-              const isC11 = CLASS_11_CHAPTER_IDS.has(chapter.id);
-              const catMeta = CATEGORY_META[chapter.category];
+          /* ================= COMPREHENSIVE SYLLABUS CARDS GRID ================= */
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {filteredSyllabus.map((chapter) => {
+              const matchingConcept = ALL_CONCEPTS.find((c) => c.id === chapter.conceptId) || ALL_CONCEPTS[0];
+              const isExpanded = Boolean(expandedSyllabusChapters[chapter.id]);
+              const isDerivExpanded = Boolean(expandedDerivations[chapter.id]);
+              const subtopicsToShow = isExpanded ? chapter.subtopics : chapter.subtopics.slice(0, 3);
+              const isC11 = chapter.class_level === 'class-11';
 
               return (
                 <div
                   key={chapter.id}
-                  id={`chapter-section-${chapter.id}`}
-                  className={`physics-glass-card rounded-2xl border overflow-hidden flex flex-col justify-between transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1 scroll-mt-20 ${
+                  id={`syllabus-card-${chapter.id}`}
+                  className={`physics-glass-card rounded-2xl border overflow-hidden flex flex-col justify-between transition-all duration-300 shadow-xl hover:shadow-2xl scroll-mt-20 ${
                     isCyberpunk
-                      ? 'bg-[#0E0E14] border-cyan-500/20 hover:border-cyan-400/50 hover:shadow-cyan-500/15'
+                      ? 'bg-[#060D1E]/95 border-cyan-500/25 hover:border-cyan-400/50 hover:shadow-[0_0_30px_rgba(0,240,255,0.12)]'
                       : isDark
-                      ? 'bg-[#0E0E14] border-white/[0.08] hover:border-cyan-500/30 hover:shadow-cyan-500/10'
-                      : 'bg-white border-slate-200 hover:border-cyan-400/60 shadow-slate-200'
+                      ? 'bg-[#0c0d16] border-white/[0.08] hover:border-cyan-500/40'
+                      : 'bg-white border-slate-200/90 hover:border-cyan-400 shadow-slate-200'
                   }`}
                 >
-                  {/* Category Header */}
-                  <div className={`p-4 border-b flex flex-col gap-2 ${
-                    isDark ? 'bg-[#14141E] border-white/[0.06]' : 'bg-slate-100 border-slate-200'
+                  {/* Card Header: Unit Name, NCERT Ch, Weightages, Class Level */}
+                  <div className={`p-4 sm:p-5 border-b space-y-3 ${
+                    isCyberpunk
+                      ? 'bg-[#081329]/80 border-cyan-500/20'
+                      : isDark
+                      ? 'bg-[#121320] border-white/[0.06]'
+                      : 'bg-slate-50 border-slate-200'
                   }`}>
+                    {/* Top Badges Row */}
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Particular Category of Chapter Badge */}
+                        {/* Unit Badge */}
                         <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border flex items-center gap-1 ${
-                          catMeta?.badge || (isDark ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20' : 'bg-cyan-50 text-cyan-800 border-cyan-200')
+                          isCyberpunk
+                            ? 'bg-cyan-500/15 text-cyan-300 border-cyan-400/40'
+                            : isDark
+                            ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                            : 'bg-blue-50 text-blue-800 border-blue-200'
                         }`}>
-                          {catMeta?.icon}
-                          <span>{catMeta?.label || chapter.category}</span>
+                          <Atom className="w-3 h-3 text-cyan-400" />
+                          <span>{chapter.unit_name}</span>
                         </span>
 
-                        {/* Class Badge */}
-                        <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
+                        {/* Class Level Badge */}
+                        <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold border ${
                           isC11
-                            ? isDark
-                              ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
-                              : 'bg-blue-50 text-blue-700 border-blue-200'
-                            : isDark
-                            ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
-                            : 'bg-purple-50 text-purple-700 border-purple-200'
+                            ? 'bg-blue-500/20 text-blue-300 border-blue-400/40'
+                            : 'bg-purple-500/20 text-purple-300 border-purple-400/40'
                         }`}>
                           {isC11 ? 'Class 11' : 'Class 12'}
                         </span>
+
+                        {/* NCERT Chapter Number */}
+                        {chapter.ncert_chapter_number && (
+                          <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold border ${
+                            isDark ? 'bg-black/40 text-zinc-300 border-white/10' : 'bg-white text-slate-700 border-slate-300'
+                          }`}>
+                            NCERT Ch {chapter.ncert_chapter_number}
+                          </span>
+                        )}
                       </div>
 
-                      <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md border ${
-                        isDark ? 'text-zinc-400 bg-black/40 border-white/[0.04]' : 'text-slate-600 bg-white border-slate-200'
-                      }`}>
-                        {chapterConcepts.length} {chapterConcepts.length === 1 ? 'Lab' : 'Labs'}
-                      </span>
+                      {/* Weightage Badges */}
+                      <div className="flex items-center gap-1.5">
+                        {chapter.weightage_marks_cbse && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            CBSE: {chapter.weightage_marks_cbse}M
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                          JEE: {chapter.weightage_percent_jee}%
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${
-                        isC11 ? 'bg-blue-400 shadow-[0_0_6px_#60a5fa]' : 'bg-purple-400 shadow-[0_0_6px_#c084fc]'
-                      }`} />
-                      <h3 className={`font-bold text-sm tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        {chapter.name}
+                    {/* Chapter Title */}
+                    <div>
+                      <h3 className={`text-base sm:text-lg font-black tracking-tight leading-snug ${
+                        isDark ? 'text-white' : 'text-slate-900'
+                      }`}>
+                        {chapter.chapter_name}
                       </h3>
+                      <p className={`text-xs mt-1 leading-relaxed line-clamp-2 ${
+                        isDark ? 'text-zinc-400' : 'text-slate-600'
+                      }`}>
+                        {chapter.core_explanation}
+                      </p>
+                    </div>
+
+                    {/* Quick 3D Simulation Launch Banner inside header */}
+                    <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 ${
+                      isCyberpunk
+                        ? 'bg-[#030814] border-cyan-500/30'
+                        : isDark
+                        ? 'bg-[#0a0b12] border-white/[0.06]'
+                        : 'bg-white border-slate-200'
+                    }`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
+                        <div className="min-w-0">
+                          <span className="text-[10px] uppercase font-bold text-cyan-400 tracking-wider block">
+                            Interactive 3D Physics Simulation
+                          </span>
+                          <span className={`text-xs font-bold truncate block ${isDark ? 'text-zinc-200' : 'text-slate-800'}`}>
+                            {matchingConcept.title}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => onSelectConcept(matchingConcept)}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-black transition flex items-center gap-1.5 shrink-0 shadow-sm active:scale-95 ${
+                          isCyberpunk
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-400 hover:bg-cyan-400 shadow-[0_0_10px_rgba(0,240,255,0.3)]'
+                            : 'bg-cyan-600 hover:bg-cyan-500 text-white border-cyan-500'
+                        }`}
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>Launch 3D</span>
+                      </button>
                     </div>
                   </div>
 
-                  {/* Concepts in this chapter */}
-                  <div className={`p-4 space-y-2.5 flex-1 divide-y ${
-                    isDark ? 'divide-white/[0.04]' : 'divide-slate-100'
+                  {/* SUBTOPICS ROADMAP SECTION (All 10 Topics) */}
+                  <div className={`p-4 sm:p-5 flex-1 space-y-3 ${
+                    isDark ? 'bg-transparent' : 'bg-slate-50/50'
                   }`}>
-                    {chapterConcepts.map((concept) => {
-                      const isDone = completedConcepts.includes(concept.id);
-                      return (
-                        <div
-                          key={`ch-${chapter.id}-${concept.id}`}
-                          id={`concept-${concept.id}`}
-                          onClick={() => onSelectConcept(concept)}
-                          className={`pt-2.5 first:pt-0 group/item cursor-pointer flex items-start justify-between gap-3 -mx-2 px-2 py-2 rounded-xl transition min-h-[44px] scroll-mt-20 ${
-                            isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'
-                          }`}
-                        >
-                          <div className="space-y-1 min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className={`text-xs font-bold group-hover/item:text-cyan-500 transition truncate ${
-                                isDark ? 'text-zinc-200' : 'text-slate-800'
-                              }`}>
-                                {concept.title}
-                              </span>
-                              {isDone && (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                              )}
-                            </div>
-                            <p className={`text-[11px] line-clamp-1 ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
-                              {concept.subtitle}
-                            </p>
-                          </div>
+                    <div className="flex items-center justify-between gap-2 border-b pb-2 border-white/[0.06]">
+                      <div className="flex items-center gap-1.5">
+                        <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className={`text-xs font-bold ${isDark ? 'text-zinc-200' : 'text-slate-800'}`}>
+                          Official Syllabus Topics ({chapter.subtopics.length} Subtopics)
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => toggleChapterExpanded(chapter.id)}
+                        className="text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>{isExpanded ? 'Collapse' : `View All ${chapter.subtopics.length} Topics`}</span>
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
 
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectConcept(concept);
-                            }}
-                            className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition shrink-0 flex items-center gap-1 min-h-[32px] ${
-                              isDark
-                                ? 'bg-[#181824] group-hover/item:bg-cyan-500 group-hover/item:text-slate-950 text-cyan-300 border-cyan-500/20'
-                                : 'bg-slate-100 group-hover/item:bg-cyan-500 group-hover/item:text-slate-950 text-cyan-800 border-cyan-200'
+                    {/* Subtopics List */}
+                    <div className="space-y-2.5">
+                      {subtopicsToShow.map((st) => {
+                        const targetConcept = st.linkedConceptId
+                          ? ALL_CONCEPTS.find((c) => c.id === st.linkedConceptId) || matchingConcept
+                          : matchingConcept;
+
+                        return (
+                          <div
+                            key={st.id}
+                            className={`p-2.5 rounded-xl border transition-all ${
+                              isCyberpunk
+                                ? 'bg-[#050B18]/70 border-cyan-500/20 hover:border-cyan-400/40'
+                                : isDark
+                                ? 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
+                                : 'bg-white border-slate-200/80 hover:border-slate-300'
                             }`}
                           >
-                            <span>Open 3D</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
+                            {/* Topic Title & Badges */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="space-y-0.5 min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[10px] font-mono font-bold text-cyan-400">
+                                    #{st.topic_number}
+                                  </span>
+                                  <h4 className={`text-xs font-bold ${isDark ? 'text-zinc-200' : 'text-slate-900'}`}>
+                                    {st.title}
+                                  </h4>
+                                </div>
+                                <p className={`text-[11px] leading-relaxed ${isDark ? 'text-zinc-400' : 'text-slate-600'}`}>
+                                  {st.description}
+                                </p>
+                              </div>
+
+                              {/* Importance Tags */}
+                              <div className="flex flex-col items-end gap-1 shrink-0">
+                                {st.cbse_importance && (
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${
+                                    st.cbse_importance === 'Derivation'
+                                      ? 'bg-purple-500/20 text-purple-300 border-purple-400/30'
+                                      : st.cbse_importance === 'Definition'
+                                      ? 'bg-blue-500/20 text-blue-300 border-blue-400/30'
+                                      : 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30'
+                                  }`}>
+                                    {st.cbse_importance}
+                                  </span>
+                                )}
+                                {st.jee_importance && (
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${
+                                    st.jee_importance === 'Mains-Must'
+                                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/30'
+                                      : st.jee_importance === 'Trap-Prone'
+                                      ? 'bg-rose-500/20 text-rose-300 border-rose-400/30'
+                                      : 'bg-indigo-500/20 text-indigo-300 border-indigo-400/30'
+                                  }`}>
+                                    {st.jee_importance}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* LaTeX Formula (if present) */}
+                            {st.key_formula_latex && (
+                              <div className={`mt-2 p-1.5 rounded-lg border text-center overflow-x-auto no-scrollbar ${
+                                isDark ? 'bg-black/50 border-white/[0.04]' : 'bg-slate-100 border-slate-200'
+                              }`}>
+                                <div className={`text-[11px] ${isDark ? 'text-cyan-300' : 'text-cyan-800'}`}>
+                                  <Latex math={st.key_formula_latex} />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Coaching Tip & 3D Lab Launch link */}
+                            <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-white/[0.04] text-[10px]">
+                              {st.coaching_tip ? (
+                                <span className={`italic truncate flex-1 ${isDark ? 'text-amber-300/90' : 'text-amber-700'}`}>
+                                  💡 {st.coaching_tip}
+                                </span>
+                              ) : (
+                                <span className="text-zinc-500">Core syllabus concept</span>
+                              )}
+                              <button
+                                onClick={() => onSelectConcept(targetConcept)}
+                                className="text-cyan-400 hover:text-cyan-300 font-bold shrink-0 flex items-center gap-0.5 min-h-[24px]"
+                              >
+                                <span>3D Lab</span>
+                                <ChevronRight className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {!isExpanded && chapter.subtopics.length > 3 && (
+                      <button
+                        onClick={() => toggleChapterExpanded(chapter.id)}
+                        className={`w-full py-2 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 min-h-[36px] ${
+                          isDark
+                            ? 'bg-white/[0.04] hover:bg-white/[0.08] text-cyan-300 border-white/[0.08]'
+                            : 'bg-white hover:bg-slate-100 text-cyan-800 border-slate-300'
+                        }`}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                        <span>Show all {chapter.subtopics.length} topics for {chapter.chapter_name}</span>
+                      </button>
+                    )}
+
+                    {/* CBSE MANDATORY BOARD DERIVATIONS PANEL */}
+                    {chapter.board_derivations && chapter.board_derivations.length > 0 && (
+                      <div className={`p-3 rounded-xl border mt-3 ${
+                        isDark ? 'bg-purple-950/20 border-purple-500/25' : 'bg-purple-50/70 border-purple-200'
+                      }`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <FileCheck2 className="w-3.5 h-3.5 text-purple-400" />
+                            <span className="text-xs font-bold text-purple-300">
+                              CBSE Board Derivations ({chapter.board_derivations.length})
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => toggleDerivationsExpanded(chapter.id)}
+                            className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 flex items-center gap-1"
+                          >
+                            <span>{isDerivExpanded ? 'Hide' : 'View'}</span>
+                            {isDerivExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                           </button>
                         </div>
-                      );
-                    })}
+
+                        {isDerivExpanded && (
+                          <div className="mt-2.5 space-y-1.5 pt-2 border-t border-purple-500/20 text-[11px]">
+                            {chapter.board_derivations.map((deriv, dIdx) => (
+                              <div key={dIdx} className="flex items-start gap-1.5 text-zinc-300">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                <span className="leading-snug">{deriv}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Card Footer */}
-                  <div className={`px-4 py-2.5 border-t text-[11px] flex items-center justify-between ${
-                    isDark ? 'bg-black/30 border-white/[0.04] text-zinc-400' : 'bg-slate-50 border-slate-200 text-slate-500'
+                  {/* Card Footer: Quick Actions */}
+                  <div className={`p-3 sm:p-4 border-t text-xs flex items-center justify-between gap-2 flex-wrap ${
+                    isDark ? 'bg-black/30 border-white/[0.04]' : 'bg-slate-50 border-slate-200'
                   }`}>
-                    <span>JEE Weightage: High Yield</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => (onOpenPdfModal ? onOpenPdfModal() : onOpenFormulaHub())}
+                        className="text-[11px] font-semibold text-zinc-400 hover:text-cyan-400 flex items-center gap-1 min-h-[30px]"
+                        title="Download chapter PDF"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>PDF Sheet</span>
+                      </button>
+                      {onOpenArena && (
+                        <button
+                          onClick={onOpenArena}
+                          className="text-[11px] font-semibold text-zinc-400 hover:text-purple-400 flex items-center gap-1 min-h-[30px]"
+                          title="Practice official PYQs"
+                        >
+                          <HelpCircle className="w-3 h-3" />
+                          <span>PYQs</span>
+                        </button>
+                      )}
+                    </div>
+
                     <button
-                      onClick={() => onSelectConcept(chapterConcepts[0])}
-                      className="text-cyan-500 hover:text-cyan-600 font-semibold flex items-center gap-1 min-h-[32px]"
+                      onClick={() => onSelectConcept(matchingConcept)}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 min-h-[32px] ${
+                        isCyberpunk
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400/40 hover:bg-cyan-500 hover:text-slate-950'
+                          : isDark
+                          ? 'bg-white/10 hover:bg-cyan-500 hover:text-slate-950 text-zinc-200 border-white/10'
+                          : 'bg-white hover:bg-cyan-600 hover:text-white text-slate-800 border-slate-300'
+                      }`}
                     >
-                      <span>Explore Chapter</span>
-                      <ArrowRight className="w-3 h-3" />
+                      <span>Explore 3D Lab</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>

@@ -18,6 +18,8 @@ export interface ErrorBoundaryState {
   error: Error | null;
   errorInfo: ErrorInfo | null;
   showDetails: boolean;
+  recoveryKey: number;
+  isRecovering: boolean;
 }
 
 export class GlobalErrorBoundary extends React.Component<
@@ -31,6 +33,8 @@ export class GlobalErrorBoundary extends React.Component<
       error: null,
       errorInfo: null,
       showDetails: false,
+      recoveryKey: 0,
+      isRecovering: false,
     };
   }
 
@@ -44,35 +48,85 @@ export class GlobalErrorBoundary extends React.Component<
   }
 
   handleRecoverAndReset = () => {
+    this.setState({ isRecovering: true });
+
     // 1. Clear any transient simulation or corrupt parameter cache
     try {
       sessionStorage.removeItem('current_sim_params');
       sessionStorage.removeItem('active_concept_id');
+      // Clean any corrupted concept parameters from localStorage
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('jee_physics_params_')) {
+          try {
+            const val = localStorage.getItem(key);
+            if (!val || val === 'undefined' || val === 'null') {
+              localStorage.removeItem(key);
+            }
+          } catch {}
+        }
+      }
     } catch {
       // Ignore storage errors
     }
 
     // 2. Call optional reset callback from App
     if (this.props.onReset) {
-      this.props.onReset();
+      try {
+        this.props.onReset();
+      } catch (err) {
+        console.warn('onReset callback failed:', err);
+      }
     }
 
-    // 3. Reset internal error boundary state
-    this.setState({
-      hasError: false,
-      error: null,
-      errorInfo: null,
-      showDetails: false,
-    });
+    // 3. Reset internal error boundary state with incremented key to discard old fiber
+    setTimeout(() => {
+      this.setState((prev) => ({
+        hasError: false,
+        error: null,
+        errorInfo: null,
+        showDetails: false,
+        recoveryKey: prev.recoveryKey + 1,
+        isRecovering: false,
+      }));
+    }, 60);
   };
 
   handleHardRefresh = () => {
     try {
       sessionStorage.clear();
+      // Remove broken params
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith('jee_physics_params_')) {
+          localStorage.removeItem(k);
+        }
+      });
     } catch {
       // Ignore
     }
-    window.location.reload();
+
+    if (this.props.onReset) {
+      try {
+        this.props.onReset();
+      } catch {}
+    }
+
+    // Safe reload attempting location.reload() with in-memory fallback for iframes
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        window.location.reload();
+      }
+    } catch {
+      // In-memory fallback if reload blocked in sandboxed iframe
+      this.setState((prev) => ({
+        hasError: false,
+        error: null,
+        errorInfo: null,
+        showDetails: false,
+        recoveryKey: prev.recoveryKey + 1,
+        isRecovering: false,
+      }));
+    }
   };
 
   render() {
@@ -119,10 +173,11 @@ export class GlobalErrorBoundary extends React.Component<
                 <button
                   id="recover-reset-btn"
                   onClick={this.handleRecoverAndReset}
-                  className="flex-1 px-4 py-3 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 active:scale-98 transition"
+                  disabled={this.state.isRecovering}
+                  className="flex-1 px-4 py-3 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 active:scale-98 transition disabled:opacity-50"
                 >
-                  <RotateCcw className="w-4 h-4" />
-                  <span>Recover & Reset Simulation</span>
+                  <RotateCcw className={`w-4 h-4 ${this.state.isRecovering ? 'animate-spin' : ''}`} />
+                  <span>{this.state.isRecovering ? 'Restoring Simulation...' : 'Recover & Reset Simulation'}</span>
                 </button>
 
                 <button
@@ -167,6 +222,10 @@ export class GlobalErrorBoundary extends React.Component<
       );
     }
 
-    return this.props.children;
+    return (
+      <React.Fragment key={this.state.recoveryKey}>
+        {this.props.children}
+      </React.Fragment>
+    );
   }
 }

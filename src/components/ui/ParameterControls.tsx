@@ -41,7 +41,7 @@ interface ParameterControlsProps {
   onChangeBloom?: (val: 'vibrant' | 'subtle' | 'off') => void;
 }
 
-export const ParameterControls: React.FC<ParameterControlsProps> = ({
+const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
   parameters,
   values,
   onChangeParam,
@@ -125,7 +125,7 @@ export const ParameterControls: React.FC<ParameterControlsProps> = ({
               step="0.1"
               value={speed}
               onChange={(e) => onChangeSpeed(parseFloat(e.target.value))}
-              className="w-16 sm:w-24 h-1.5 bg-slate-200 dark:bg-[#22222C] rounded-lg appearance-none cursor-pointer accent-cyan-500 touch-pan-x"
+              className="w-16 sm:w-24 cursor-pointer touch-pan-x"
               title={`Playback Speed: ${speed.toFixed(1)}x`}
             />
             <span className={`text-[11px] font-mono font-bold w-8 text-right shrink-0 ${isDark ? 'text-zinc-300' : 'text-slate-700'}`}>
@@ -530,7 +530,7 @@ export const ParameterControls: React.FC<ParameterControlsProps> = ({
                       onFocus={() => setActiveTooltipParamId(p.id)}
                       onBlur={() => setActiveTooltipParamId(null)}
                       onChange={(e) => onChangeParam(p.id, parseFloat(e.target.value))}
-                      className="w-full h-3 bg-slate-200 dark:bg-[#22222C] rounded-lg appearance-none cursor-pointer accent-cyan-500 touch-pan-x"
+                      className="w-full cursor-pointer touch-pan-x"
                     />
 
                     {/* Floating Context-Aware Tooltip above slider thumb on hover/focus */}
@@ -651,3 +651,5 @@ export const ParameterControls: React.FC<ParameterControlsProps> = ({
     </div>
   );
 };
+
+export const ParameterControls = React.memo(ParameterControlsComponent);

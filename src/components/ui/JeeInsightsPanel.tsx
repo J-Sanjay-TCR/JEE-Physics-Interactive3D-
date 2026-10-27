@@ -13,7 +13,7 @@ interface JeeInsightsPanelProps {
   onClose?: () => void;
 }
 
-export const JeeInsightsPanel: React.FC<JeeInsightsPanelProps> = ({
+const JeeInsightsPanelComponent: React.FC<JeeInsightsPanelProps> = ({
   jeeMain,
   jeeAdvanced,
   conceptTitle = 'Physics Concept',
@@ -292,3 +292,5 @@ export const JeeInsightsPanel: React.FC<JeeInsightsPanelProps> = ({
     </div>
   );
 };
+
+export const JeeInsightsPanel = React.memo(JeeInsightsPanelComponent);

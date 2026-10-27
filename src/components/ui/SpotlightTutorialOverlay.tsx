@@ -89,10 +89,10 @@ export const DEFAULT_PHYSICS_TUTORIAL_STEPS: SpotlightStep[] = [
   },
   {
     targetSelector: '#draggable-ai-tutor-fab',
-    title: 'Voice-Enabled AI Physics Tutor',
-    description: 'Drag and tap this floating mentor anytime to receive instant voice explanations, step-by-step problem derivations, and JEE tips.',
+    title: 'Nemo: AI Physics Tutor Companion',
+    description: 'Drag and tap Nemo, your friendly AI mentor with glimmering round eyes, anytime for instant voice explanations, step-by-step proofs, and JEE tips.',
     placement: 'left',
-    badge: 'AI MENTOR',
+    badge: 'MEET NEMO',
     padding: 12,
     borderRadius: 36,
   },
