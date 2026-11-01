@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence, type Variants } from 'motion/react';
 import { PhysicsConcept, RealtimeQuantity } from '../../types';
 import {
   Minimize2,
@@ -90,8 +91,54 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
   isARMode = false,
   onToggleAR,
 }) => {
-  const [isDrawerOpen, setIsDrawerOpen] = useState(true);
-  const [drawerTab, setDrawerTab] = useState<'params' | 'graphs' | 'equations' | 'jee'>('params');
+  const [isDrawerOpen, setIsDrawerOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 768;
+    }
+    return false;
+  });
+  const DRAWER_TABS = ['params', 'graphs', 'equations', 'jee'] as const;
+  type DrawerTabKey = typeof DRAWER_TABS[number];
+  const [drawerTab, setDrawerTab] = useState<DrawerTabKey>('params');
+  const [drawerDirection, setDrawerDirection] = useState<number>(1);
+
+  const handleDrawerTabSelect = (nextTab: DrawerTabKey) => {
+    setDrawerTab((prev) => {
+      if (prev === nextTab) return prev;
+      const prevIdx = DRAWER_TABS.indexOf(prev);
+      const nextIdx = DRAWER_TABS.indexOf(nextTab);
+      setDrawerDirection(nextIdx >= prevIdx ? 1 : -1);
+      return nextTab;
+    });
+  };
+
+  const drawerSlideVariants: Variants = {
+    initial: (direction: number) => ({
+      x: direction >= 0 ? 32 : -32,
+      opacity: 0,
+      scale: 0.985,
+    }),
+    animate: {
+      x: 0,
+      opacity: 1,
+      scale: 1,
+      transition: {
+        x: { type: 'spring' as const, stiffness: 350, damping: 28, mass: 0.7 },
+        opacity: { duration: 0.22, ease: 'easeOut' as const },
+        scale: { duration: 0.22, ease: 'easeOut' as const },
+      },
+    },
+    exit: (direction: number) => ({
+      x: direction >= 0 ? -26 : 26,
+      opacity: 0,
+      scale: 0.985,
+      transition: {
+        x: { duration: 0.16, ease: 'easeIn' as const },
+        opacity: { duration: 0.14, ease: 'easeIn' as const },
+        scale: { duration: 0.14 },
+      },
+    }),
+  };
   const [activeCamPreset, setActiveCamPreset] = useState<'3d' | 'front' | 'top' | 'side'>('3d');
   const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && !!document.fullscreenElement);
 
@@ -192,19 +239,19 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
         setIsDrawerOpen((prev) => !prev);
       } else if (e.key === '1') {
         e.preventDefault();
-        setDrawerTab('params');
+        handleDrawerTabSelect('params');
         setIsDrawerOpen(true);
       } else if (e.key === '2') {
         e.preventDefault();
-        setDrawerTab('graphs');
+        handleDrawerTabSelect('graphs');
         setIsDrawerOpen(true);
       } else if (e.key === '3') {
         e.preventDefault();
-        setDrawerTab('equations');
+        handleDrawerTabSelect('equations');
         setIsDrawerOpen(true);
       } else if (e.key === '4') {
         e.preventDefault();
-        setDrawerTab('jee');
+        handleDrawerTabSelect('jee');
         setIsDrawerOpen(true);
       } else if (e.key === '+' || e.key === '=') {
         e.preventDefault();
@@ -455,7 +502,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
           <div className="p-3 border-b border-white/[0.08] flex items-center justify-between gap-2 shrink-0 bg-[#12131C]">
             <div className="flex items-center gap-1 bg-[#08080C] p-1 rounded-xl border border-white/[0.08] overflow-x-auto no-scrollbar">
               <button
-                onClick={() => setDrawerTab('params')}
+                onClick={() => handleDrawerTabSelect('params')}
                 className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                   drawerTab === 'params'
                     ? 'bg-cyan-500 text-slate-950 shadow-sm'
@@ -466,7 +513,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
                 <span>Sliders</span>
               </button>
               <button
-                onClick={() => setDrawerTab('graphs')}
+                onClick={() => handleDrawerTabSelect('graphs')}
                 className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                   drawerTab === 'graphs'
                     ? 'bg-cyan-500 text-slate-950 shadow-sm'
@@ -477,7 +524,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
                 <span>Graphs</span>
               </button>
               <button
-                onClick={() => setDrawerTab('equations')}
+                onClick={() => handleDrawerTabSelect('equations')}
                 className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                   drawerTab === 'equations'
                     ? 'bg-cyan-500 text-slate-950 shadow-sm'
@@ -488,7 +535,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
                 <span>Formulas</span>
               </button>
               <button
-                onClick={() => setDrawerTab('jee')}
+                onClick={() => handleDrawerTabSelect('jee')}
                 className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                   drawerTab === 'jee'
                     ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 shadow-sm font-extrabold'
@@ -511,8 +558,17 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
 
           {/* Drawer Content Area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-            {drawerTab === 'params' && (
-              <div className="space-y-4">
+            <AnimatePresence mode="wait" custom={drawerDirection} initial={false}>
+              {drawerTab === 'params' && (
+                <motion.div
+                  key="drawer-tab-params"
+                  custom={drawerDirection}
+                  variants={drawerSlideVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="space-y-4"
+                >
                 {/* Special Case Presets if available */}
                 {concept.specialCases && concept.specialCases.length > 0 && (
                   <div className="space-y-2">
@@ -588,11 +644,19 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
                     );
                   })}
                 </div>
-              </div>
+              </motion.div>
             )}
 
             {drawerTab === 'graphs' && (
-              <div className="space-y-3">
+              <motion.div
+                key="drawer-tab-graphs"
+                custom={drawerDirection}
+                variants={drawerSlideVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                className="space-y-3"
+              >
                 <div className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
                   <LineChart className="w-3.5 h-3.5" />
                   <span>Real-Time Analytical Curve</span>
@@ -604,11 +668,19 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
                     simTime={simTime}
                   />
                 </div>
-              </div>
+              </motion.div>
             )}
 
             {drawerTab === 'equations' && (
-              <div className="space-y-3">
+              <motion.div
+                key="drawer-tab-equations"
+                custom={drawerDirection}
+                variants={drawerSlideVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                className="space-y-3"
+              >
                 <div className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
                   <BookOpen className="w-3.5 h-3.5" />
                   <span>Governing Laws & Equations</span>
@@ -627,11 +699,19 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
                     </div>
                   ))}
                 </div>
-              </div>
+              </motion.div>
             )}
 
             {drawerTab === 'jee' && (
-              <div className="space-y-4">
+              <motion.div
+                key="drawer-tab-jee"
+                custom={drawerDirection}
+                variants={drawerSlideVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                className="space-y-4"
+              >
                 {/* Weightage & Frequency */}
                 <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-transparent border border-amber-500/30 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -727,9 +807,10 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
                     </div>
                   </div>
                 )}
-              </div>
+              </motion.div>
             )}
-          </div>
+          </AnimatePresence>
+        </div>
         </div>
       </div>
 

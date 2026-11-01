@@ -29,7 +29,9 @@ import {
   MoreVertical,
   Award,
   MousePointer,
+  Tv,
 } from 'lucide-react';
+import { ScreenMetrics } from '../../utils/screenDetection';
 
 interface HeaderProps {
   currentConcept: PhysicsConcept;
@@ -53,6 +55,9 @@ interface HeaderProps {
   onSetView?: (view: 'home' | 'lab' | 'arena') => void;
   userName?: string;
   onOpenProfile?: () => void;
+  isProjectorMode?: boolean;
+  onToggleProjectorMode?: () => void;
+  screenMetrics?: ScreenMetrics;
 }
 
 const HeaderComponent: React.FC<HeaderProps> = ({
@@ -77,6 +82,9 @@ const HeaderComponent: React.FC<HeaderProps> = ({
   onSetView,
   userName,
   onOpenProfile,
+  isProjectorMode = false,
+  onToggleProjectorMode,
+  screenMetrics,
 }) => {
   const { theme, isDark, isCyberpunk, cycleTheme, setTheme } = useTheme();
   const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
@@ -358,6 +366,40 @@ const HeaderComponent: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Dynamic Screen Profile & 4:3 Projector Auto-Calibration Badge */}
+        {onToggleProjectorMode && (
+          <button
+            type="button"
+            onClick={onToggleProjectorMode}
+            className={`hidden sm:flex px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-xl border transition-all items-center gap-1.5 shadow-xs active:scale-95 min-h-[38px] sm:min-h-[40px] shrink-0 ${
+              isProjectorMode || (screenMetrics && screenMetrics.isProjector43)
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                : isDark
+                ? 'bg-[#14141C] border-white/[0.08] text-zinc-300 hover:text-white hover:bg-[#1C1C26]'
+                : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-200'
+            }`}
+            title={`Detected Screen: ${screenMetrics ? screenMetrics.profileLabel : 'Adaptive Display'} (${screenMetrics ? screenMetrics.width : ''}×${screenMetrics ? screenMetrics.height : ''}, Ratio ${screenMetrics ? screenMetrics.aspect : ''}). ${isProjectorMode ? 'Projector Calibration Active' : 'Click to calibrate for 4:3 Classroom Projectors'}.`}
+            aria-label="Toggle Projector Mode"
+          >
+            <div className="relative flex items-center justify-center">
+              <Tv className={`w-3.5 h-3.5 ${isProjectorMode || (screenMetrics && screenMetrics.isProjector43) ? 'text-amber-400' : 'text-cyan-400'}`} />
+              <span className={`absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full ${
+                isProjectorMode || (screenMetrics && screenMetrics.isProjector43) ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'
+              }`} />
+            </div>
+            <span className="hidden xl:inline text-xs font-bold">
+              {screenMetrics?.badgeText || (isProjectorMode ? '4:3 Projector' : 'Screen Auto')}
+            </span>
+            <span className={`px-1 py-0.2 rounded text-[10px] font-mono font-bold ${
+              isProjectorMode || (screenMetrics && screenMetrics.isProjector43)
+                ? 'bg-amber-500/30 text-amber-200'
+                : 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20'
+            }`}>
+              {isProjectorMode ? '4:3 ON' : screenMetrics ? `${screenMetrics.aspect}:1` : 'AUTO'}
+            </span>
+          </button>
+        )}
+
         {/* Consolidated "More Tools" Menu */}
         <div ref={moreToolsRef} className="relative">
           <button
@@ -573,6 +615,41 @@ const HeaderComponent: React.FC<HeaderProps> = ({
                     {isCursorEnabled ? 'ON' : 'OFF'}
                   </span>
                 </button>
+
+                {/* 4:3 Projector & Classroom Display Mode */}
+                {onToggleProjectorMode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleProjectorMode();
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold transition flex items-center justify-between gap-2.5 ${
+                      isCyberpunk ? 'hover:bg-amber-500/15 text-amber-200' : isDark ? 'hover:bg-white/[0.06] text-zinc-200' : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                        <Tv className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-xs">4:3 Projector Mode</div>
+                        <div className={`text-[10px] truncate ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
+                          {isProjectorMode ? '4:3 Presentation Calibration ON' : 'Optimize for 4:3 projectors'}
+                        </div>
+                      </div>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold shrink-0 ${
+                        isProjectorMode
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'bg-white/10 text-zinc-400 border border-white/10'
+                      }`}
+                    >
+                      {isProjectorMode ? '4:3 ON' : 'AUTO'}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
           )}

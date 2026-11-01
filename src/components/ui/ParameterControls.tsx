@@ -17,10 +17,15 @@ import {
   X,
   Camera,
   EyeOff,
+  Columns,
+  ArrowLeftRight,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { Latex } from './Latex';
 import { useTheme } from '../../context/ThemeContext';
 import { getParamPhysicalSignificance } from '../../utils/physicsSignificance';
+import { ComparePreset, getComparisonPresets } from '../../data/comparisonPresets';
 
 interface ParameterControlsProps {
   parameters: PhysicsParameter[];
@@ -39,6 +44,15 @@ interface ParameterControlsProps {
   onToggleAR?: () => void;
   bloomIntensity?: 'vibrant' | 'subtle' | 'off';
   onChangeBloom?: (val: 'vibrant' | 'subtle' | 'off') => void;
+  isSplitScreen?: boolean;
+  activeCompareTarget?: 'A' | 'B';
+  onSelectCompareTarget?: (target: 'A' | 'B') => void;
+  valuesB?: Record<string, number>;
+  onChangeParamB?: (id: string, val: number) => void;
+  onCopyAtoB?: () => void;
+  onSwapAB?: () => void;
+  onApplyComparePreset?: (preset: ComparePreset) => void;
+  onToggleSplitScreen?: () => void;
 }
 
 const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
@@ -58,11 +72,31 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
   onToggleAR,
   bloomIntensity,
   onChangeBloom,
+  isSplitScreen = false,
+  activeCompareTarget = 'A',
+  onSelectCompareTarget,
+  valuesB,
+  onChangeParamB,
+  onCopyAtoB,
+  onSwapAB,
+  onApplyComparePreset,
+  onToggleSplitScreen,
 }) => {
   const { isDark, isCyberpunk } = useTheme();
   // Track active tooltip or expanded insight card for each parameter
   const [activeTooltipParamId, setActiveTooltipParamId] = useState<string | null>(null);
   const [expandedInsightParamId, setExpandedInsightParamId] = useState<string | null>(null);
+
+  const activeValues = isSplitScreen && activeCompareTarget === 'B' && valuesB ? valuesB : values;
+  const handleActiveParamChange = (id: string, val: number) => {
+    if (isSplitScreen && activeCompareTarget === 'B' && onChangeParamB) {
+      onChangeParamB(id, val);
+    } else {
+      onChangeParam(id, val);
+    }
+  };
+
+  const comparePresets = simulationType ? getComparisonPresets(simulationType) : [];
 
   return (
     <div
@@ -134,6 +168,182 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Split-Screen Comparative Mode Control Strip */}
+      {isSplitScreen ? (
+        <div
+          className={`p-3 sm:p-3.5 rounded-xl border flex flex-col gap-2.5 transition-colors ${
+            isDark
+              ? 'bg-gradient-to-r from-cyan-950/40 via-[#0A0F1D] to-amber-950/30 border-cyan-500/30 shadow-md'
+              : 'bg-gradient-to-r from-cyan-50 via-slate-50 to-amber-50 border-cyan-300 shadow-xs'
+          }`}
+        >
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-1.5">
+              <Columns className="w-4 h-4 text-cyan-400" />
+              <span className={`text-xs font-bold ${isDark ? 'text-zinc-100' : 'text-slate-800'}`}>
+                Split-Screen Comparison Mode
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold">
+                Active
+              </span>
+            </div>
+
+            {onToggleSplitScreen && (
+              <button
+                onClick={onToggleSplitScreen}
+                className="text-[11px] font-semibold text-zinc-400 hover:text-white transition flex items-center gap-1 px-2 py-0.5 rounded-md hover:bg-white/10"
+                title="Exit split-screen comparison mode"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Exit Split View</span>
+              </button>
+            )}
+          </div>
+
+          {/* Setup A vs Setup B Selector Tabs */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => onSelectCompareTarget?.('A')}
+              className={`p-2 rounded-xl border text-left transition flex items-center justify-between touch-manipulation ${
+                activeCompareTarget === 'A'
+                  ? 'bg-cyan-500/20 border-cyan-400 shadow-[0_0_12px_rgba(0,240,255,0.25)] text-cyan-200'
+                  : isDark
+                  ? 'bg-[#0E1322] border-white/10 text-zinc-400 hover:text-cyan-300 hover:border-cyan-500/30'
+                  : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shrink-0 shadow-[0_0_6px_#00f0ff]" />
+                <div className="truncate">
+                  <div className="text-xs font-bold truncate">Setup A (Left)</div>
+                  <div className="text-[10px] opacity-75 truncate">Baseline Model</div>
+                </div>
+              </div>
+              {activeCompareTarget === 'A' && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-400 text-black shrink-0">
+                  Editing
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => onSelectCompareTarget?.('B')}
+              className={`p-2 rounded-xl border text-left transition flex items-center justify-between touch-manipulation ${
+                activeCompareTarget === 'B'
+                  ? 'bg-amber-500/20 border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.25)] text-amber-200'
+                  : isDark
+                  ? 'bg-[#18140E] border-white/10 text-zinc-400 hover:text-amber-300 hover:border-amber-500/30'
+                  : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0 shadow-[0_0_6px_#f59e0b]" />
+                <div className="truncate">
+                  <div className="text-xs font-bold truncate">Setup B (Right)</div>
+                  <div className="text-[10px] opacity-75 truncate">Comparative Variant</div>
+                </div>
+              </div>
+              {activeCompareTarget === 'B' && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-black shrink-0">
+                  Editing
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Quick sync & swap actions */}
+          <div className="flex items-center justify-between gap-1.5 flex-wrap pt-0.5">
+            <div className="flex items-center gap-1.5">
+              {onCopyAtoB && (
+                <button
+                  onClick={onCopyAtoB}
+                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition flex items-center gap-1.5 touch-manipulation ${
+                    isDark
+                      ? 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
+                  title="Copy current Setup A parameters over to Setup B"
+                >
+                  <Copy className="w-3 h-3 text-cyan-400" />
+                  <span>Copy A → B</span>
+                </button>
+              )}
+
+              {onSwapAB && (
+                <button
+                  onClick={onSwapAB}
+                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition flex items-center gap-1.5 touch-manipulation ${
+                    isDark
+                      ? 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
+                  title="Swap Setup A and Setup B parameters"
+                >
+                  <ArrowLeftRight className="w-3 h-3 text-amber-400" />
+                  <span>Swap A ⇄ B</span>
+                </button>
+              )}
+            </div>
+
+            <span className="text-[10px] text-zinc-400 font-mono">
+              Editing: <strong className={activeCompareTarget === 'B' ? 'text-amber-400' : 'text-cyan-400'}>Setup {activeCompareTarget}</strong>
+            </span>
+          </div>
+
+          {/* Comparison Presets quick chips */}
+          {comparePresets.length > 0 && onApplyComparePreset && (
+            <div className="pt-1.5 border-t border-white/[0.08] flex flex-col gap-1.5">
+              <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
+                JEE Side-by-Side Comparison Presets:
+              </span>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto no-scrollbar">
+                {comparePresets.map((preset) => (
+                  <button
+                    key={preset.id}
+                    onClick={() => onApplyComparePreset(preset)}
+                    className={`px-2 py-1 text-[10px] sm:text-[11px] font-medium rounded-md border text-left transition ${
+                      isDark
+                        ? 'bg-zinc-900/90 hover:bg-cyan-950/40 border-white/10 hover:border-cyan-500/40 text-zinc-300 hover:text-cyan-200'
+                        : 'bg-white hover:bg-cyan-50 border-slate-300 text-slate-700 hover:text-cyan-900'
+                    }`}
+                    title={preset.description}
+                  >
+                    <span>{preset.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* If split-screen is not active, offer a 1-click comparison launch button */
+        onToggleSplitScreen && (
+          <div
+            className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 transition-colors ${
+              isDark ? 'bg-[#0B101D]/70 border-cyan-500/20' : 'bg-cyan-50/60 border-cyan-200'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Columns className="w-4 h-4 text-cyan-400 shrink-0" />
+              <div className="truncate">
+                <span className={`text-xs font-bold block truncate ${isDark ? 'text-zinc-200' : 'text-slate-800'}`}>
+                  Compare Side-by-Side (Split-Screen)
+                </span>
+                <span className="text-[10px] text-zinc-500 block truncate">
+                  Evaluate 2 parameter sets simultaneously on the same 3D stage
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={onToggleSplitScreen}
+              className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black shrink-0 transition flex items-center gap-1 shadow-sm active:scale-95"
+            >
+              <span>Split Lab (C)</span>
+            </button>
+          </div>
+        )
+      )}
 
       {/* AR View Active Status Banner in 3D Controls */}
       {isARMode && (
@@ -438,8 +648,8 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
 
         <div className="flex flex-col gap-3">
           {parameters.map((p) => {
-            const currentVal = values[p.id] !== undefined ? values[p.id] : p.defaultVal;
-            const insight = getParamPhysicalSignificance(p, currentVal, values, simulationType);
+            const currentVal = activeValues[p.id] !== undefined ? activeValues[p.id] : p.defaultVal;
+            const insight = getParamPhysicalSignificance(p, currentVal, activeValues, simulationType);
             const isHovered = activeTooltipParamId === p.id;
             const isExpanded = expandedInsightParamId === p.id;
 
@@ -506,7 +716,7 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
                       value={currentVal}
                       onChange={(e) => {
                         const num = parseFloat(e.target.value);
-                        if (!isNaN(num)) onChangeParam(p.id, Math.max(p.min, Math.min(p.max, num)));
+                        if (!isNaN(num)) handleActiveParamChange(p.id, Math.max(p.min, Math.min(p.max, num)));
                       }}
                       className={`w-14 sm:w-16 text-right bg-transparent text-xs sm:text-sm font-bold focus:outline-none mono-num ${
                         isDark ? 'text-cyan-300' : 'text-cyan-700'
@@ -529,7 +739,7 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
                       value={currentVal}
                       onFocus={() => setActiveTooltipParamId(p.id)}
                       onBlur={() => setActiveTooltipParamId(null)}
-                      onChange={(e) => onChangeParam(p.id, parseFloat(e.target.value))}
+                      onChange={(e) => handleActiveParamChange(p.id, parseFloat(e.target.value))}
                       className="w-full cursor-pointer touch-pan-x"
                     />
 

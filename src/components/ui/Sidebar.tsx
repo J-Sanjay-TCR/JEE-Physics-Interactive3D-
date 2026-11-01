@@ -840,10 +840,18 @@ const SidebarComponent: React.FC<SidebarProps> = ({
                 </div>
                 <div>
                   <p className={`text-xs font-bold ${isDark ? 'text-zinc-200' : 'text-slate-800'}`}>
-                    No matching topics found
+                    {activeFilter === 'saved'
+                      ? 'No bookmarked experiments yet'
+                      : activeFilter === 'completed'
+                      ? 'No completed experiments yet'
+                      : 'No matching topics found'}
                   </p>
                   <p className={`text-[11px] mt-0.5 ${isDark ? 'text-zinc-500' : 'text-slate-500'}`}>
-                    Try searching for another keyword or reset branch filters.
+                    {activeFilter === 'saved'
+                      ? 'Click the bookmark ribbon on any concept to save it to your revision vault.'
+                      : activeFilter === 'completed'
+                      ? 'Launch 3D simulations and solve practice questions to track completed concepts.'
+                      : 'Try searching for another keyword or reset branch filters.'}
                   </p>
                 </div>
                 <button

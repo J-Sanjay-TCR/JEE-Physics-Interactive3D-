@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, type Variants } from 'motion/react';
 import { PhysicsConcept } from './types';
 import { ALL_CONCEPTS, getConceptById } from './data/allConcepts';
 import { useTheme } from './context/ThemeContext';
@@ -52,7 +52,10 @@ import {
   RotateCcw,
   Camera,
   Layers,
+  Columns,
 } from 'lucide-react';
+import { ComparePreset, getComparisonPresets } from './data/comparisonPresets';
+import { detectScreenMetrics, ScreenMetrics } from './utils/screenDetection';
 
 export default function App() {
   const { isDark, isCyberpunk, theme, toggleTheme, cycleTheme, setTheme } = useTheme();
@@ -82,6 +85,21 @@ export default function App() {
     ALL_CONCEPTS[0].parameters.forEach((p) => {
       initial[p.id] = p.defaultVal;
     });
+    return initial;
+  });
+
+  // Split-Screen Comparative Mode State
+  const [isSplitScreen, setIsSplitScreen] = useState(false);
+  const [activeCompareTarget, setActiveCompareTarget] = useState<'A' | 'B'>('A');
+  const [paramValuesB, setParamValuesB] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {};
+    ALL_CONCEPTS[0].parameters.forEach((p) => {
+      initial[p.id] = p.defaultVal;
+    });
+    const presets = getComparisonPresets(ALL_CONCEPTS[0].simulationType);
+    if (presets.length > 0 && presets[0].presetB) {
+      return { ...initial, ...presets[0].presetB };
+    }
     return initial;
   });
 
@@ -153,6 +171,83 @@ export default function App() {
     } catch {}
   };
 
+  // Continuous Screen & Projector Metrics Auto-Detection Engine
+  const [screenMetrics, setScreenMetrics] = useState<ScreenMetrics>(() => {
+    return detectScreenMetrics();
+  });
+
+  // Projector mode: automatically true when screen aspect is 4:3 (or 16:10 on compact displays),
+  // with user manual toggle capability
+  const [isProjectorMode, setIsProjectorMode] = useState<boolean>(() => {
+    try {
+      const explicit = localStorage.getItem('jee_projector_mode_explicit');
+      if (explicit) {
+        return localStorage.getItem('jee_projector_mode') === 'true';
+      }
+      if (typeof window !== 'undefined') {
+        const metrics = detectScreenMetrics(window.innerWidth, window.innerHeight);
+        return metrics.isProjector43;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  });
+
+  const [windowAspect, setWindowAspect] = useState<number>(() => {
+    if (typeof window !== 'undefined' && window.innerHeight > 0) {
+      return window.innerWidth / window.innerHeight;
+    }
+    return 16 / 9;
+  });
+
+  const [windowWidth, setWindowWidth] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth;
+    }
+    return 1280;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleWinResize = () => {
+      const w = window.innerWidth;
+      const h = Math.max(1, window.innerHeight);
+      const metrics = detectScreenMetrics(w, h);
+      setScreenMetrics(metrics);
+      setWindowWidth(w);
+      setWindowAspect(metrics.aspect);
+
+      // Auto-adapt projector mode in real time if no explicit manual override is locked
+      try {
+        const explicit = localStorage.getItem('jee_projector_mode_explicit');
+        if (!explicit) {
+          setIsProjectorMode(metrics.isProjector43);
+        }
+      } catch {}
+    };
+
+    window.addEventListener('resize', handleWinResize);
+    window.addEventListener('orientationchange', handleWinResize);
+    // Initial sync
+    handleWinResize();
+    return () => {
+      window.removeEventListener('resize', handleWinResize);
+      window.removeEventListener('orientationchange', handleWinResize);
+    };
+  }, []);
+
+  const handleToggleProjectorMode = useCallback(() => {
+    setIsProjectorMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('jee_projector_mode', String(next));
+        localStorage.setItem('jee_projector_mode_explicit', 'true');
+      } catch {}
+      return next;
+    });
+  }, []);
+
   // Navigation state
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
@@ -182,9 +277,49 @@ export default function App() {
     setPdfChapterId(chapterId || currentConcept.chapterId);
     setIsPdfModalOpen(true);
   };
-  const [activeTab, setActiveTab] = useState<
-    'controls' | 'coaching' | 'equations' | 'graphs' | 'jee' | 'questions'
-  >('controls');
+  const TAB_KEYS = ['controls', 'coaching', 'graphs', 'equations', 'jee', 'questions'] as const;
+  type TabKey = typeof TAB_KEYS[number];
+  const [activeTab, setActiveTab] = useState<TabKey>('controls');
+  const [tabSlideDirection, setTabSlideDirection] = useState<number>(1);
+
+  const handleTabSelect = useCallback((nextTab: TabKey) => {
+    setActiveTab((prev) => {
+      if (prev === nextTab) return prev;
+      const prevIdx = TAB_KEYS.indexOf(prev);
+      const nextIdx = TAB_KEYS.indexOf(nextTab);
+      setTabSlideDirection(nextIdx >= prevIdx ? 1 : -1);
+      return nextTab;
+    });
+  }, []);
+
+  // Framer Motion direction-aware slide variants for main panels
+  const panelSlideVariants: Variants = {
+    initial: (direction: number) => ({
+      x: direction >= 0 ? 44 : -44,
+      opacity: 0,
+      scale: 0.985,
+    }),
+    animate: {
+      x: 0,
+      opacity: 1,
+      scale: 1,
+      transition: {
+        x: { type: 'spring' as const, stiffness: 340, damping: 28, mass: 0.7 },
+        opacity: { duration: 0.22, ease: 'easeOut' as const },
+        scale: { duration: 0.22, ease: 'easeOut' as const },
+      },
+    },
+    exit: (direction: number) => ({
+      x: direction >= 0 ? -36 : 36,
+      opacity: 0,
+      scale: 0.985,
+      transition: {
+        x: { duration: 0.18, ease: 'easeIn' as const },
+        opacity: { duration: 0.15, ease: 'easeIn' as const },
+        scale: { duration: 0.15 },
+      },
+    }),
+  };
   const [activeSectionId, setActiveSectionId] = useState<string>('home-hero-section');
 
   const mainScrollRef = useRef<HTMLDivElement>(null);
@@ -454,10 +589,27 @@ export default function App() {
         return;
       }
 
-      // 'P' or 'p' or 'Space' for Play / Pause
-      if (e.key === 'p' || e.key === 'P' || e.key === ' ') {
+      // 'Space' for Play / Pause
+      if (e.key === ' ') {
         e.preventDefault();
         setIsPlaying((prev) => !prev);
+        return;
+      }
+
+      // 'P' or 'p' for 4:3 Projector / Classroom Presentation Mode
+      if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        handleToggleProjectorMode();
+        return;
+      }
+
+      // 'C' or 'c' for Split-Screen Comparison View
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        if (currentView !== 'lab') {
+          setCurrentView('lab');
+        }
+        handleToggleSplitScreen();
         return;
       }
 
@@ -637,18 +789,49 @@ export default function App() {
   const [favorites, setFavorites] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('jee_fav_concepts');
-      return saved ? JSON.parse(saved) : ['projectile-motion', 'lcr-circuit'];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          // One-time sanitization: purge legacy hardcoded mock bookmarks
+          // (projectile-motion and lcr-circuit) if the user never explicitly saved them
+          const isLegacyDefault =
+            (parsed.length === 2 && parsed.includes('projectile-motion') && parsed.includes('lcr-circuit')) ||
+            (parsed.length === 1 && parsed[0] === 'projectile-motion');
+          const hasUserExplicitlyFavorited = localStorage.getItem('jee_fav_user_explicit') === 'true';
+
+          if (isLegacyDefault && !hasUserExplicitlyFavorited) {
+            localStorage.removeItem('jee_fav_concepts');
+            return [];
+          }
+          return parsed;
+        }
+      }
+      return [];
     } catch {
-      return ['projectile-motion'];
+      return [];
     }
   });
 
   const [completedConcepts, setCompletedConcepts] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('jee_completed_concepts');
-      return saved ? JSON.parse(saved) : ['projectile-motion'];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          // Purge legacy hardcoded default mock completed array
+          const isLegacyDefault = parsed.length === 1 && parsed[0] === 'projectile-motion';
+          const hasUserExplicitlyCompleted = localStorage.getItem('jee_completed_user_explicit') === 'true';
+
+          if (isLegacyDefault && !hasUserExplicitlyCompleted) {
+            localStorage.removeItem('jee_completed_concepts');
+            return [];
+          }
+          return parsed;
+        }
+      }
+      return [];
     } catch {
-      return ['projectile-motion'];
+      return [];
     }
   });
 
@@ -715,6 +898,15 @@ export default function App() {
       }
       setParamValues(newParams);
     }
+
+    // Initialize Setup B parameters
+    const newParamsB: Record<string, number> = { ...newParams };
+    const presets = getComparisonPresets(concept.simulationType);
+    if (presets.length > 0 && presets[0].presetB) {
+      Object.assign(newParamsB, presets[0].presetB);
+    }
+    setParamValuesB(newParamsB);
+    setActiveCompareTarget('A');
     
     setSimTime(0);
     setCurrentView('lab');
@@ -729,6 +921,7 @@ export default function App() {
       setCompletedConcepts(updated);
       try {
         localStorage.setItem('jee_completed_concepts', JSON.stringify(updated));
+        localStorage.setItem('jee_completed_user_explicit', 'true');
       } catch {}
     }
   };
@@ -792,6 +985,35 @@ export default function App() {
       return newParams;
     });
   };
+
+  const handleToggleSplitScreen = useCallback(() => {
+    setIsSplitScreen((prev) => !prev);
+  }, []);
+
+  const handleParamChangeB = useCallback((id: string, val: number) => {
+    setParamValuesB((prev) => ({ ...prev, [id]: val }));
+  }, []);
+
+  const handleCopyAtoB = useCallback(() => {
+    setParamValuesB({ ...paramValues });
+  }, [paramValues]);
+
+  const handleSwapAB = useCallback(() => {
+    setParamValues((prevA) => {
+      setParamValuesB({ ...prevA });
+      return { ...paramValuesB };
+    });
+  }, [paramValuesB]);
+
+  const handleApplyComparePreset = useCallback((preset: ComparePreset) => {
+    if (preset.presetA) {
+      setParamValues((prev) => ({ ...prev, ...preset.presetA }));
+    }
+    if (preset.presetB) {
+      setParamValuesB((prev) => ({ ...prev, ...preset.presetB }));
+    }
+    setSimTime(0);
+  }, []);
 
   const handleToggleVectors = useCallback((forceVal?: boolean) => {
     setShowVectors((prev) => {
@@ -867,6 +1089,7 @@ export default function App() {
     setFavorites(nextFavs);
     try {
       localStorage.setItem('jee_fav_concepts', JSON.stringify(nextFavs));
+      localStorage.setItem('jee_fav_user_explicit', 'true');
     } catch {}
   };
 
@@ -1020,6 +1243,9 @@ export default function App() {
         isSidebarOpen={isSidebarOpen}
         currentView={currentView}
         onSetView={handleSetView}
+        isProjectorMode={isProjectorMode}
+        onToggleProjectorMode={handleToggleProjectorMode}
+        screenMetrics={screenMetrics}
       />
 
       {/* Unified Main Application Body Container */}
@@ -1036,7 +1262,7 @@ export default function App() {
           currentView={currentView}
           onSetView={handleSetView}
           activeTab={activeTab}
-          onSetActiveTab={setActiveTab}
+          onSetActiveTab={handleTabSelect}
           activeSectionId={activeSectionId}
         />
 
@@ -1170,10 +1396,10 @@ export default function App() {
               </div>
 
               {/* Mobile-only Focus Mode & AR View Buttons */}
-              <div className="lg:hidden flex items-center gap-1.5 shrink-0">
+              <div className="lg:hidden flex items-center gap-1 sm:gap-1.5 shrink-0">
                 <button
                   onClick={() => setIsARMode(!isARMode)}
-                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                  className={`px-2 py-1.5 xs:px-2.5 xs:py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 ${
                     isARMode
                       ? 'bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.5)]'
                       : isCyberpunk
@@ -1185,12 +1411,29 @@ export default function App() {
                   title="Toggle AR View (Camera Overlay)"
                 >
                   <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-[11px]">{isARMode ? 'Exit AR' : 'AR'}</span>
+                  <span className="text-[11px] hidden xs:inline">{isARMode ? 'Exit AR' : 'AR'}</span>
+                </button>
+
+                <button
+                  onClick={handleToggleSplitScreen}
+                  className={`px-2 py-1.5 xs:px-2.5 xs:py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                    isSplitScreen
+                      ? 'bg-gradient-to-r from-cyan-500 to-amber-500 text-black shadow-md font-bold'
+                      : isCyberpunk
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40'
+                      : isDark
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      : 'bg-cyan-100 text-cyan-900 border border-cyan-300'
+                  }`}
+                  title="Toggle Split-Screen Comparison View"
+                >
+                  <Columns className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="text-[11px] hidden xs:inline">Split</span>
                 </button>
 
                 <button
                   onClick={() => setIsFocusMode(true)}
-                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                  className={`px-2 py-1.5 xs:px-2.5 xs:py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 ${
                     isCyberpunk
                       ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-[0_0_8px_rgba(0,240,255,0.2)]'
                       : isDark
@@ -1200,7 +1443,7 @@ export default function App() {
                   title="Focus Mode"
                 >
                   <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
-                  <span className="text-[11px]">Focus</span>
+                  <span className="text-[11px] hidden xs:inline">Focus</span>
                 </button>
               </div>
             </div>
@@ -1230,6 +1473,29 @@ export default function App() {
                 </span>
               </button>
 
+              {/* Desktop Split-Screen Comparison Mode Trigger Button */}
+              <button
+                onClick={handleToggleSplitScreen}
+                className={`hidden lg:flex px-3 py-2 rounded-xl text-xs font-bold transition items-center gap-1.5 shadow-xs active:scale-95 shrink-0 ${
+                  isSplitScreen
+                    ? 'bg-gradient-to-r from-cyan-500 via-teal-500 to-amber-500 text-black shadow-[0_0_15px_rgba(0,240,255,0.4)] border border-cyan-300 font-black'
+                    : isCyberpunk
+                    ? 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-400/40 font-mono shadow-[0_0_10px_rgba(0,240,255,0.2)]'
+                    : isDark
+                    ? 'bg-[#14141B] hover:bg-[#1E1E28] text-zinc-300 border border-white/10'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                }`}
+                title="Split-Screen Comparison View (C) - Compare Two Parameter Sets Side-by-Side on One WebGL Canvas"
+              >
+                <Columns className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{isSplitScreen ? 'Split Lab Active' : 'Split Lab'}</span>
+                <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold ${
+                  isSplitScreen ? 'bg-black/30 text-white' : 'bg-cyan-500/20 text-cyan-300'
+                }`}>
+                  C
+                </span>
+              </button>
+
               {/* Desktop Focus Mode Trigger Button */}
               <button
                 onClick={() => setIsFocusMode(true)}
@@ -1253,7 +1519,7 @@ export default function App() {
                 isCyberpunk ? 'bg-[#060B18] border-cyan-500/25' : isDark ? 'bg-[#0A0A0E] border-white/[0.08]' : 'bg-slate-100 border-slate-200'
               }`}>
                 <button
-                  onClick={() => setActiveTab('controls')}
+                  onClick={() => handleTabSelect('controls')}
                   className={`px-3 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                     activeTab === 'controls'
                       ? isCyberpunk ? 'bg-gradient-to-r from-cyan-400 to-teal-400 text-black shadow-[0_0_10px_rgba(0,240,255,0.4)] font-black' : 'bg-cyan-500 text-white shadow-sm font-bold'
@@ -1265,7 +1531,7 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab('coaching')}
+                  onClick={() => handleTabSelect('coaching')}
                   className={`px-3 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                     activeTab === 'coaching'
                       ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-sm font-bold'
@@ -1277,7 +1543,7 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab('graphs')}
+                  onClick={() => handleTabSelect('graphs')}
                   className={`px-3 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                     activeTab === 'graphs'
                       ? isCyberpunk ? 'bg-gradient-to-r from-cyan-400 to-teal-400 text-black shadow-[0_0_10px_rgba(0,240,255,0.4)] font-black' : 'bg-cyan-500 text-white shadow-sm font-bold'
@@ -1289,7 +1555,7 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab('equations')}
+                  onClick={() => handleTabSelect('equations')}
                   className={`px-3 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                     activeTab === 'equations'
                       ? isCyberpunk ? 'bg-gradient-to-r from-cyan-400 to-teal-400 text-black shadow-[0_0_10px_rgba(0,240,255,0.4)] font-black' : 'bg-cyan-500 text-white shadow-sm font-bold'
@@ -1301,7 +1567,7 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab('jee')}
+                  onClick={() => handleTabSelect('jee')}
                   className={`px-3 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                     activeTab === 'jee'
                       ? isCyberpunk ? 'bg-gradient-to-r from-cyan-400 to-teal-400 text-black shadow-[0_0_10px_rgba(0,240,255,0.4)] font-black' : 'bg-cyan-500 text-white shadow-sm font-bold'
@@ -1313,7 +1579,7 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab('questions')}
+                  onClick={() => handleTabSelect('questions')}
                   className={`px-3 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
                     activeTab === 'questions'
                       ? isCyberpunk ? 'bg-gradient-to-r from-cyan-400 to-teal-400 text-black shadow-[0_0_10px_rgba(0,240,255,0.4)] font-black' : 'bg-cyan-500 text-white shadow-sm font-bold'
@@ -1327,10 +1593,31 @@ export default function App() {
             </div>
           </div>
 
-          {/* Primary 3D Stage & Core Controls Grid */}
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
-            {/* Left 3D Viewport (Takes 7 cols on XL) */}
-            <div id="section-3d" className="xl:col-span-7 h-[360px] sm:h-[460px] xl:h-[580px] w-full scroll-mt-20">
+          {/* Primary 3D Stage & Core Controls Grid (Auto-adjusts for Split-Screen, 4:3 Projectors, Tablets, and Monitors) */}
+          <div className={`grid grid-cols-1 ${
+            isSplitScreen
+              ? 'grid-cols-1'
+              : isProjectorMode || screenMetrics.width >= 1024 ? 'lg:grid-cols-12' : 'xl:grid-cols-12'
+          } gap-4 sm:gap-5 items-start`}>
+            {/* Left 3D Viewport (Full width in split-screen mode, or 7 cols on LG/XL in standard mode) */}
+            <div
+              id="section-3d"
+              className={`${
+                isSplitScreen
+                  ? 'w-full'
+                  : isProjectorMode || screenMetrics.width >= 1024 ? 'lg:col-span-7 xl:col-span-7' : 'xl:col-span-7'
+              } w-full scroll-mt-20 ${
+                isSplitScreen
+                  ? 'h-[clamp(380px,54vh,580px)]'
+                  : isProjectorMode || screenMetrics.isProjector43
+                  ? 'h-[clamp(300px,46vh,460px)]'
+                  : screenMetrics.isCompactHeight
+                  ? 'h-[clamp(320px,48vh,480px)]'
+                  : screenMetrics.isMobile
+                  ? 'h-[clamp(280px,42vh,360px)]'
+                  : 'h-[360px] sm:h-[460px] lg:h-[clamp(420px,58vh,560px)]'
+              }`}
+            >
               <GlobalErrorBoundary key={`canvas-boundary-${recoveryKey}`} onReset={handleFullSimulationRecovery}>
                 <ThreePhysicsCanvas
                   key={`three-canvas-${recoveryKey}-${currentConcept.id}`}
@@ -1363,20 +1650,38 @@ export default function App() {
                   onReset={handleResetSimulation}
                   speed={speed}
                   onChangeSpeed={setSpeed}
+                  isProjectorMode={isProjectorMode}
+                  onToggleProjectorMode={handleToggleProjectorMode}
+                  isSplitScreen={isSplitScreen}
+                  paramsB={paramValuesB}
+                  onToggleSplitScreen={handleToggleSplitScreen}
+                  activeCompareTarget={activeCompareTarget}
+                  onSelectCompareTarget={setActiveCompareTarget}
+                  onCopyAtoB={handleCopyAtoB}
+                  onSwapAB={handleSwapAB}
+                  onApplyComparePreset={handleApplyComparePreset}
                 />
               </GlobalErrorBoundary>
             </div>
 
-            {/* Right Active Functional Panel (Takes 5 cols on XL) */}
-            <div id="section-controls" className="xl:col-span-5 flex flex-col gap-4 scroll-mt-20 overflow-hidden">
-              <AnimatePresence mode="wait" initial={false}>
+            {/* Right Active Functional Panel (Full width in split-screen mode, or 5 cols on LG/XL) */}
+            <div
+              id="section-controls"
+              className={`${
+                isSplitScreen
+                  ? 'w-full'
+                  : isProjectorMode || screenMetrics.width >= 1024 ? 'lg:col-span-5 xl:col-span-5' : 'xl:col-span-5'
+              } flex flex-col gap-4 scroll-mt-20 overflow-hidden`}
+            >
+              <AnimatePresence mode="wait" custom={tabSlideDirection} initial={false}>
                 {activeTab === 'controls' && (
                   <motion.div
                     key="tab-controls"
-                    initial={{ opacity: 0, y: 8, scale: 0.995 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.995 }}
-                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    custom={tabSlideDirection}
+                    variants={panelSlideVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
                     className="w-full"
                   >
                     <ParameterControls
@@ -1390,8 +1695,21 @@ export default function App() {
                       simulationType={currentConcept.simulationType}
                       bloomIntensity={bloomIntensity}
                       onChangeBloom={handleBloomChange}
+                      isSplitScreen={isSplitScreen}
+                      activeCompareTarget={activeCompareTarget}
+                      onSelectCompareTarget={setActiveCompareTarget}
+                      valuesB={paramValuesB}
+                      onChangeParamB={handleParamChangeB}
+                      onCopyAtoB={handleCopyAtoB}
+                      onSwapAB={handleSwapAB}
+                      onApplyComparePreset={handleApplyComparePreset}
+                      onToggleSplitScreen={handleToggleSplitScreen}
                       onApplySpecialCase={(preset) => {
-                        setParamValues((prev) => ({ ...prev, ...preset }));
+                        if (isSplitScreen && activeCompareTarget === 'B') {
+                          setParamValuesB((prev) => ({ ...prev, ...preset }));
+                        } else {
+                          setParamValues((prev) => ({ ...prev, ...preset }));
+                        }
                         setSimTime(0);
                       }}
                     />
@@ -1401,10 +1719,11 @@ export default function App() {
                 {activeTab === 'coaching' && (
                   <motion.div
                     key="tab-coaching"
-                    initial={{ opacity: 0, y: 8, scale: 0.995 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.995 }}
-                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    custom={tabSlideDirection}
+                    variants={panelSlideVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
                     className="w-full"
                   >
                     <CoachingModulePanel
@@ -1413,7 +1732,7 @@ export default function App() {
                         setParamValues((prev) => ({ ...prev, ...preset }));
                         setSimTime(0);
                       }}
-                      onSwitchToSimulation={() => setActiveTab('controls')}
+                      onSwitchToSimulation={() => handleTabSelect('controls')}
                     />
                   </motion.div>
                 )}
@@ -1421,10 +1740,11 @@ export default function App() {
                 {activeTab === 'graphs' && (
                   <motion.div
                     key="tab-graphs"
-                    initial={{ opacity: 0, y: 8, scale: 0.995 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.995 }}
-                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    custom={tabSlideDirection}
+                    variants={panelSlideVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
                     className="w-full"
                   >
                     <LiveGraphPanel
@@ -1438,10 +1758,11 @@ export default function App() {
                 {activeTab === 'equations' && (
                   <motion.div
                     key="tab-equations"
-                    initial={{ opacity: 0, y: 8, scale: 0.995 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.995 }}
-                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    custom={tabSlideDirection}
+                    variants={panelSlideVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
                     className="w-full"
                   >
                     <EquationPanel
@@ -1462,10 +1783,11 @@ export default function App() {
                 {activeTab === 'jee' && (
                   <motion.div
                     key="tab-jee"
-                    initial={{ opacity: 0, y: 8, scale: 0.995 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.995 }}
-                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    custom={tabSlideDirection}
+                    variants={panelSlideVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
                     className="w-full"
                   >
                     <JeeInsightsPanel
@@ -1473,7 +1795,7 @@ export default function App() {
                       jeeAdvanced={currentConcept.jeeAdvanced}
                       conceptTitle={currentConcept.title}
                       onOpenGlobalAnalytics={() => setIsAnalyticsOpen(true)}
-                      onClose={() => setActiveTab('controls')}
+                      onClose={() => handleTabSelect('controls')}
                     />
                   </motion.div>
                 )}
@@ -1481,10 +1803,11 @@ export default function App() {
                 {activeTab === 'questions' && (
                   <motion.div
                     key="tab-questions"
-                    initial={{ opacity: 0, y: 8, scale: 0.995 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.995 }}
-                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    custom={tabSlideDirection}
+                    variants={panelSlideVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
                     className="w-full"
                   >
                     <QuestionArena
@@ -1648,7 +1971,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Draggable Floating AI Physics Tutor Button - Hidden when doubt panel is open */}
+      {/* Draggable Floating AI Physics Tutor Button - Always available on the app interface */}
       {!isInitialLoading && !isLoadingScreenOpen && !isAiTutorOpen && (
         <DraggableAiTutorFab
           onOpenAiTutor={handleOpenAiTutor}

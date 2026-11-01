@@ -54,7 +54,15 @@ import {
   FlaskConical,
   Rocket,
   Atom,
+  Tv,
+  Monitor,
+  Columns,
+  ArrowLeftRight,
+  Copy,
+  Check,
 } from 'lucide-react';
+import { ComparePreset, getComparisonPresets } from '../../data/comparisonPresets';
+import { calculateAdaptiveFov, detectScreenMetrics, ScreenMetrics } from '../../utils/screenDetection';
 
 interface ThreePhysicsCanvasProps {
   simulationType: SimulationType;
@@ -91,6 +99,16 @@ interface ThreePhysicsCanvasProps {
   onReset?: () => void;
   speed?: number;
   onChangeSpeed?: (val: number) => void;
+  isProjectorMode?: boolean;
+  onToggleProjectorMode?: () => void;
+  isSplitScreen?: boolean;
+  onToggleSplitScreen?: () => void;
+  paramsB?: Record<string, number>;
+  activeCompareTarget?: 'A' | 'B';
+  onSelectCompareTarget?: (target: 'A' | 'B') => void;
+  onCopyAtoB?: () => void;
+  onSwapAB?: () => void;
+  onApplyComparePreset?: (preset: ComparePreset) => void;
 }
 
 export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
@@ -125,16 +143,38 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
   onReset,
   speed,
   onChangeSpeed,
+  isProjectorMode = false,
+  onToggleProjectorMode,
+  isSplitScreen = false,
+  onToggleSplitScreen,
+  paramsB,
+  activeCompareTarget = 'A',
+  onSelectCompareTarget,
+  onCopyAtoB,
+  onSwapAB,
+  onApplyComparePreset,
 }) => {
   const { isCyberpunk, theme, toggleTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
+  const sceneBRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const simRendererRef = useRef<SimulationRenderer | null>(null);
+  const simRendererBRef = useRef<SimulationRenderer | null>(null);
   const physicsMiddlewareRef = useRef<PhysicsEngineMiddleware>(defaultPhysicsMiddleware);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const axesHelperRef = useRef<THREE.AxesHelper | null>(null);
+  const gridHelperBRef = useRef<THREE.GridHelper | null>(null);
+  const axesHelperBRef = useRef<THREE.AxesHelper | null>(null);
+  const isSplitScreenRef = useRef(isSplitScreen);
+  useEffect(() => {
+    isSplitScreenRef.current = isSplitScreen;
+  }, [isSplitScreen]);
+  const paramsBRef = useRef(paramsB);
+  useEffect(() => {
+    paramsBRef.current = paramsB;
+  }, [paramsB]);
   const composerRef = useRef<EffectComposer | null>(null);
   const bloomPassRef = useRef<UnrealBloomPass | null>(null);
   const animFrameId = useRef<number>(0);
@@ -306,10 +346,21 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLegendExpanded, setIsLegendExpanded] = useState(false);
-  const [isTrajectoryHudExpanded, setIsTrajectoryHudExpanded] = useState(true);
+  const [isTrajectoryHudExpanded, setIsTrajectoryHudExpanded] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024;
+    }
+    return false;
+  });
   const [hiddenVectorIds, setHiddenVectorIds] = useState<Set<string>>(new Set());
   const [zoomPercent, setZoomPercent] = useState(100);
   const [wheelMode, setWheelMode] = useState<'scroll' | 'zoom'>('scroll');
+  const [detectedAspect, setDetectedAspect] = useState<number>(() => {
+    if (typeof window !== 'undefined' && window.innerHeight > 0) {
+      return window.innerWidth / window.innerHeight;
+    }
+    return 16 / 9;
+  });
 
   // Compute comprehensive projectile trajectory details & metrics
   const projectileTrajectoryData = React.useMemo(() => {
@@ -365,6 +416,69 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       hasIncline: Math.abs(planeAngle) > 0.1,
     };
   }, [simulationType, params]);
+
+  // Comparative ballistic calculations for Setup B in Split-Screen Mode
+  const projectileTrajectoryDataB = React.useMemo(() => {
+    if (simulationType !== 'projectile-motion' || !paramsB) return null;
+    const u = paramsB.u !== undefined ? paramsB.u : 20;
+    const thetaDeg = paramsB.theta !== undefined ? paramsB.theta : 60;
+    const g = paramsB.g !== undefined ? paramsB.g : 9.8;
+    const h0 = paramsB.h0 !== undefined ? paramsB.h0 : 0;
+    const planeAngleDeg = paramsB.planeAngle !== undefined ? paramsB.planeAngle : 0;
+
+    const theta = (thetaDeg * Math.PI) / 180;
+    const planeAngle = (planeAngleDeg * Math.PI) / 180;
+
+    const ux = u * Math.cos(theta);
+    const uy = u * Math.sin(theta);
+
+    let T: number;
+    let rangeX: number;
+    let rangeY: number;
+    let range: number;
+
+    if (Math.abs(planeAngle) > 0.001) {
+      const cosB = Math.cos(planeAngle);
+      const tanB = Math.tan(planeAngle);
+      const denom = 0.5 * g;
+      const aCoeff = denom / (ux * ux);
+      const bCoeff = tanB - uy / ux;
+      const cCoeff = -h0;
+      const discr = bCoeff * bCoeff - 4 * aCoeff * cCoeff;
+      rangeX = (-bCoeff + Math.sqrt(Math.max(0, discr))) / (2 * aCoeff);
+      rangeY = rangeX * tanB;
+      range = rangeX / cosB;
+      T = rangeX / ux;
+    } else {
+      const discr = uy * uy + 2 * g * h0;
+      T = (uy + Math.sqrt(Math.max(0, discr))) / g;
+      rangeX = ux * T;
+      rangeY = 0;
+      range = rangeX;
+    }
+
+    const tApex = Math.max(0, uy / g);
+    const maxH = h0 + (uy * uy) / (2 * g);
+    const vyImpact = uy - g * T;
+    const vImpact = Math.hypot(ux, vyImpact);
+
+    return {
+      u,
+      theta: thetaDeg,
+      g,
+      h0,
+      planeAngle: planeAngleDeg,
+      ux,
+      uy,
+      T,
+      range,
+      rangeX,
+      rangeY,
+      maxH,
+      tApex,
+      vImpact,
+    };
+  }, [simulationType, paramsB]);
 
   // Real-time flight ballistics tracking for HUD
   const liveProjectileState = React.useMemo(() => {
@@ -615,14 +729,23 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     const dx = px - target[0];
     const dy = py - target[1];
     const dz = pz - target[2];
-    const radius = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    let radius = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const phi = Math.acos(dy / radius);
     const theta = Math.atan2(dx, dz);
+
+    // Dynamic 4:3 projector and narrow screen distance adaptation
+    const w = containerRef.current?.clientWidth || 800;
+    const h = containerRef.current?.clientHeight || 600;
+    const aspect = w / Math.max(1, h);
+    if (aspect <= 1.45 || isProjectorMode) {
+      // Scale camera radius slightly (1.04x - 1.18x) on 4:3 screens so boundary edges are not clipped
+      radius *= Math.min(1.18, Math.max(1.04, 1.35 / Math.max(0.75, aspect)));
+    }
 
     defaultRadius.current = radius;
     cameraSpherical.current = { radius, theta, phi };
     updateCameraTransform();
-  }, [cameraPreset, updateCameraTransform]);
+  }, [cameraPreset, updateCameraTransform, isProjectorMode]);
 
   // Programmatic Zoom Helpers (Android + PC compatible)
   const handleZoom = useCallback((factor: number) => {
@@ -699,8 +822,10 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     }
     sceneRef.current = scene;
 
-    // 2. Camera
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    // 2. Camera with Adaptive 4:3 Projector / Widescreen FOV
+    const initialAspect = width / height;
+    const initialFov = calculateAdaptiveFov(initialAspect, 45);
+    const camera = new THREE.PerspectiveCamera(initialFov, initialAspect, 0.1, 1000);
     cameraRef.current = camera;
     resetCamera();
 
@@ -871,14 +996,22 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       bloomIntensity,
     });
 
-    // 7. Resize Observer
+    // 7. Resize Observer with Adaptive FOV for 4:3 Projectors & Mobile Screens
     const handleResize = () => {
       if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
       if (w <= 0 || h <= 0) return;
-      cameraRef.current.aspect = w / h;
+      
+      const aspect = w / h;
+      cameraRef.current.aspect = aspect;
+
+      // Adaptive Field of View (FOV) calculation:
+      // When rendering on 4:3 projector screens (aspect ~ 1.333) or tablet/mobile displays,
+      // expands vertical FOV to preserve full horizontal viewing volume across all ratios:
+      cameraRef.current.fov = calculateAdaptiveFov(aspect, 45);
       cameraRef.current.updateProjectionMatrix();
+
       rendererRef.current.setSize(w, h);
       if (composerRef.current) {
         composerRef.current.setSize(w, h);
@@ -886,6 +1019,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           bloomPassRef.current.resolution.set(w, h);
         }
       }
+      setDetectedAspect(aspect);
     };
 
     const resizeObserver = new ResizeObserver(handleResize);
@@ -937,10 +1071,42 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         try {
-          if (!isARModeRef.current && composerRef.current && bloomIntensityRef.current !== 'off') {
-            composerRef.current.render();
-          } else {
+          const isSplit = Boolean(isSplitScreenRef.current && sceneBRef.current);
+          const dSize = new THREE.Vector2();
+          rendererRef.current.getDrawingBufferSize(dSize);
+          const fullW = dSize.x;
+          const fullH = dSize.y;
+
+          if (isSplit && sceneBRef.current) {
+            const halfW = Math.floor(fullW / 2);
+            rendererRef.current.setScissorTest(true);
+
+            // --- Left Viewport: Parameter Setup A ---
+            cameraRef.current.aspect = halfW / Math.max(1, fullH);
+            cameraRef.current.updateProjectionMatrix();
+            rendererRef.current.setViewport(0, 0, halfW, fullH);
+            rendererRef.current.setScissor(0, 0, halfW, fullH);
             rendererRef.current.render(sceneRef.current, cameraRef.current);
+
+            // --- Right Viewport: Parameter Setup B ---
+            const rightW = fullW - halfW;
+            cameraRef.current.aspect = rightW / Math.max(1, fullH);
+            cameraRef.current.updateProjectionMatrix();
+            rendererRef.current.setViewport(halfW, 0, rightW, fullH);
+            rendererRef.current.setScissor(halfW, 0, rightW, fullH);
+            rendererRef.current.render(sceneBRef.current, cameraRef.current);
+
+            rendererRef.current.setScissorTest(false);
+          } else {
+            cameraRef.current.aspect = fullW / Math.max(1, fullH);
+            cameraRef.current.updateProjectionMatrix();
+            rendererRef.current.setViewport(0, 0, fullW, fullH);
+
+            if (!isARModeRef.current && composerRef.current && bloomIntensityRef.current !== 'off') {
+              composerRef.current.render();
+            } else {
+              rendererRef.current.render(sceneRef.current, cameraRef.current);
+            }
           }
 
           // Mark scene as initialized once the first frame renders successfully
@@ -1028,7 +1194,174 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
   useEffect(() => {
     if (gridHelperRef.current) gridHelperRef.current.visible = showGrid;
     if (axesHelperRef.current) axesHelperRef.current.visible = showAxes;
+    if (gridHelperBRef.current) gridHelperBRef.current.visible = showGrid;
+    if (axesHelperBRef.current) axesHelperBRef.current.visible = showAxes;
   }, [showGrid, showAxes]);
+
+  // Split-Screen Setup B Scene Lifecycle & Lighting
+  useEffect(() => {
+    if (!isSplitScreen) {
+      if (simRendererBRef.current) {
+        simRendererBRef.current.cleanup();
+        simRendererBRef.current = null;
+      }
+      if (sceneBRef.current) {
+        sceneBRef.current.traverse((child) => {
+          const mesh = child as THREE.Mesh;
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.material) {
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            mats.forEach((m) => {
+              if ((m as any).map) (m as any).map.dispose();
+              m.dispose();
+            });
+          }
+        });
+        sceneBRef.current = null;
+      }
+      gridHelperBRef.current = null;
+      axesHelperBRef.current = null;
+      return;
+    }
+
+    const sceneB = new THREE.Scene();
+    if (!isARMode) {
+      const bgColor = envType === 'space' 
+        ? 0x000000 
+        : envType === 'lab' 
+          ? (isDark ? 0x1e293b : 0xe2e8f0)
+          : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xf8fafc);
+      sceneB.background = new THREE.Color(bgColor);
+    } else {
+      sceneB.background = null;
+    }
+
+    const ambientLight = new THREE.AmbientLight(
+      envType === 'space' ? 0x222233 : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x0c1b33 : isDark ? 0x1e293b : 0xffffff),
+      envType === 'space' ? 0.3 : envType === 'lab' ? 1.5 : (isCyberpunk ? 0.95 : isDark ? 0.95 : 1.35)
+    );
+    sceneB.add(ambientLight);
+
+    const dirLight1 = new THREE.DirectionalLight(
+      envType === 'space' ? 0xffffff : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0xffffff : isDark ? 0xffffff : 0xffffff),
+      envType === 'space' ? 2.5 : envType === 'lab' ? 1.2 : (isCyberpunk ? 1.6 : isDark ? 1.5 : 1.6)
+    );
+    dirLight1.position.set(20, 32, 20);
+    dirLight1.castShadow = true;
+    sceneB.add(dirLight1);
+
+    const dirLight2 = new THREE.DirectionalLight(
+      envType === 'space' ? 0x4488ff : envType === 'lab' ? 0xddddff : (isCyberpunk ? 0x00ff9d : isDark ? 0x38bdf8 : 0x93c5fd),
+      envType === 'space' ? 1.0 : envType === 'lab' ? 0.8 : (isCyberpunk ? 0.9 : isDark ? 0.75 : 0.45)
+    );
+    dirLight2.position.set(-20, 12, -20);
+    sceneB.add(dirLight2);
+
+    const hemiLight = new THREE.HemisphereLight(
+      envType === 'space' ? 0x000000 : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x0c4a6e : isDark ? 0x334155 : 0xffffff),
+      envType === 'space' ? 0x111122 : envType === 'lab' ? 0xbbbbcc : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xe2e8f0),
+      envType === 'space' ? 0.2 : envType === 'lab' ? 0.9 : (isCyberpunk ? 0.7 : isDark ? 0.65 : 0.85)
+    );
+    hemiLight.position.set(0, 50, 0);
+    sceneB.add(hemiLight);
+
+    const accentLight = new THREE.PointLight(
+      envType === 'space' ? 0x00ffff : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x00f0ff : isDark ? 0x06b6d4 : 0x3b82f6),
+      envType === 'space' ? 1.5 : envType === 'lab' ? 0.5 : (isCyberpunk ? 0.75 : isDark ? 0.5 : 0.3),
+      50
+    );
+    accentLight.position.set(0, 10, 15);
+    sceneB.add(accentLight);
+
+    if (envType === 'space') {
+      const starGeo = new THREE.BufferGeometry();
+      const starCount = 1500;
+      const starPos = new Float32Array(starCount * 3);
+      for(let i=0; i<starCount*3; i++) {
+        starPos[i] = (Math.random() - 0.5) * 300;
+      }
+      starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+      const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, transparent: true, opacity: 0.8 });
+      const stars = new THREE.Points(starGeo, starMat);
+      sceneB.add(stars);
+    }
+
+    const gridHelperB = new THREE.GridHelper(
+      40,
+      40,
+      envType === 'space' ? 0x333344 : envType === 'lab' ? 0x999999 : (isCyberpunk ? 0x00f0ff : isDark ? 0x475569 : 0x94a3b8),
+      envType === 'space' ? 0x111122 : envType === 'lab' ? 0xcccccc : (isCyberpunk ? 0x06283d : isDark ? 0x1e293b : 0xe2e8f0)
+    );
+    gridHelperB.position.y = -0.01;
+    gridHelperB.visible = showGrid;
+    sceneB.add(gridHelperB);
+    gridHelperBRef.current = gridHelperB;
+
+    const axesHelperB = new THREE.AxesHelper(5);
+    axesHelperB.visible = showAxes;
+    sceneB.add(axesHelperB);
+    axesHelperBRef.current = axesHelperB;
+
+    const simRendererB = new SimulationRenderer(sceneB);
+    simRendererBRef.current = simRendererB;
+    simRendererB.initSimulation(simulationType, {
+      scene: sceneB,
+      params: paramsB || params,
+      simTime,
+      showVectors,
+      showLabels,
+      showTrajectory,
+      showGrid,
+      showAxes,
+      isDark,
+      bloomIntensity,
+    });
+
+    sceneBRef.current = sceneB;
+
+    return () => {
+      if (simRendererBRef.current) {
+        simRendererBRef.current.cleanup();
+        simRendererBRef.current = null;
+      }
+      if (sceneBRef.current) {
+        sceneBRef.current.traverse((child) => {
+          const mesh = child as THREE.Mesh;
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.material) {
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            mats.forEach((m) => {
+              if ((m as any).map) (m as any).map.dispose();
+              m.dispose();
+            });
+          }
+        });
+        sceneBRef.current = null;
+      }
+      gridHelperBRef.current = null;
+      axesHelperBRef.current = null;
+    };
+  }, [isSplitScreen, simulationType, isDark, isCyberpunk, envType]);
+
+  // Update Scene B physics on param or time change
+  useEffect(() => {
+    if (isSplitScreen && simRendererBRef.current && sceneBRef.current) {
+      simRendererBRef.current.update({
+        scene: sceneBRef.current,
+        params: paramsB || params,
+        simTime,
+        showVectors,
+        showLabels,
+        showTrajectory,
+        showGrid,
+        showAxes,
+        isDark,
+      });
+      if (hiddenVectorIds.size > 0) {
+        simRendererBRef.current.setHiddenVectors(hiddenVectorIds);
+      }
+    }
+  }, [isSplitScreen, paramsB, simTime, showVectors, showLabels, showTrajectory, hiddenVectorIds]);
 
   // Mouse & Touch Orbit Event Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -1187,7 +1520,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
   return (
     <div
-      className="relative w-full h-full min-h-[420px] rounded-2xl overflow-hidden border border-white/[0.08] bg-[#0A0A0B] select-none shadow-2xl flex flex-col touch-none"
+      className="relative w-full h-full min-h-[340px] sm:min-h-[420px] rounded-2xl overflow-hidden border border-white/[0.08] bg-[#0A0A0B] select-none shadow-2xl flex flex-col touch-none"
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* AR Camera Video Overlay */}
@@ -1214,313 +1547,193 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         onTouchCancel={handleTouchEnd}
       />
 
-      {/* Real-time Lively Top-Center FPS Render & Telemetry Bar */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto select-none">
-        <div className="flex items-center gap-2 sm:gap-2.5 px-3 py-1 sm:py-1.5 rounded-full bg-[#050A1A]/92 hover:bg-[#071026] backdrop-blur-xl border border-cyan-500/40 shadow-[0_4px_24px_rgba(0,240,255,0.22)] text-xs font-mono transition-all">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`w-2 h-2 rounded-full transition-colors ${
-                fps >= 55
-                  ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
-                  : fps >= 30
-                  ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'
-                  : 'bg-rose-500 shadow-[0_0_10px_#f43f5e] animate-ping'
-              }`}
-            />
-            <span
-              className={`font-black tracking-tight ${
-                fps >= 55
-                  ? 'text-emerald-400'
-                  : fps >= 30
-                  ? 'text-amber-300'
-                  : 'text-rose-400'
-              }`}
-            >
-              {fps} FPS
-            </span>
-          </div>
-          <span className="text-zinc-600 font-sans text-[11px]">|</span>
-          <span className="text-cyan-300 font-semibold text-[11px]">{frameTimeMs} ms</span>
-          <span className="text-zinc-600 font-sans text-[11px] hidden sm:inline">|</span>
-          <div className="hidden sm:flex items-center gap-1 text-[10px] text-zinc-400 uppercase tracking-wider font-bold">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span>WebGL2</span>
-          </div>
-          {isLowFps && (
+      {/* Unified Top Controls & Telemetry Bar - Integrated in a single responsive row to prevent collisions */}
+      {!isFocusMode && (
+        <div className="absolute top-2 sm:top-2.5 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between pointer-events-none gap-1 sm:gap-2 z-30">
+          {/* Left Controls: Stage/AR, Split-Screen, Aspect Ratio, Preset Views */}
+          <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto shrink-0 overflow-x-auto max-w-[55%] sm:max-w-[60%] no-scrollbar py-0.5">
+            {isARMode ? (
+              <div className="px-2 py-1 rounded-lg bg-emerald-950/90 backdrop-blur-md border border-emerald-400/50 text-[10px] sm:text-xs font-bold text-emerald-300 flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.35)] shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden xs:inline">AR Live</span>
+                <button
+                  onClick={() => setCameraFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
+                  title="Switch Camera (Rear / Front)"
+                  className="p-1 rounded bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 ml-0.5 transition"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <div className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-white/[0.08] text-[10px] sm:text-xs font-semibold text-cyan-400 flex items-center gap-1.5 shadow-md shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                <span>3D Stage</span>
+              </div>
+            )}
+
+            {/* Split-Screen Side-by-Side Comparison Toggle Button */}
+            {onToggleSplitScreen && (
+              <button
+                type="button"
+                onClick={onToggleSplitScreen}
+                className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition border shadow-md backdrop-blur-md cursor-pointer shrink-0 ${
+                  isSplitScreen
+                    ? 'bg-gradient-to-r from-cyan-500/30 to-amber-500/30 text-white border-cyan-400 shadow-[0_0_14px_rgba(0,240,255,0.3)] ring-1 ring-cyan-400/40'
+                    : 'bg-[#111114]/90 border-white/[0.08] text-zinc-300 hover:text-cyan-300'
+                }`}
+                title="Split-Screen Comparison View (C): Render two parameter sets side-by-side on the same canvas with synchronized orbit camera"
+                aria-label="Toggle Split-Screen Comparison"
+              >
+                <Columns className={`w-3.5 h-3.5 ${isSplitScreen ? 'text-cyan-400' : 'text-zinc-400'}`} />
+                <span className="hidden sm:inline">Compare</span>
+                <span className={`px-1 py-0.2 rounded text-[9px] font-mono font-bold ${
+                  isSplitScreen ? 'bg-cyan-400 text-black' : 'bg-white/10 text-zinc-400'
+                }`}>
+                  {isSplitScreen ? 'A vs B' : 'C'}
+                </span>
+              </button>
+            )}
+
+            {/* Screen Aspect Ratio & 4:3 Projector Calibration Badge */}
             <button
               type="button"
-              onClick={() => triggerAutoAdjustment(fps, 3.0)}
-              title="Low Frame Rate detected (<30 FPS). Click to auto-optimize shaders & geometry."
-              className="px-1.5 py-0.5 rounded bg-rose-500/25 text-rose-300 text-[9px] font-sans font-bold border border-rose-500/40 animate-pulse hover:bg-rose-500/40 transition cursor-pointer ml-1"
+              onClick={onToggleProjectorMode}
+              className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-semibold transition border shadow-md backdrop-blur-md cursor-pointer shrink-0 ${
+                isProjectorMode || (detectedAspect >= 1.15 && detectedAspect <= 1.48)
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
+                  : 'bg-[#111114]/90 border-white/[0.08] text-zinc-400 hover:text-zinc-200'
+              }`}
+              title={`Detected Canvas Ratio: ${detectedAspect.toFixed(2)} (${
+                detectedAspect >= 1.15 && detectedAspect <= 1.48
+                  ? '4:3 Projector / Classroom display'
+                  : detectedAspect > 1.48 && detectedAspect <= 1.68
+                  ? '16:10 Projector / Display'
+                  : detectedAspect > 1.68
+                  ? '16:9 Widescreen monitor'
+                  : 'Adaptive viewport'
+              }). Adaptive FOV active. Click to toggle 4:3 Projector mode.`}
+              aria-label="Toggle Projector Display Mode"
             >
-              Optimize
+              <div className="flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  isProjectorMode || (detectedAspect >= 1.15 && detectedAspect <= 1.48)
+                    ? 'bg-amber-400 animate-pulse'
+                    : 'bg-emerald-400'
+                }`} />
+                <Tv className={`w-3.5 h-3.5 ${isProjectorMode || (detectedAspect >= 1.15 && detectedAspect <= 1.48) ? 'text-amber-400' : 'text-zinc-400'}`} />
+              </div>
+              <span className="font-mono font-bold">
+                {detectedAspect >= 1.15 && detectedAspect <= 1.48 ? '4:3' : detectedAspect >= 1.49 && detectedAspect <= 1.68 ? '16:10' : detectedAspect > 1.68 ? '16:9' : `${detectedAspect.toFixed(1)}`}
+              </span>
             </button>
-          )}
-        </div>
-      </div>
 
-      {/* Floating Top Controls Bar - Hidden in Focus Mode so FocusModeOverlay is uncluttered */}
-      {!isFocusMode && (
-        <div className="absolute top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between pointer-events-none gap-1.5 sm:gap-2">
-        {/* Left Badges */}
-        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
-          {isARMode ? (
-            <div className="px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-emerald-950/90 backdrop-blur-md border border-emerald-400/50 text-[10px] sm:text-xs font-bold text-emerald-300 flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.35)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-              <Camera className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden xs:inline">AR Live</span>
+            {/* Perspective Angle Quick Switchers (Visible on md+ screens) */}
+            <div className="hidden md:flex items-center gap-0.5 bg-[#111114]/90 backdrop-blur-md p-0.5 rounded-lg border border-white/[0.08] text-[10px] font-bold shrink-0">
               <button
-                onClick={() => setCameraFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
-                title="Switch Camera (Rear / Front)"
-                className="p-1 rounded bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 ml-0.5 transition"
+                onClick={() => setCameraPresetView('3d')}
+                className="px-1.5 py-0.5 rounded text-zinc-300 hover:text-white hover:bg-white/10 transition"
+                title="Isometric 3D Perspective"
               >
-                <RefreshCw className="w-3 h-3" />
+                3D
+              </button>
+              <button
+                onClick={() => setCameraPresetView('front')}
+                className="px-1.5 py-0.5 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
+                title="Front View (XY Plane)"
+              >
+                Front
+              </button>
+              <button
+                onClick={() => setCameraPresetView('top')}
+                className="px-1.5 py-0.5 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
+                title="Top View (XZ Plane)"
+              >
+                Top
               </button>
             </div>
-          ) : (
-            <div className="px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-white/[0.08] text-[10px] sm:text-xs font-semibold text-cyan-400 flex items-center gap-1.5 shadow-lg">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-              <span>3D Stage</span>
+          </div>
+
+          {/* Center: Live Non-Overlapping FPS & Render Telemetry Pill (hidden on narrow screens to avoid crowding) */}
+          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#050A1A]/92 backdrop-blur-xl border border-cyan-500/40 shadow-md text-xs font-mono pointer-events-auto shrink-0">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                  fps >= 55 ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : fps >= 30 ? 'bg-amber-400 shadow-[0_0_6px_#fbbf24]' : 'bg-rose-500 animate-ping'
+                }`}
+              />
+              <span className={`font-black ${fps >= 55 ? 'text-emerald-400' : fps >= 30 ? 'text-amber-300' : 'text-rose-400'}`}>
+                {fps} FPS
+              </span>
             </div>
-          )}
-
-          <div 
-            className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-emerald-500/20 text-[11px] font-medium text-emerald-400 shadow-lg"
-            title="Physics Engine Middleware: Fixed-step integration with non-penetration contact manifold and depth-bias z-fighting prevention active."
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            <span>Physics Middleware</span>
+            <span className="text-zinc-600">|</span>
+            <span className="text-cyan-300 text-[11px]">{frameTimeMs}ms</span>
           </div>
 
-          {/* Cyberpunk Post-Processing Bloom Status Indicator */}
-          <button
-            type="button"
-            onClick={() => {
-              const next = bloomIntensity === 'vibrant' ? 'subtle' : bloomIntensity === 'subtle' ? 'off' : 'vibrant';
-              onChangeBloom?.(next);
-            }}
-            className={`flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer ${
-              bloomIntensity === 'vibrant'
-                ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300 shadow-[0_0_12px_rgba(0,240,255,0.25)]'
-                : bloomIntensity === 'subtle'
-                ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
-                : 'bg-[#111114]/90 border-white/[0.08] text-zinc-400 hover:text-zinc-200'
-            }`}
-            title={`3D Bloom Lighting: ${bloomIntensity.toUpperCase()} (Click to toggle: Vibrant -> Subtle -> Off)`}
-            aria-label="Toggle Bloom"
-          >
-            {bloomIntensity === 'vibrant' && <Sparkles className="w-3.5 h-3.5 text-cyan-400" />}
-            {bloomIntensity === 'subtle' && <Zap className="w-3.5 h-3.5 text-emerald-400" />}
-            {bloomIntensity === 'off' && <EyeOff className="w-3.5 h-3.5 text-zinc-500" />}
-            <span className="hidden sm:inline">Bloom:</span>
-            <span className="capitalize font-mono font-bold">
-              {bloomIntensity}
-            </span>
-          </button>
-
-          {/* Adaptive Performance Auto-Optimization Pill */}
-          <button
-            type="button"
-            onClick={toggleAdaptivePerformance}
-            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] font-semibold transition border shadow-lg backdrop-blur-md cursor-pointer ${
-              adaptivePerformance
-                ? isDark
-                  ? 'bg-[#0A1628]/90 border-cyan-500/30 text-cyan-300 hover:border-cyan-500/50'
-                  : 'bg-cyan-50/90 border-cyan-200 text-cyan-800'
-                : 'bg-[#111114]/90 border-white/[0.08] text-zinc-400 hover:text-zinc-200'
-            }`}
-            title={
-              adaptivePerformance
-                ? 'Adaptive Performance Active: Detects sustained low frame rate (<30 FPS for > 3.0s) and automatically tunes bloom or trajectory to sustain 60 FPS responsiveness.'
-                : 'Adaptive Performance Disabled: Click to enable auto-adjustment for low frame rates.'
-            }
-            aria-label="Toggle Adaptive Performance"
-          >
-            <Zap className={`w-3.5 h-3.5 ${adaptivePerformance ? 'text-cyan-400 fill-cyan-400/20' : 'text-zinc-500'}`} />
-            <span>Auto-Opt:</span>
-            <span className={adaptivePerformance ? 'text-emerald-400 font-bold' : 'text-zinc-500 font-normal'}>
-              {adaptivePerformance ? 'ON' : 'OFF'}
-            </span>
-          </button>
-
-          {/* Perspective Angle Quick Switchers */}
-          <div className="hidden lg:flex items-center gap-0.5 bg-[#111114]/90 backdrop-blur-md p-0.5 rounded-xl border border-white/[0.08] text-[10px] font-bold">
+          {/* Right Action Tools */}
+          <div className="flex items-center gap-1 pointer-events-auto bg-[#111114]/90 backdrop-blur-md p-1 rounded-xl border border-white/[0.08] shadow-md shrink-0">
+            {/* Bloom Toggle */}
             <button
-              onClick={() => setCameraPresetView('3d')}
-              className="px-2 py-0.5 rounded-md text-zinc-300 hover:text-white hover:bg-white/10 transition"
-              title="Isometric 3D Perspective"
-            >
-              3D
-            </button>
-            <button
-              onClick={() => setCameraPresetView('front')}
-              className="px-2 py-0.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition"
-              title="Front View (XY Plane)"
-            >
-              Front
-            </button>
-            <button
-              onClick={() => setCameraPresetView('top')}
-              className="px-2 py-0.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition"
-              title="Top View (XZ Plane)"
-            >
-              Top
-            </button>
-            <button
-              onClick={() => setCameraPresetView('side')}
-              className="px-2 py-0.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition"
-              title="Side View (YZ Plane)"
-            >
-              Side
-            </button>
-          </div>
-        </div>
-
-        {/* Right Action Tools */}
-        <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto bg-[#111114]/90 backdrop-blur-md p-1 sm:p-1.5 rounded-xl border border-white/[0.08] shadow-xl shrink-0">
-          {/* Wheel Scroll vs 3D Zoom Toggle - Desktop only */}
-          <button
-            onClick={() => setWheelMode(wheelMode === 'scroll' ? 'zoom' : 'scroll')}
-            title={
-              wheelMode === 'scroll'
-                ? 'Wheel Mode: Page Scrolling Active (Hold Ctrl/Cmd or click Zoom button to zoom 3D). Click to switch to Direct 3D Zoom.'
-                : 'Wheel Mode: Direct 3D Zoom Active. Click to switch to Natural Page Scrolling.'
-            }
-            aria-label="Toggle Wheel Scroll Mode"
-            className={`hidden xl:flex px-2 py-1 rounded-lg text-xs font-semibold items-center gap-1.5 transition ${
-              wheelMode === 'scroll'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-            }`}
-          >
-            <MousePointer className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">{wheelMode === 'scroll' ? 'Scroll Page' : 'Zoom 3D'}</span>
-          </button>
-
-          <div className="hidden xl:block h-4 w-px bg-white/[0.08]"></div>
-
-          <button
-            onClick={resetCamera}
-            title="Reset Camera & Center View"
-            aria-label="Reset Camera"
-            className="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-[#1C1C22] rounded-lg transition"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-
-          {/* FPS Counter Visibility Toggle */}
-          <button
-            onClick={toggleFps}
-            title={showFps ? "Hide FPS & Performance Monitor" : "Show FPS Counter (Real-time Viewport Render Performance)"}
-            aria-label="Toggle FPS Counter"
-            className={`hidden sm:flex p-1.5 rounded-lg transition items-center gap-1 text-xs font-medium ${
-              showFps
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1C1C22]'
-            }`}
-          >
-            <Activity className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">FPS</span>
-          </button>
-
-          <div className="hidden sm:block h-4 w-px bg-white/[0.08]"></div>
-
-          {/* Vectors Toggle */}
-          <button
-            onClick={onToggleVectors}
-            title="Toggle Force / Velocity Vectors"
-            aria-label="Toggle Vectors"
-            className={`p-1.5 rounded-lg transition flex items-center gap-1 text-xs font-medium ${
-              showVectors ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'text-zinc-400 hover:bg-[#1C1C22]'
-            }`}
-          >
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Vectors</span>
-          </button>
-
-          {/* Trajectory Toggle */}
-          <button
-            onClick={onToggleTrajectory}
-            title="Toggle Trajectory Path"
-            aria-label="Toggle Path"
-            className={`p-1.5 rounded-lg transition flex items-center gap-1 text-xs font-medium ${
-              showTrajectory ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-zinc-400 hover:bg-[#1C1C22]'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Path</span>
-          </button>
-
-          <button
-            onClick={onToggleGrid}
-            title="Toggle Floor Grid"
-            aria-label="Toggle Grid"
-            className={`hidden md:flex p-1.5 rounded-lg transition text-xs ${
-              showGrid ? 'bg-[#1C1C22] text-zinc-200' : 'text-zinc-500 hover:bg-[#1C1C22]/50'
-            }`}
-          >
-            <Grid className="w-3.5 h-3.5" />
-          </button>
-
-          <button
-            onClick={onToggleAxes}
-            title="Toggle Coordinate Axes"
-            aria-label="Toggle Axes"
-            className={`hidden md:flex p-1.5 rounded-lg transition text-xs ${
-              showAxes ? 'bg-[#1C1C22] text-zinc-200' : 'text-zinc-500 hover:bg-[#1C1C22]/50'
-            }`}
-          >
-            <Compass className="w-3.5 h-3.5" />
-          </button>
-
-          {onToggleFocusMode && (
-            <button
-              onClick={onToggleFocusMode}
-              title={isFocusMode ? "Exit Focus Mode (Esc or F)" : "Enter Focus Mode (F) - Full Screen 3D Lab with Floating HUD"}
-              aria-label="Toggle Focus Mode"
-              className={`hidden sm:flex p-1.5 rounded-lg transition items-center gap-1 text-xs font-bold ${
-                isFocusMode
-                  ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-md shadow-cyan-500/30'
-                  : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30'
+              type="button"
+              onClick={() => {
+                const next = bloomIntensity === 'vibrant' ? 'subtle' : bloomIntensity === 'subtle' ? 'off' : 'vibrant';
+                onChangeBloom?.(next);
+              }}
+              className={`p-1.5 rounded-lg text-xs transition ${
+                bloomIntensity === 'vibrant'
+                  ? 'bg-cyan-950/80 text-cyan-300 border border-cyan-500/40'
+                  : bloomIntensity === 'subtle'
+                  ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                  : 'text-zinc-500 hover:text-zinc-300'
               }`}
+              title={`3D Bloom: ${bloomIntensity.toUpperCase()}`}
+            >
+              {bloomIntensity === 'vibrant' && <Sparkles className="w-3.5 h-3.5 text-cyan-400" />}
+              {bloomIntensity === 'subtle' && <Zap className="w-3.5 h-3.5 text-emerald-400" />}
+              {bloomIntensity === 'off' && <EyeOff className="w-3.5 h-3.5" />}
+            </button>
+
+            {/* Vectors Toggle */}
+            <button
+              onClick={onToggleVectors}
+              title="Toggle Vectors"
+              className={`p-1.5 rounded-lg transition ${showVectors ? 'bg-cyan-500/20 text-cyan-300' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              <TrendingUp className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Trajectory Toggle */}
+            <button
+              onClick={onToggleTrajectory}
+              title="Toggle Trajectory Path"
+              className={`p-1.5 rounded-lg transition ${showTrajectory ? 'bg-emerald-500/20 text-emerald-300' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Focus Mode</span>
             </button>
-          )}
 
-          <button
-            onClick={toggleTheme}
-            title="Toggle Theme Mode"
-            aria-label="Toggle Theme"
-            className="hidden lg:flex p-1.5 text-zinc-400 hover:text-cyan-300 hover:bg-[#1C1C22] rounded-lg transition items-center justify-center"
-          >
-            {theme === 'dark' ? <Moon className="w-4 h-4" /> : theme === 'light' ? <Sun className="w-4 h-4" /> : <Zap className="w-4 h-4 text-cyan-400" />}
-          </button>
+            {/* Recenter Camera */}
+            <button
+              onClick={resetCamera}
+              title="Reset Camera View"
+              className="p-1.5 text-zinc-400 hover:text-white transition"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
 
-          <button
-            onClick={toggleEnvironment}
-            title={`Toggle 3D Environment (Current: ${envType.charAt(0).toUpperCase() + envType.slice(1)})`}
-            aria-label="Toggle Environment"
-            className="hidden lg:flex p-1.5 text-zinc-400 hover:text-indigo-300 hover:bg-[#1C1C22] rounded-lg transition items-center justify-center"
-          >
-            {envType === 'void' ? <Box className="w-4 h-4" /> : envType === 'lab' ? <FlaskConical className="w-4 h-4" /> : <Rocket className="w-4 h-4" />}
-          </button>
-
-          <button
-            onClick={toggleFullscreen}
-            title="Toggle Fullscreen"
-            aria-label="Toggle Fullscreen"
-            className="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-[#1C1C22] rounded-lg transition"
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
+            {/* Fullscreen */}
+            <button
+              onClick={toggleFullscreen}
+              title="Toggle Fullscreen"
+              className="p-1.5 text-zinc-400 hover:text-white transition"
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </div>
         </div>
-      </div>
       )}
 
-      {/* Floating Canvas Labels (Legend) & Trajectory Details Toggles - Hidden in Focus Mode */}
-      {!isFocusMode && (
+      {/* Floating Canvas Labels (Legend) & Trajectory Details Toggles - Hidden in Focus Mode & Split Screen */}
+      {!isFocusMode && !isSplitScreen && (
         <div className="absolute top-14 left-3 z-10 pointer-events-auto flex items-center gap-2">
           <button
             onClick={onToggleLabels}
@@ -1538,7 +1751,13 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
           {simulationType === 'projectile-motion' && showTrajectory && (
             <button
-              onClick={() => setIsTrajectoryHudExpanded(prev => !prev)}
+              onClick={() => {
+                setIsTrajectoryHudExpanded((prev) => {
+                  const next = !prev;
+                  if (next) setIsLegendExpanded(false);
+                  return next;
+                });
+              }}
               title="Toggle Trajectory Details & Telemetry Overlay"
               aria-label="Toggle Trajectory Details"
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg backdrop-blur-md border transition-all ${
@@ -1554,14 +1773,17 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         </div>
       )}
 
-      {/* Projectile Trajectory Flight Analytics & Telemetry HUD */}
-      {simulationType === 'projectile-motion' && showTrajectory && projectileTrajectoryData && (
+      {/* Projectile Trajectory Flight Analytics & Telemetry HUD - Hidden in Split Screen */}
+      {simulationType === 'projectile-motion' && showTrajectory && projectileTrajectoryData && !isSplitScreen && (
         <div className={`absolute ${isFocusMode ? 'top-20 sm:top-24 left-3 sm:left-5' : 'top-24 left-3'} max-w-[calc(100%-24px)] sm:max-w-[340px] pointer-events-auto z-10 select-none`}>
           {!isTrajectoryHudExpanded ? (
             /* Micro-Capsule Summary */
             <div className="flex items-center gap-1.5 p-1 sm:p-1.5 rounded-xl bg-[#0c0d14]/85 hover:bg-[#0c0d14]/95 backdrop-blur-xl border border-emerald-500/30 shadow-xl text-xs transition-all">
               <button
-                onClick={() => setIsTrajectoryHudExpanded(true)}
+                onClick={() => {
+                  setIsTrajectoryHudExpanded(true);
+                  setIsLegendExpanded(false);
+                }}
                 className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-bold text-emerald-300 hover:text-emerald-200 transition"
                 title="Expand Trajectory Details & Flight Analytics"
                 aria-label="Expand Trajectory Details"
@@ -1576,7 +1798,10 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
                 <span>T: <b className="text-cyan-400">{projectileTrajectoryData.T.toFixed(2)}s</b></span>
               </div>
               <button
-                onClick={() => setIsTrajectoryHudExpanded(true)}
+                onClick={() => {
+                  setIsTrajectoryHudExpanded(true);
+                  setIsLegendExpanded(false);
+                }}
                 className="p-1 text-zinc-400 hover:text-emerald-300 rounded-lg hover:bg-white/[0.05] transition"
                 title="Expand Trajectory Details"
                 aria-label="Expand Trajectory Details"
@@ -1585,8 +1810,8 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               </button>
             </div>
           ) : (
-            /* Rich Translucent Trajectory Telemetry Card */
-            <div className="bg-[#0c0d14]/90 backdrop-blur-2xl rounded-2xl border border-emerald-500/30 shadow-2xl overflow-hidden transition-all duration-200 animate-in fade-in zoom-in-95 text-xs">
+            /* Rich Translucent Trajectory Telemetry Card (scrollable on compact screens to prevent overflow) */
+            <div className="bg-[#0c0d14]/90 backdrop-blur-2xl rounded-2xl border border-emerald-500/30 shadow-2xl overflow-hidden max-h-[230px] sm:max-h-[340px] flex flex-col transition-all duration-200 animate-in fade-in zoom-in-95 text-xs">
               {/* Header Bar */}
               <div className="px-3 py-2 flex items-center justify-between gap-2 border-b border-white/[0.08] bg-emerald-950/20">
                 <div
@@ -1624,7 +1849,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               </div>
 
               {/* Trajectory Analytics Grid */}
-              <div className="p-3 space-y-2.5">
+              <div className="p-3 space-y-2.5 overflow-y-auto custom-scrollbar">
                 {/* Benchmark Metrics Grid */}
                 <div className="grid grid-cols-3 gap-1.5 text-center">
                   <div className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
@@ -1708,22 +1933,22 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* Floating Right Side Zoom Controller (Compatible with Android & Computer) - Hidden in Focus Mode */}
       {!isFocusMode && (
-        <div className="absolute right-3 bottom-14 sm:bottom-12 flex flex-col items-center gap-1.5 bg-[#111114]/95 backdrop-blur-md p-1.5 rounded-2xl border border-white/[0.12] shadow-2xl z-10 pointer-events-auto">
+        <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 sm:gap-1.5 bg-[#111114]/95 backdrop-blur-md p-1 sm:p-1.5 rounded-2xl border border-white/[0.12] shadow-2xl z-20 pointer-events-auto">
           {/* Zoom In Button */}
           <button
             onClick={() => handleZoom(0.82)}
             title="Zoom In (or Scroll Up / Pinch Open on Android)"
             aria-label="Zoom In"
-            className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-200 hover:text-cyan-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-200 hover:text-cyan-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
           >
-            <ZoomIn className="w-4 h-4" />
+            <ZoomIn className="w-3.5 h-3.5" />
           </button>
 
           {/* Zoom Percentage Badge */}
           <button
             onClick={resetCamera}
             title="Reset Camera Zoom"
-            className="px-1.5 py-0.5 text-[10px] font-mono font-bold text-zinc-400 hover:text-cyan-300 transition"
+            className="px-1 py-0.5 text-[9px] sm:text-[10px] font-mono font-bold text-zinc-400 hover:text-cyan-300 transition"
           >
             {zoomPercent}%
           </button>
@@ -1733,33 +1958,36 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             onClick={() => handleZoom(1.22)}
             title="Zoom Out (or Scroll Down / Pinch Close on Android)"
             aria-label="Zoom Out"
-            className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-200 hover:text-cyan-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-200 hover:text-cyan-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
           >
-            <ZoomOut className="w-4 h-4" />
+            <ZoomOut className="w-3.5 h-3.5" />
           </button>
 
-          <div className="w-5 h-px bg-white/[0.1]"></div>
+          <div className="w-4 h-px bg-white/[0.1]"></div>
 
           {/* Fit / Recenter Button */}
           <button
             onClick={resetCamera}
             title="Recenter Camera & Reset View"
             aria-label="Recenter Camera"
-            className="w-9 h-9 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-[#1C1C24] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-300 flex items-center justify-center transition active:scale-95 shadow border border-white/[0.06]"
           >
-            <Move3d className="w-4 h-4" />
+            <Move3d className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
       {/* Floating Bottom Left Vector Legend HUD (Names & Representation of All Colored Arrows) */}
       {showVectors && currentVectors.length > 0 && (
-        <div className={`absolute ${isFocusMode ? 'bottom-20 left-3 sm:left-5' : 'bottom-16 sm:bottom-3 left-3 sm:left-3'} max-w-[calc(100%-80px)] sm:max-w-sm pointer-events-auto z-10 select-none`}>
+        <div className={`absolute ${isFocusMode ? 'bottom-20 left-3 sm:left-5' : 'bottom-16 left-3'} max-w-[calc(100%-80px)] sm:max-w-xs xl:max-w-sm pointer-events-auto z-10 select-none`}>
           {!isLegendExpanded ? (
             /* Compact Collapsed Micro-Capsule (Non-intrusive, never covers 3D models) */
             <div className="flex items-center gap-1.5 p-1 sm:p-1.5 rounded-xl bg-[#0c0d14]/80 hover:bg-[#0c0d14]/95 backdrop-blur-xl border border-white/[0.12] shadow-xl text-xs transition-all">
               <button
-                onClick={() => setIsLegendExpanded(true)}
+                onClick={() => {
+                  setIsLegendExpanded(true);
+                  setIsTrajectoryHudExpanded(false);
+                }}
                 className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-bold text-zinc-200 hover:text-cyan-300 transition"
                 title="Expand detailed Vector & Arrow Legend"
                 aria-label="Expand Vector Legend"
@@ -1803,7 +2031,10 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               </div>
 
               <button
-                onClick={() => setIsLegendExpanded(true)}
+                onClick={() => {
+                  setIsLegendExpanded(true);
+                  setIsTrajectoryHudExpanded(false);
+                }}
                 className="p-1 text-zinc-400 hover:text-cyan-300 rounded-lg hover:bg-white/[0.05] transition"
                 title="Expand Legend"
                 aria-label="Expand Legend"
@@ -1960,61 +2191,13 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         </div>
       )}
 
-      {/* Touch & Navigation Gesture Guide at bottom right */}
-      <div className="hidden 2xl:block absolute bottom-3 right-3 pointer-events-none z-10">
+      {/* Touch & Navigation Gesture Guide - visible on wide desktop at top right */}
+      <div className="hidden 2xl:block absolute top-14 right-3 pointer-events-none z-10">
         <div className="px-2.5 py-1 rounded-lg bg-[#0A0A0B]/85 backdrop-blur-sm border border-white/[0.08] text-[10px] text-zinc-400 shadow-md">
-          <span className="text-zinc-300 font-semibold">Drag:</span> Rotate &bull;{' '}
-          <span className="text-zinc-300 font-semibold">Wheel:</span> {wheelMode === 'scroll' ? 'Scroll Page' : '3D Zoom'} &bull;{' '}
+          <span className="text-zinc-300 font-semibold">Drag:</span> Orbit &bull;{' '}
+          <span className="text-zinc-300 font-semibold">Wheel:</span> Zoom &bull;{' '}
           <span className="text-zinc-300 font-semibold">2-Finger:</span> Pinch
         </div>
-      </div>
-
-      {/* Quick Jump to Menus Floating Bar (Bottom-Left on Wide Screens) */}
-      <div className="absolute bottom-3 left-3 hidden 2xl:flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#111114]/90 backdrop-blur-md border border-white/[0.1] shadow-2xl z-20 pointer-events-auto">
-        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1 mr-1">
-          <ArrowDown className="w-3 h-3 text-cyan-400" />
-          Jump:
-        </span>
-        <button
-          type="button"
-          onClick={() => scrollToSection('section-controls')}
-          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-cyan-500/20 text-zinc-300 hover:text-cyan-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05] cursor-pointer"
-        >
-          <Sliders className="w-2.5 h-2.5 text-cyan-400" />
-          Controls
-        </button>
-        <button
-          type="button"
-          onClick={() => scrollToSection('section-coaching')}
-          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-amber-500/20 text-zinc-300 hover:text-amber-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05] cursor-pointer"
-        >
-          <GraduationCap className="w-2.5 h-2.5 text-amber-400" />
-          Coaching
-        </button>
-        <button
-          type="button"
-          onClick={() => scrollToSection('section-equations')}
-          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-blue-500/20 text-zinc-300 hover:text-blue-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05] cursor-pointer"
-        >
-          <BookOpen className="w-2.5 h-2.5 text-blue-400" />
-          Equations
-        </button>
-        <button
-          type="button"
-          onClick={() => scrollToSection('section-jee')}
-          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-purple-500/20 text-zinc-300 hover:text-purple-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05] cursor-pointer"
-        >
-          <Award className="w-2.5 h-2.5 text-purple-400" />
-          JEE
-        </button>
-        <button
-          type="button"
-          onClick={() => scrollToSection('section-questions')}
-          className="px-2 py-0.5 rounded-lg bg-[#1C1C24] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-300 text-[10px] font-semibold transition flex items-center gap-1 border border-white/[0.05] cursor-pointer"
-        >
-          <HelpCircle className="w-2.5 h-2.5 text-emerald-400" />
-          Questions
-        </button>
       </div>
 
       {/* Dedicated Non-Overlapping 3D Viewport Playback, Reset & AR Dock */}
@@ -2223,6 +2406,250 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
+      )}
+
+      {/* Split-Screen Canvas Overlays: Center Divider & Synchronized Viewport Badges */}
+      {isSplitScreen && (
+        <>
+          {/* Vertical Center Scissor Divider Line */}
+          <div className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2 w-0.5 bg-gradient-to-b from-cyan-500/80 via-white/50 to-amber-500/80 shadow-[0_0_12px_rgba(0,240,255,0.4)] pointer-events-none z-20" />
+
+          {/* Mobile Split-Screen Clean Unified Header (Under 768px - Never overlaps with center divider or badges) */}
+          <div className="md:hidden absolute top-12 left-2 right-2 z-20 pointer-events-auto flex items-center justify-between gap-1 p-1 rounded-xl bg-[#070B14]/95 backdrop-blur-xl border border-white/20 shadow-xl text-xs">
+            <button
+              type="button"
+              onClick={() => onSelectCompareTarget?.('A')}
+              className={`flex-1 px-2 py-1 rounded-lg transition flex items-center justify-center gap-1 min-w-0 ${
+                activeCompareTarget === 'A'
+                  ? 'bg-cyan-500/25 border border-cyan-400 text-cyan-200 font-bold shadow-[0_0_8px_rgba(0,240,255,0.4)]'
+                  : 'text-cyan-400/80 hover:bg-cyan-500/10'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+              <span className="truncate">Set A</span>
+              {activeCompareTarget === 'A' && <Check className="w-3 h-3 text-cyan-300 stroke-[3] shrink-0" />}
+            </button>
+
+            <div className="flex items-center gap-0.5 shrink-0 px-1 border-x border-white/10">
+              {onSwapAB && (
+                <button
+                  type="button"
+                  onClick={onSwapAB}
+                  className="p-1 rounded text-zinc-300 hover:text-white hover:bg-white/15 transition active:scale-95"
+                  title="Swap Setup A ⇄ Setup B"
+                  aria-label="Swap Setup A and B"
+                >
+                  <ArrowLeftRight className="w-3 h-3 text-amber-400" />
+                </button>
+              )}
+              {onCopyAtoB && (
+                <button
+                  type="button"
+                  onClick={onCopyAtoB}
+                  className="px-1.5 py-0.5 rounded text-[10px] font-bold text-zinc-300 hover:text-white hover:bg-white/10 transition active:scale-95 flex items-center gap-0.5"
+                  title="Copy Setup A parameters to Setup B"
+                >
+                  <Copy className="w-2.5 h-2.5 text-cyan-400" />
+                  <span>A→B</span>
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onSelectCompareTarget?.('B')}
+              className={`flex-1 px-2 py-1 rounded-lg transition flex items-center justify-center gap-1 min-w-0 ${
+                activeCompareTarget === 'B'
+                  ? 'bg-amber-500/25 border border-amber-400 text-amber-200 font-bold shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                  : 'text-amber-400/80 hover:bg-amber-500/10'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+              <span className="truncate">Set B</span>
+              {activeCompareTarget === 'B' && <Check className="w-3 h-3 text-amber-300 stroke-[3] shrink-0" />}
+            </button>
+          </div>
+
+          {/* Desktop & Tablet Center Scissor Action Pill (Visible on md+ screens) */}
+          <div className="hidden md:flex absolute top-14 left-1/2 -translate-x-1/2 pointer-events-auto items-center gap-1.5 p-1 rounded-full bg-[#070B14]/95 backdrop-blur-xl border border-white/20 shadow-2xl z-20">
+            <button
+              type="button"
+              onClick={() => onSelectCompareTarget?.('A')}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition flex items-center gap-1 ${
+                activeCompareTarget === 'A'
+                  ? 'bg-cyan-400 text-black shadow-[0_0_12px_rgba(0,240,255,0.6)]'
+                  : 'text-cyan-300 hover:bg-cyan-500/20'
+              }`}
+              title="Select Setup A to adjust parameters"
+            >
+              <span>Set A</span>
+              {activeCompareTarget === 'A' && <Check className="w-3 h-3 stroke-[3]" />}
+            </button>
+
+            {onSwapAB && (
+              <button
+                type="button"
+                onClick={onSwapAB}
+                className="p-1 rounded-full text-zinc-300 hover:text-white hover:bg-white/15 transition active:scale-95"
+                title="Swap Setup A ⇄ Setup B"
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {onCopyAtoB && (
+              <button
+                type="button"
+                onClick={onCopyAtoB}
+                className="px-2 py-0.5 rounded-full text-[10px] font-bold text-zinc-300 hover:text-white hover:bg-white/10 transition active:scale-95 flex items-center gap-1"
+                title="Copy Setup A parameters to Setup B"
+              >
+                <Copy className="w-2.5 h-2.5" />
+                <span>A→B</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => onSelectCompareTarget?.('B')}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition flex items-center gap-1 ${
+                activeCompareTarget === 'B'
+                  ? 'bg-amber-400 text-black shadow-[0_0_12px_rgba(245,158,11,0.6)]'
+                  : 'text-amber-300 hover:bg-amber-500/20'
+              }`}
+              title="Select Setup B to adjust parameters"
+            >
+              <span>Set B</span>
+              {activeCompareTarget === 'B' && <Check className="w-3 h-3 stroke-[3]" />}
+            </button>
+          </div>
+
+          {/* Viewport A Header Badge (Left - Visible on md+ screens with constrained width) */}
+          <div className="hidden md:block absolute top-12 sm:top-14 left-2 sm:left-3 z-20 pointer-events-auto max-w-[200px]">
+            <button
+              type="button"
+              onClick={() => onSelectCompareTarget?.('A')}
+              className={`w-full px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl backdrop-blur-xl border text-left transition shadow-md ${
+                activeCompareTarget === 'A'
+                  ? 'bg-cyan-950/90 border-cyan-400 text-cyan-200 shadow-[0_0_14px_rgba(0,240,255,0.3)] ring-1 ring-cyan-400'
+                  : 'bg-[#080E1C]/85 border-cyan-500/30 text-cyan-400 hover:border-cyan-400/60'
+              }`}
+              title="Click to edit Parameter Set A"
+            >
+              <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                <span>SET A</span>
+                {activeCompareTarget === 'A' && (
+                  <span className="px-1 py-0.2 rounded text-[8px] bg-cyan-400/20 text-cyan-300 uppercase font-mono">
+                    Active
+                  </span>
+                )}
+              </div>
+              <div className="text-[9px] sm:text-[10px] text-zinc-400 font-mono mt-0.5 truncate">
+                {simulationType === 'projectile-motion' && (
+                  <span>θ={params.theta ?? 45}°, u={params.u ?? 20}m/s</span>
+                )}
+                {simulationType === 'lcr-circuit' && (
+                  <span>f={params.f ?? 159}Hz, R={params.R ?? 10}Ω</span>
+                )}
+                {simulationType === 'youngs-double-slit' && (
+                  <span>λ={params.wavelength ?? 550}nm</span>
+                )}
+                {((simulationType as string) === 'shm-spring-pendulum' || (simulationType as string) === 'simple-pendulum') && (
+                  <span>L={params.length ?? 2.0}m, θ={params.angle ?? 30}°</span>
+                )}
+              </div>
+            </button>
+          </div>
+
+          {/* Viewport B Header Badge (Right - Visible on md+ screens with constrained width) */}
+          <div className="hidden md:block absolute top-12 sm:top-14 right-2 sm:right-3 z-20 pointer-events-auto max-w-[200px]">
+            <button
+              type="button"
+              onClick={() => onSelectCompareTarget?.('B')}
+              className={`w-full px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl backdrop-blur-xl border text-left transition shadow-md ${
+                activeCompareTarget === 'B'
+                  ? 'bg-amber-950/90 border-amber-400 text-amber-200 shadow-[0_0_14px_rgba(245,158,11,0.3)] ring-1 ring-amber-400'
+                  : 'bg-[#18110A]/85 border-amber-500/30 text-amber-400 hover:border-amber-400/60'
+              }`}
+              title="Click to edit Parameter Set B"
+            >
+              <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                <span>SET B</span>
+                {activeCompareTarget === 'B' && (
+                  <span className="px-1 py-0.2 rounded text-[8px] bg-amber-400/20 text-amber-300 uppercase font-mono">
+                    Active
+                  </span>
+                )}
+              </div>
+              <div className="text-[9px] sm:text-[10px] text-zinc-400 font-mono mt-0.5 truncate">
+                {simulationType === 'projectile-motion' && (
+                  <span>θ={paramsB?.theta ?? 60}°, u={paramsB?.u ?? 20}m/s</span>
+                )}
+                {simulationType === 'lcr-circuit' && (
+                  <span>f={paramsB?.f ?? 318}Hz, R={paramsB?.R ?? 10}Ω</span>
+                )}
+                {simulationType === 'youngs-double-slit' && (
+                  <span>λ={paramsB?.wavelength ?? 400}nm</span>
+                )}
+                {((simulationType as string) === 'shm-spring-pendulum' || (simulationType as string) === 'simple-pendulum') && (
+                  <span>L={paramsB?.length ?? 4.0}m, θ={paramsB?.angle ?? 30}°</span>
+                )}
+              </div>
+            </button>
+          </div>
+
+          {/* Live Comparative Delta Telemetry Strip at Bottom (elevated cleanly above bottom playback bar) */}
+          <div className="absolute bottom-16 sm:bottom-18 left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] sm:w-[calc(100%-2rem)] max-w-2xl z-20 pointer-events-auto">
+            <div className="p-1 sm:p-2 rounded-xl bg-[#070B14]/92 backdrop-blur-xl border border-white/15 shadow-xl flex items-center justify-between gap-1.5 sm:gap-3 text-[10px] sm:text-[11px] overflow-hidden">
+              {/* Setup A Summary */}
+              <div className="flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg bg-cyan-950/60 border border-cyan-500/40 text-cyan-200 text-[10px] sm:text-[11px] font-mono shrink min-w-0">
+                <span className="font-bold text-cyan-400 font-sans shrink-0">A:</span>
+                {projectileTrajectoryData ? (
+                  <span className="truncate">R=<b>{projectileTrajectoryData.range.toFixed(1)}m</b>, H=<b>{projectileTrajectoryData.maxH.toFixed(1)}m</b></span>
+                ) : (
+                  <span className="truncate">{Object.entries(params).slice(0, 2).map(([k, v]) => `${k}=${v}`).join(', ')}</span>
+                )}
+              </div>
+
+              {/* Comparative Delta Strip (Set B - Set A) */}
+              {projectileTrajectoryData && projectileTrajectoryDataB ? (
+                <div className="flex items-center gap-1 sm:gap-2 px-1.5 sm:px-2 py-1 rounded-lg bg-white/[0.05] border border-white/10 text-white font-mono text-[9.5px] sm:text-[11px] shrink-0">
+                  <span className="text-zinc-400 font-sans font-bold text-[9px] hidden sm:inline">Δ(B-A):</span>
+                  <span className={projectileTrajectoryDataB.range - projectileTrajectoryData.range >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                    ΔR: {(projectileTrajectoryDataB.range - projectileTrajectoryData.range >= 0 ? '+' : '')}
+                    {(projectileTrajectoryDataB.range - projectileTrajectoryData.range).toFixed(1)}m
+                  </span>
+                  <span className="text-zinc-600">•</span>
+                  <span className={projectileTrajectoryDataB.maxH - projectileTrajectoryData.maxH >= 0 ? 'text-amber-400 font-bold' : 'text-cyan-400 font-bold'}>
+                    ΔH: {(projectileTrajectoryDataB.maxH - projectileTrajectoryData.maxH >= 0 ? '+' : '')}
+                    {(projectileTrajectoryDataB.maxH - projectileTrajectoryData.maxH).toFixed(1)}m
+                  </span>
+                  <span className="text-zinc-600 hidden xs:inline">•</span>
+                  <span className={`hidden xs:inline ${projectileTrajectoryDataB.T - projectileTrajectoryData.T >= 0 ? 'text-indigo-400 font-bold' : 'text-orange-400 font-bold'}`}>
+                    ΔT: {(projectileTrajectoryDataB.T - projectileTrajectoryData.T >= 0 ? '+' : '')}
+                    {(projectileTrajectoryDataB.T - projectileTrajectoryData.T).toFixed(2)}s
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/[0.04] border border-white/10 text-zinc-300 font-mono text-[10px] shrink-0">
+                  <span>Synchronized A vs B</span>
+                </div>
+              )}
+
+              {/* Setup B Summary */}
+              <div className="flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg bg-amber-950/60 border border-amber-500/40 text-amber-200 text-[10px] sm:text-[11px] font-mono shrink min-w-0 justify-end">
+                <span className="font-bold text-amber-400 font-sans shrink-0">B:</span>
+                {projectileTrajectoryDataB ? (
+                  <span className="truncate">R=<b>{projectileTrajectoryDataB.range.toFixed(1)}m</b>, H=<b>{projectileTrajectoryDataB.maxH.toFixed(1)}m</b></span>
+                ) : (
+                  <span className="truncate">{paramsB && Object.entries(paramsB).slice(0, 2).map(([k, v]) => `${k}=${v}`).join(', ')}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

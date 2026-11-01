@@ -27,6 +27,8 @@ import {
   Activity,
   Info,
   Camera,
+  Tv,
+  Columns,
 } from 'lucide-react';
 
 export interface ShortcutItem {
@@ -44,10 +46,19 @@ export const SHORTCUTS_LIST: ShortcutItem[] = [
   {
     id: 'play-pause',
     category: 'simulation',
-    keys: ['P', 'Space'],
+    keys: ['Space'],
     label: 'Play / Pause Simulation',
     description: 'Instantly freeze or resume 3D physics dynamics and ODE solving.',
     icon: <Play className="w-4 h-4 text-emerald-400" />,
+  },
+  {
+    id: 'projector-mode',
+    category: 'canvas',
+    keys: ['P'],
+    label: '4:3 Projector / Lecture Mode',
+    description: 'Calibrate canvas FOV & camera distance for 4:3 projector screens (1024x768, 800x600, 1400x1050).',
+    badge: '4:3 Display',
+    icon: <Tv className="w-4 h-4 text-amber-400" />,
   },
   {
     id: 'speed-up',
@@ -110,6 +121,15 @@ export const SHORTCUTS_LIST: ShortcutItem[] = [
     description: 'Enter or exit immersive fullscreen 3D simulation workspace with HUD telemetry.',
     badge: 'Popular',
     icon: <Maximize2 className="w-4 h-4 text-cyan-400" />,
+  },
+  {
+    id: 'toggle-splitscreen',
+    category: 'canvas',
+    keys: ['C'],
+    label: 'Split-Screen Comparison View',
+    description: 'Toggle dual side-by-side viewports (Setup A vs Setup B) on the same WebGL canvas with delta metrics.',
+    badge: 'Comparative 3D',
+    icon: <Columns className="w-4 h-4 text-cyan-400" />,
   },
   {
     id: 'toggle-vectors',
