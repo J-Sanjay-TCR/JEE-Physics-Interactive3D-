@@ -5,21 +5,23 @@ import { unlockAudio } from '../../utils/audioPlayer';
 interface DraggableAiTutorFabProps {
   onOpenAiTutor: () => void;
   isOpen?: boolean;
+  isFocusMode?: boolean;
 }
 
 export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
   onOpenAiTutor,
   isOpen = false,
+  isFocusMode = false,
 }) => {
   // Store position { x, y } in pixels from top-left of viewport.
   // Default: Prominently located on the BOTTOM-RIGHT for intuitive accessibility
   const [position, setPosition] = useState<{ x: number; y: number }>(() => {
     if (typeof window !== 'undefined') {
-      const isMobile = window.innerWidth < 768;
-      const fabSize = isMobile ? 60 : 70;
-      const bottomSafePadding = isMobile ? 96 : 32;
+      const hasBottomNav = window.innerWidth < 1024;
+      const fabSize = window.innerWidth < 640 ? 60 : 70;
+      const bottomSafePadding = isFocusMode ? 112 : hasBottomNav ? 98 : 32;
       return {
-        x: Math.max(16, window.innerWidth - fabSize - (isMobile ? 16 : 24)),
+        x: Math.max(16, window.innerWidth - fabSize - (hasBottomNav ? 16 : 24)),
         y: Math.max(80, window.innerHeight - fabSize - bottomSafePadding),
       };
     }
@@ -145,27 +147,29 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
     return () => window.removeEventListener('mousemove', handleGlobalPointerMove);
   }, [handleGlobalPointerMove]);
 
-  // Window Resize Clamping
+  // Window Resize & Mode Change Clamping
   useEffect(() => {
     const updateDefaultPos = () => {
       if (typeof window !== 'undefined') {
-        const isMobile = window.innerWidth < 768;
-        const fabSize = isMobile ? 60 : 70;
-        const bottomSafePadding = isMobile ? 96 : 32;
-        const initialX = Math.max(16, window.innerWidth - fabSize - (isMobile ? 16 : 24));
+        const hasBottomNav = window.innerWidth < 1024;
+        const fabSize = window.innerWidth < 640 ? 60 : 70;
+        const bottomSafePadding = isFocusMode ? 112 : hasBottomNav ? 98 : 32;
+        const minBottomClearance = isFocusMode ? 104 : hasBottomNav ? 90 : 18;
+        const initialX = Math.max(16, window.innerWidth - fabSize - (hasBottomNav ? 16 : 24));
         const initialY = Math.max(80, window.innerHeight - fabSize - bottomSafePadding);
 
         setPosition((prev) => {
           const clampedX = Math.min(Math.max(12, prev.x || initialX), window.innerWidth - fabSize - 12);
-          const clampedY = Math.min(Math.max(70, prev.y || initialY), window.innerHeight - fabSize - (isMobile ? 88 : 16));
+          const clampedY = Math.min(Math.max(70, prev.y || initialY), window.innerHeight - fabSize - minBottomClearance);
           return { x: clampedX, y: clampedY };
         });
       }
     };
 
+    updateDefaultPos();
     window.addEventListener('resize', updateDefaultPos);
     return () => window.removeEventListener('resize', updateDefaultPos);
-  }, []);
+  }, [isFocusMode]);
 
   // Drag handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -203,8 +207,8 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
     const newX = dragStartRef.current.fabX + dx;
     const newY = dragStartRef.current.fabY + dy;
 
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    const bottomSafeArea = isMobile ? 88 : 16;
+    const hasBottomNav = typeof window !== 'undefined' && window.innerWidth < 1024;
+    const bottomSafeArea = isFocusMode ? 104 : hasBottomNav ? 90 : 18;
 
     // Constrain within safe viewport boundaries
     const clampedX = Math.min(Math.max(12, newX), window.innerWidth - fabWidth - 12);
@@ -226,7 +230,8 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
 
   if (isOpen) return null;
 
-  const isNearBottom = typeof window !== 'undefined' ? position.y > window.innerHeight - 150 : true;
+  const isNearBottom = typeof window !== 'undefined' ? position.y > window.innerHeight - 170 : true;
+  const isNearLeft = typeof window !== 'undefined' ? position.x < Math.min(260, window.innerWidth * 0.45) : false;
 
   return (
     <div
@@ -248,7 +253,7 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
         transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
         touchAction: 'none',
       }}
-      className={`fixed top-0 left-0 z-40 select-none p-2 ${
+      className={`fixed top-0 left-0 z-[55] select-none p-2 ${
         isDragging ? 'cursor-grabbing scale-105' : 'cursor-grab'
       } transition-transform duration-75`}
     >
@@ -474,22 +479,24 @@ export const DraggableAiTutorFab: React.FC<DraggableAiTutorFabProps> = ({
           </div>
         </button>
 
-        {/* Floating Tooltip Pill */}
+        {/* Floating Tooltip Pill (viewport-edge aware so it never overflows left or bottom) */}
         {(isHovered || isDragging) && (
           <div
             className={`absolute ${
               isNearBottom ? 'bottom-full mb-3' : 'top-full mt-3'
-            } right-0 whitespace-nowrap bg-[#080B16]/95 backdrop-blur-md border border-cyan-500/60 px-3.5 py-2 rounded-2xl shadow-2xl flex items-center gap-3 pointer-events-auto transition-all animate-in fade-in zoom-in-95 z-30`}
+            } ${
+              isNearLeft ? 'left-0' : 'right-0'
+            } w-max max-w-[min(300px,calc(100vw-28px))] bg-[#080B16]/95 backdrop-blur-md border border-cyan-500/60 px-3.5 py-2 rounded-2xl shadow-2xl flex items-center gap-3 pointer-events-none transition-all animate-in fade-in zoom-in-95 z-30`}
           >
             <div className="w-7 h-7 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center border border-cyan-400/30 shadow-xs shrink-0">
               <Zap className="w-3.5 h-3.5 text-cyan-400" />
             </div>
-            <div className="text-left">
-              <div className="text-[11.5px] font-bold text-white flex items-center gap-1.5 font-mono">
+            <div className="text-left min-w-0">
+              <div className="text-[11.5px] font-bold text-white flex items-center gap-1.5 font-mono flex-wrap">
                 <span>Nemo — AI Physics Tutor</span>
                 <span className="text-[10px] text-cyan-300 font-normal">• Online</span>
               </div>
-              <div className="text-[9.5px] text-zinc-300 mt-0.5">
+              <div className="text-[9.5px] text-zinc-300 mt-0.5 leading-snug whitespace-normal">
                 Click Nemo to ask doubts, explore 3D calculus & step-by-step solutions
               </div>
             </div>

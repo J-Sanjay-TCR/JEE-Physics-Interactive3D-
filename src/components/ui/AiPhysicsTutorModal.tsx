@@ -47,6 +47,7 @@ import { MathMarkdown } from './MathMarkdown';
 import { Latex } from './Latex';
 import { getConceptDerivation, ConceptDerivationData } from '../../data/conceptDerivations';
 import { captureLive3dScreen } from '../../utils/canvasCapture';
+import { copyToClipboard } from '../../utils/clipboard';
 import {
   playPcmBase64,
   speakWithBrowser,
@@ -206,6 +207,21 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
   const [voiceCacheStats, setVoiceCacheStats] = useState<VoiceCacheStats>(getVoiceCacheStats());
   const activeStreamPlayerRef = useRef<StreamAudioPlayer | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const playingMessageIndexRef = useRef<number | null>(null);
+  const isGeneratingVoiceRef = useRef<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
+  const wasOpenRef = useRef<boolean>(false);
+  const trackedTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  playingMessageIndexRef.current = playingMessageIndex;
+  isGeneratingVoiceRef.current = isGeneratingVoice;
+
+  const scheduleTimeout = (fn: () => void, ms: number) => {
+    const id = setTimeout(fn, ms);
+    trackedTimersRef.current.push(id);
+    return id;
+  };
 
   // Instant Barge-In State & Feedback
   const [isBargeInActive, setIsBargeInActive] = useState<boolean>(false);
@@ -242,27 +258,35 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
       wasActive = true;
     }
 
-    // 2. Clear playing message highlight
-    if (playingMessageIndex !== null) {
+    // 2. Clear playing message highlight (read via refs to prevent stale SpeechRecognition closures)
+    if (playingMessageIndexRef.current !== null) {
       wasActive = true;
-      setPlayingMessageIndex(null);
+      playingMessageIndexRef.current = null;
+      if (isMountedRef.current) setPlayingMessageIndex(null);
     }
 
-    if (isGeneratingVoice) {
+    if (isGeneratingVoiceRef.current) {
       wasActive = true;
-      setIsGeneratingVoice(false);
+      isGeneratingVoiceRef.current = false;
+      if (isMountedRef.current) setIsGeneratingVoice(false);
     }
 
     // 3. Cut off all Web Audio buffers and browser speech synthesis synchronously
     triggerBargeIn();
 
-    // 4. Abort in-flight streaming fetch if still streaming tokens
+    // 4. Cancel stream reader and abort in-flight streaming fetch if still streaming tokens
+    if (streamReaderRef.current) {
+      try {
+        streamReaderRef.current.cancel().catch(() => {});
+      } catch (e) {}
+      streamReaderRef.current = null;
+    }
     if (abortControllerRef.current) {
       try {
         abortControllerRef.current.abort();
       } catch (e) {}
       abortControllerRef.current = null;
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
       wasActive = true;
     }
 
@@ -274,12 +298,12 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
           recognitionRef.current.abort();
         } catch (e) {}
         accumulatedTranscriptRef.current = '';
-        setQuestion('');
+        if (isMountedRef.current) setQuestion('');
       }
     }
 
     // 6. Provide responsive visual feedback to user
-    if (wasActive) {
+    if (wasActive && isMountedRef.current && reason !== 'modal_unmounted') {
       setIsBargeInActive(true);
       const readableReason =
         reason === 'live_voice_interruption'
@@ -294,7 +318,7 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
 
       if (bargeInTimerRef.current) clearTimeout(bargeInTimerRef.current);
       bargeInTimerRef.current = setTimeout(() => {
-        setIsBargeInActive(false);
+        if (isMountedRef.current) setIsBargeInActive(false);
       }, 2600);
     }
   };
@@ -411,9 +435,13 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
     speechSilenceTimerRef.current = setTimeout(() => {
       if (!isManuallyStoppedRef.current && accumulatedTranscriptRef.current.trim().length > 1) {
         const candidate = accumulatedTranscriptRef.current.trim();
-        // If trailing connector detected after delay, extend once if student might still speak
+        // If trailing connector detected after delay, extend once with a grace window if student might still speak
         if (isIncompleteFragment(candidate) && candidate.split(/\s+/).length <= 2) {
-          // Give one more brief grace window before stopping or waiting for manual submit
+          speechSilenceTimerRef.current = setTimeout(() => {
+            if (!isManuallyStoppedRef.current && accumulatedTranscriptRef.current.trim().length > 1) {
+              stopVoiceRecording(true);
+            }
+          }, 1800);
           return;
         }
         stopVoiceRecording(true);
@@ -446,23 +474,28 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
     let recordedAudioBlob: Blob | null = null;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
+        const recorder = mediaRecorderRef.current;
         await new Promise<void>((resolve) => {
-          if (!mediaRecorderRef.current) return resolve();
-          mediaRecorderRef.current.onstop = () => {
+          recorder.onstop = () => {
             if (audioChunksRef.current.length > 0) {
               recordedAudioBlob = new Blob(audioChunksRef.current, {
-                type: mediaRecorderRef.current?.mimeType || 'audio/webm',
+                type: recorder?.mimeType || 'audio/webm',
               });
             }
             resolve();
           };
-          mediaRecorderRef.current.stop();
+          recorder.stop();
         });
       } catch (e) {
         console.warn('Error stopping MediaRecorder:', e);
       }
     }
     mediaRecorderRef.current = null;
+
+    // Safety fallback: if audio chunks exist but blob was not yet assembled
+    if (!recordedAudioBlob && audioChunksRef.current.length > 0) {
+      recordedAudioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+    }
 
     // Cleanup mic stream
     cleanupMicStreams();
@@ -536,7 +569,9 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
     // If no speech was detected
     if (!speechText) {
       setSpeechError('No speech detected. Please speak closer to your microphone or type your question.');
-      setTimeout(() => setSpeechError(null), 4000);
+      scheduleTimeout(() => {
+        if (isMountedRef.current) setSpeechError(null);
+      }, 4000);
     }
   };
 
@@ -578,27 +613,27 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
         speechLock.resetErrors();
       };
 
-      // Native audio and speech onset events for instant barge-in
+      // Native audio and speech onset events for instant barge-in (reads refs to avoid stale closures)
       recognition.onaudiostart = () => {
-        if (playingMessageIndex !== null || isGeneratingVoice) {
+        if (playingMessageIndexRef.current !== null || isGeneratingVoiceRef.current) {
           handleBargeIn('live_voice_interruption');
         }
       };
 
       recognition.onspeechstart = () => {
-        if (playingMessageIndex !== null || isGeneratingVoice) {
+        if (playingMessageIndexRef.current !== null || isGeneratingVoiceRef.current) {
           handleBargeIn('live_voice_interruption');
         }
       };
 
       recognition.onsoundstart = () => {
-        if (playingMessageIndex !== null || isGeneratingVoice) {
+        if (playingMessageIndexRef.current !== null || isGeneratingVoiceRef.current) {
           handleBargeIn('live_voice_interruption');
         }
       };
 
       recognition.onresult = (event: any) => {
-        if (playingMessageIndex !== null || isGeneratingVoice) {
+        if (playingMessageIndexRef.current !== null || isGeneratingVoiceRef.current) {
           handleBargeIn('live_voice_interruption');
         }
 
@@ -644,8 +679,15 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
             setSpeechError('No speech detected. Tap the mic and speak your doubt.');
             stopVoiceRecording(false);
           }
+        } else if (err === 'network') {
+          console.warn('[Web Speech API] Network error on browser speech recognition, cascading to Gemini audio transcription...');
+          stopVoiceRecording(true);
         } else {
-          stopVoiceRecording(false);
+          if (accumulatedTranscriptRef.current.trim().length > 1 || audioChunksRef.current.length > 0) {
+            stopVoiceRecording(true);
+          } else {
+            stopVoiceRecording(false);
+          }
         }
       };
 
@@ -723,7 +765,7 @@ export const AiPhysicsTutorModal: React.FC<AiPhysicsTutorModalProps> = ({
           if (normalized > 18) {
             consecutiveVoiceFrames++;
             if (consecutiveVoiceFrames >= 2) {
-              if (playingMessageIndex !== null || isGeneratingVoice) {
+              if (playingMessageIndexRef.current !== null || isGeneratingVoiceRef.current) {
                 handleBargeIn('live_voice_interruption');
               }
               // If user is vocalizing and there is pending transcript, refresh debounce to prevent cutoffs
@@ -851,35 +893,49 @@ Hit **Voice Doubt** to speak freely anytime!`;
     ]);
   }, [initialGreeting]);
 
-  // Clean up all audio and recording resources on permanent unmount
+  // Clean up all audio, timers, and recording resources on permanent unmount
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
+      if (bargeInTimerRef.current) {
+        clearTimeout(bargeInTimerRef.current);
+        bargeInTimerRef.current = null;
+      }
+      trackedTimersRef.current.forEach((t) => clearTimeout(t));
+      trackedTimersRef.current = [];
       handleBargeIn('modal_unmounted');
       stopVoiceRecording(false);
       cleanupMicStreams();
     };
   }, []);
 
-  // Cleanup audio, recording & body scroll lock on unmount or close
+  // Cleanup audio, recording & body scroll lock when closing or opening modal
   useEffect(() => {
+    const prevOpen = wasOpenRef.current;
+    wasOpenRef.current = isOpen;
+
     if (!isOpen) {
-      handleBargeIn('modal_closed');
-      stopVoiceRecording(false);
-      cleanupMicStreams();
-    } else {
-      // Prevent background scrolling when AI tutor is open
-      const originalOverflow = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
-
-      const focusTimer = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 300);
-
-      return () => {
-        clearTimeout(focusTimer);
-        document.body.style.overflow = originalOverflow;
-      };
+      if (prevOpen) {
+        handleBargeIn('modal_closed');
+        stopVoiceRecording(false);
+        cleanupMicStreams();
+      }
+      return;
     }
+
+    // Prevent background scrolling when AI tutor is open
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const focusTimer = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 300);
+
+    return () => {
+      clearTimeout(focusTimer);
+      document.body.style.overflow = originalOverflow;
+    };
   }, [isOpen]);
 
   // Handle Escape key
@@ -898,9 +954,10 @@ Hit **Voice Doubt** to speak freely anytime!`;
   // Focus input
   useEffect(() => {
     if (isOpen && tutorTab === 'chat') {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         inputRef.current?.focus();
       }, 100);
+      return () => clearTimeout(t);
     }
   }, [isOpen, tutorTab]);
 
@@ -994,58 +1051,62 @@ Hit **Voice Doubt** to speak freely anytime!`;
     let initialExecutedAction: ExecutedNemoAction | undefined = undefined;
 
     if (cmd.isCommand) {
-      // Execute the navigation or control action immediately!
-      if (cmd.actionType === 'navigate_derivation') {
-        setTutorTab('derivation');
-        if (cmd.targetConcept) {
-          setActiveDerivationConcept(cmd.targetConcept);
+      // Execute the navigation or control action safely inside try/catch!
+      try {
+        if (cmd.actionType === 'navigate_derivation') {
+          setTutorTab('derivation');
+          if (cmd.targetConcept) {
+            setActiveDerivationConcept(cmd.targetConcept);
+          }
+          if (onNavigateTab) {
+            onNavigateTab('equations');
+          }
+          if (onScrollToSection) {
+            onScrollToSection('section-equations');
+          }
+        } else if (cmd.actionType === 'navigate_tab' && cmd.targetTab) {
+          setTutorTab('chat');
+          if (onNavigateTab) onNavigateTab(cmd.targetTab);
+          if (cmd.targetSectionId && onScrollToSection) onScrollToSection(cmd.targetSectionId);
+        } else if (cmd.actionType === 'navigate_section' && cmd.targetSectionId) {
+          if (onScrollToSection) onScrollToSection(cmd.targetSectionId);
+        } else if (cmd.actionType === 'navigate_view' && cmd.targetView) {
+          if (onSetView) onSetView(cmd.targetView);
+        } else if (cmd.actionType === 'open_modal' && cmd.targetModal) {
+          if (cmd.targetModal === 'formula_hub') onOpenFormulaHub?.();
+          else if (cmd.targetModal === 'pdf_modal') onOpenPdfModal?.();
+          else if (cmd.targetModal === 'syllabus_directory') onOpenSyllabusDirectory?.();
+          else if (cmd.targetModal === 'analytics') onOpenAnalytics?.();
+          else if (cmd.targetModal === 'shortcuts') onOpenShortcuts?.();
+          else if (cmd.targetModal === 'tutorial') onOpenTutorial?.();
+        } else if (cmd.actionType === 'switch_concept' && cmd.targetConcept) {
+          if (onSelectConcept) onSelectConcept(cmd.targetConcept);
+          if (onSetView) onSetView('lab');
+        } else if (cmd.actionType === 'control_simulation' && cmd.controlAction) {
+          if (cmd.controlAction === 'play') {
+            if (!isPlaying) onTogglePlay?.();
+          } else if (cmd.controlAction === 'pause') {
+            if (isPlaying) onTogglePlay?.();
+          } else if (cmd.controlAction === 'toggle_play') {
+            onTogglePlay?.();
+          } else if (cmd.controlAction === 'reset') {
+            onResetSimulation?.();
+          } else if (cmd.controlAction === 'toggle_vectors') {
+            onToggleVectors?.();
+          } else if (cmd.controlAction === 'toggle_grid') {
+            onToggleGrid?.();
+          } else if (cmd.controlAction === 'toggle_trajectory') {
+            onToggleTrajectory?.();
+          } else if (cmd.controlAction === 'toggle_focus') {
+            onToggleFocusMode?.();
+          } else if (cmd.controlAction === 'speed_up') {
+            onChangeSpeed?.(Math.min(3, (speed || 1) + 0.5));
+          } else if (cmd.controlAction === 'slow_down') {
+            onChangeSpeed?.(Math.max(0.2, (speed || 1) - 0.5));
+          }
         }
-        if (onNavigateTab) {
-          onNavigateTab('equations');
-        }
-        if (onScrollToSection) {
-          onScrollToSection('section-equations');
-        }
-      } else if (cmd.actionType === 'navigate_tab' && cmd.targetTab) {
-        setTutorTab('chat');
-        if (onNavigateTab) onNavigateTab(cmd.targetTab);
-        if (cmd.targetSectionId && onScrollToSection) onScrollToSection(cmd.targetSectionId);
-      } else if (cmd.actionType === 'navigate_section' && cmd.targetSectionId) {
-        if (onScrollToSection) onScrollToSection(cmd.targetSectionId);
-      } else if (cmd.actionType === 'navigate_view' && cmd.targetView) {
-        if (onSetView) onSetView(cmd.targetView);
-      } else if (cmd.actionType === 'open_modal' && cmd.targetModal) {
-        if (cmd.targetModal === 'formula_hub') onOpenFormulaHub?.();
-        else if (cmd.targetModal === 'pdf_modal') onOpenPdfModal?.();
-        else if (cmd.targetModal === 'syllabus_directory') onOpenSyllabusDirectory?.();
-        else if (cmd.targetModal === 'analytics') onOpenAnalytics?.();
-        else if (cmd.targetModal === 'shortcuts') onOpenShortcuts?.();
-        else if (cmd.targetModal === 'tutorial') onOpenTutorial?.();
-      } else if (cmd.actionType === 'switch_concept' && cmd.targetConcept) {
-        if (onSelectConcept) onSelectConcept(cmd.targetConcept);
-        if (onSetView) onSetView('lab');
-      } else if (cmd.actionType === 'control_simulation' && cmd.controlAction) {
-        if (cmd.controlAction === 'play') {
-          if (!isPlaying) onTogglePlay?.();
-        } else if (cmd.controlAction === 'pause') {
-          if (isPlaying) onTogglePlay?.();
-        } else if (cmd.controlAction === 'toggle_play') {
-          onTogglePlay?.();
-        } else if (cmd.controlAction === 'reset') {
-          onResetSimulation?.();
-        } else if (cmd.controlAction === 'toggle_vectors') {
-          onToggleVectors?.();
-        } else if (cmd.controlAction === 'toggle_grid') {
-          onToggleGrid?.();
-        } else if (cmd.controlAction === 'toggle_trajectory') {
-          onToggleTrajectory?.();
-        } else if (cmd.controlAction === 'toggle_focus') {
-          onToggleFocusMode?.();
-        } else if (cmd.controlAction === 'speed_up') {
-          onChangeSpeed?.(Math.min(3, (speed || 1) + 0.5));
-        } else if (cmd.controlAction === 'slow_down') {
-          onChangeSpeed?.(Math.max(0.2, (speed || 1) - 0.5));
-        }
+      } catch (cmdErr) {
+        console.warn('[Nemo Command] Action execution warning:', cmdErr);
       }
 
       initialExecutedAction = {
@@ -1130,6 +1191,7 @@ Hit **Voice Doubt** to speak freely anytime!`;
       }
 
       const reader = response.body.getReader();
+      streamReaderRef.current = reader;
       const decoder = new TextDecoder();
       let accumulatedText = '';
       let webSources: WebSource[] = [];
@@ -1137,7 +1199,7 @@ Hit **Voice Doubt** to speak freely anytime!`;
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done || !isMountedRef.current) break;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -1271,18 +1333,30 @@ Hit **Voice Doubt** to speak freely anytime!`;
         playVoiceResponse(finalText, assistantMsgIndex);
       }
     } finally {
+      if (streamReaderRef.current) {
+        try {
+          streamReaderRef.current.releaseLock();
+        } catch {}
+        streamReaderRef.current = null;
+      }
       abortControllerRef.current = null;
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
       if (streamPlayer) {
         streamPlayer.flush();
       }
     }
   };
 
-  const handleCopy = (text: string, idx: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(idx);
-    setTimeout(() => setCopiedIndex(null), 2000);
+  const handleCopy = async (text: string, idx: number) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedIndex(idx);
+      scheduleTimeout(() => {
+        if (isMountedRef.current) setCopiedIndex(null);
+      }, 2000);
+    }
   };
 
   return (
@@ -2015,17 +2089,17 @@ Hit **Voice Doubt** to speak freely anytime!`;
                 </div>
 
                 <div className="p-4 rounded-2xl bg-[#131426] border border-indigo-500/30 space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-amber-400" />
-                      {derivation.title}
+                      <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span><Latex>{derivation.title}</Latex></span>
                     </h4>
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
                       Step-by-Step Calculus
                     </span>
                   </div>
-                  <p className="text-xs text-zinc-300">
-                    <span className="font-semibold text-zinc-100">Governing Law:</span> {derivation.coreLaw}
+                  <p className="text-xs text-zinc-300 leading-relaxed">
+                    <span className="font-semibold text-zinc-100">Governing Law:</span> <Latex>{derivation.coreLaw}</Latex>
                   </p>
                 </div>
 
@@ -2037,15 +2111,19 @@ Hit **Voice Doubt** to speak freely anytime!`;
                       className="p-3.5 sm:p-4 rounded-2xl bg-[#11121C] border border-white/[0.08] space-y-2.5"
                     >
                       <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center justify-center text-xs font-bold">
+                        <span className="w-6 h-6 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center justify-center text-xs font-bold shrink-0">
                           {s.stepNumber}
                         </span>
-                        <h5 className="text-xs font-bold text-zinc-200">{s.title}</h5>
+                        <h5 className="text-xs font-bold text-zinc-200">
+                          <Latex>{s.title}</Latex>
+                        </h5>
                       </div>
                       <div className="py-2.5 px-3 rounded-xl bg-[#161726] border border-white/[0.06] text-center overflow-x-auto">
                         <Latex math={s.latex} displayMode className="text-cyan-200 font-mono text-xs sm:text-sm" />
                       </div>
-                      <p className="text-[12px] text-zinc-400 leading-relaxed">{s.explanation}</p>
+                      <p className="text-[12px] text-zinc-400 leading-relaxed">
+                        <Latex>{s.explanation}</Latex>
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -2078,7 +2156,7 @@ Hit **Voice Doubt** to speak freely anytime!`;
                         className="p-3 rounded-xl bg-[#151624] border border-emerald-500/20 text-xs text-zinc-300 leading-relaxed flex items-start gap-2"
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
-                        <span>{sc}</span>
+                        <span><Latex>{sc}</Latex></span>
                       </li>
                     ))}
                   </ul>
@@ -2097,7 +2175,7 @@ Hit **Voice Doubt** to speak freely anytime!`;
                         className="p-3 rounded-xl bg-[#181116] border border-rose-500/20 text-xs text-rose-200/90 leading-relaxed flex items-start gap-2"
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-400 mt-1.5 shrink-0" />
-                        <span>{trap}</span>
+                        <span><Latex>{trap}</Latex></span>
                       </li>
                     ))}
                   </ul>

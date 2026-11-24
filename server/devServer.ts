@@ -33,8 +33,8 @@ const SECONDARY_FLASH_MODEL = 'gemini-flash-latest';
 const TERTIARY_FLASH_MODEL = 'gemini-3.1-flash-lite';
 const ALL_FLASH_MODELS = [PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL, TERTIARY_FLASH_MODEL];
 const TTS_MODEL = 'gemini-3.8-flash-lite-tts';
-// Fastest, lowest latency TTS models first: gemini-3.8-flash-lite-tts followed by gemini-3.8-flash
-const TTS_CANDIDATE_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash'];
+// Fastest, lowest latency TTS models first: gemini-3.8-flash-lite-tts followed by gemini-3.8-flash-tts
+const TTS_CANDIDATE_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'];
 const TRANSCRIBE_MODELS = ['gemini-3.5-transcribe', PRIMARY_FLASH_MODEL, SECONDARY_FLASH_MODEL];
 
 /**
@@ -1154,10 +1154,8 @@ app.post('/api/ai/tts', async (req, res) => {
 
     // Direct Gemini prebuilt voices: 'Aoede', 'Kore', 'Puck', 'Fenrir', 'Zephyr', 'Charon'
     const VALID_VOICES = ['Aoede', 'Kore', 'Puck', 'Fenrir', 'Zephyr', 'Charon'];
-    let selectedVoice = voice;
-    if (!selectedVoice || !VALID_VOICES.includes(selectedVoice)) {
-      selectedVoice = 'Kore';
-    }
+    const matchedVoice = VALID_VOICES.find((v) => v.toLowerCase() === (voice || '').toLowerCase());
+    const selectedVoice = matchedVoice || 'Kore';
 
     const serverCacheKey = `${selectedVoice}:${spokenText.slice(0, 300)}`;
     if (serverTtsCache.has(serverCacheKey)) {
@@ -1196,9 +1194,10 @@ app.post('/api/ai/tts', async (req, res) => {
           },
         });
 
-        const part = response.candidates?.[0]?.content?.parts?.[0];
-        const base64Audio = part?.inlineData?.data;
-        const mimeType = part?.inlineData?.mimeType || 'audio/pcm;rate=24000';
+        const parts = response.candidates?.[0]?.content?.parts || [];
+        const audioPart = parts.find((p: any) => p?.inlineData?.data);
+        const base64Audio = audioPart?.inlineData?.data;
+        const mimeType = audioPart?.inlineData?.mimeType || 'audio/pcm;rate=24000';
 
         if (base64Audio) {
           const result = {
@@ -1305,15 +1304,31 @@ function cleanTextForSpeech(input: string): string {
   cleaned = cleaned.replace(/>\s*\*\*Trap Alert:\*\*/gi, 'Warning for JEE students:');
   cleaned = cleaned.replace(/>\s*\*\*JEE Shortcut:\*\*/gi, 'JEE shortcut trick:');
   cleaned = cleaned.replace(/>\s*/g, '');
+  // Strip internal control/navigation directives
+  cleaned = cleaned.replace(/\[\[(NAVIGATE|CONTROL|CONCEPT):\s*[^\]]+\]\]/gi, '');
+  // Degrees and angles
+  cleaned = cleaned.replace(/\^\\circ\b|\^\\circ/g, ' degrees ');
+  cleaned = cleaned.replace(/\\degree\b/g, ' degrees ');
+  // Powers
+  cleaned = cleaned.replace(/([a-zA-Z0-9]+)\^2\b/g, '$1 squared');
+  cleaned = cleaned.replace(/([a-zA-Z0-9]+)\^3\b/g, '$1 cubed');
+  cleaned = cleaned.replace(/([a-zA-Z0-9]+)\^\{([0-9]+)\}/g, '$1 to the power of $2');
+  // Trig
+  cleaned = cleaned.replace(/\\sin\b/g, ' sine ');
+  cleaned = cleaned.replace(/\\cos\b/g, ' cosine ');
+  cleaned = cleaned.replace(/\\tan\b/g, ' tangent ');
   // Convert standard physics LaTeX symbols to spoken words
-  cleaned = cleaned.replace(/\$\\theta\$/g, 'theta');
-  cleaned = cleaned.replace(/\$\\omega\$/g, 'omega');
-  cleaned = cleaned.replace(/\$\\lambda\$/g, 'lambda');
-  cleaned = cleaned.replace(/\$\\mu\$/g, 'mu');
-  cleaned = cleaned.replace(/\$\\alpha\$/g, 'alpha');
-  cleaned = cleaned.replace(/\$\\beta\$/g, 'beta');
-  cleaned = cleaned.replace(/\$\\Delta\$/g, 'delta');
-  cleaned = cleaned.replace(/\$\\approx\$/g, 'approximately equals');
+  cleaned = cleaned.replace(/\\theta/g, ' theta ');
+  cleaned = cleaned.replace(/\\phi/g, ' phi ');
+  cleaned = cleaned.replace(/\\omega/g, ' omega ');
+  cleaned = cleaned.replace(/\\lambda/g, ' lambda ');
+  cleaned = cleaned.replace(/\\mu/g, ' mu ');
+  cleaned = cleaned.replace(/\\alpha/g, ' alpha ');
+  cleaned = cleaned.replace(/\\beta/g, ' beta ');
+  cleaned = cleaned.replace(/\\gamma/g, ' gamma ');
+  cleaned = cleaned.replace(/\\sigma/g, ' sigma ');
+  cleaned = cleaned.replace(/\\Delta/g, ' delta ');
+  cleaned = cleaned.replace(/\\approx/g, ' approximately equals ');
   cleaned = cleaned.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1 over $2');
   cleaned = cleaned.replace(/\\sqrt\{([^}]+)\}/g, 'square root of $1');
   cleaned = cleaned.replace(/\\boxed\{([^}]+)\}/g, '$1');

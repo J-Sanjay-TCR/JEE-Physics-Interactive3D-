@@ -78,6 +78,7 @@ const SYMBOL_MAP: Record<string, string> = {
   circ: '°',
   degree: '°',
   approx: '≈',
+  equiv: '≡',
   sim: '∼',
   neq: '≠',
   ne: '≠',
@@ -216,30 +217,42 @@ export function preprocessFormula(formula: string): string {
   str = str.replace(/^\\\[|\\\]$/g, '');
   str = str.replace(/^\\\(|\\\)$/g, '');
 
-  // Strip environment and text wrappers
+  // Normalize common typos & wrappers
+  str = str.replace(/\\?lamba\b/gi, '\\lambda');
   str = str.replace(/\\begin\{[^{}]*\}|\\end\{[^{}]*\}/g, '');
   str = str.replace(/\\boxed\{([^{}]*)\}/g, '$1');
-  str = str.replace(/\\mathrm\{([^{}]*)\}/g, '$1');
-  str = str.replace(/\\mathit\{([^{}]*)\}/g, '$1');
-  str = str.replace(/\\mathbf\{([^{}]*)\}/g, '$1');
+  str = str.replace(/\\(?:text|mathrm|mathit|mathbf)\{([^{}]*)\}/g, '\\text{$1}');
+  str = str.replace(/\\(?:left|right)\s*([()[\]|.])/g, '$1');
+  str = str.replace(/\\(?:left|right)\s*\\([{}|])/g, '$1');
+  str = str.replace(/\\(?:left|right)\b/g, '');
+  str = str.replace(/\\quad|\\qquad/g, '  ');
+  str = str.replace(/\\[,;!]/g, ' ');
+  str = str.replace(/\\max\b/g, '\\text{max}');
+  str = str.replace(/\\min\b/g, '\\text{min}');
 
-  // Unicode superscripts to ^2 etc.
-  str = str.replace(/²/g, '^2').replace(/³/g, '^3').replace(/¹/g, '^1').replace(/⁰/g, '^0');
+  // Unicode superscripts & subscripts normalization
+  str = str
+    .replace(/⁻¹/g, '^{-1}')
+    .replace(/⁻²/g, '^{-2}')
+    .replace(/⁻³/g, '^{-3}')
+    .replace(/²/g, '^2')
+    .replace(/³/g, '^3')
+    .replace(/¹/g, '^1')
+    .replace(/⁰/g, '^0');
 
   // Convert ASCII sqrt(...) to \sqrt{...}
   str = str.replace(/sqrt\(([^()]+)\)/g, '\\sqrt{$1}');
 
   // Convert slash fractions like (A) / (B), (A) / B, A / (B) into \frac{A}{B}
-  // Repeated pass for nested or multiple fractions
   for (let p = 0; p < 3; p++) {
     str = str.replace(/\(([^()]+)\)\s*\/\s*\(([^()]+)\)/g, '\\frac{$1}{$2}');
     str = str.replace(/\(([^()]+)\)\s*\/\s*([a-zA-Z0-9_\^·]+)/g, '\\frac{$1}{$2}');
     str = str.replace(/([a-zA-Z0-9_\^·]+)\s*\/\s*\(([^()]+)\)/g, '\\frac{$1}{$2}');
   }
 
-  // Handle (1/2) -> \frac{1}{2}
+  // Handle (1/2) -> \frac{1}{2} without corrupting T_1/2
   str = str.replace(/\(1\/2\)/g, '\\frac{1}{2}');
-  str = str.replace(/1\/2/g, '\\frac{1}{2}');
+  str = str.replace(/(^|[^_0-9])1\/2(?![0-9])/g, '$1\\frac{1}{2}');
 
   // Clean double spaces
   str = str.replace(/\s+/g, ' ').trim();
@@ -568,14 +581,22 @@ function buildMathLayout(
       continue;
     }
 
-    // Vector: \vec{v} or \hat{u}
-    if (expr.startsWith('\\vec', i) || expr.startsWith('\\hat', i)) {
-      const isHat = expr.startsWith('\\hat', i);
-      i += 4;
+    // Vector, Hat, Bar, Overline, Dot, Ddot: \vec{v}, \hat{u}, \bar{v}, \overline{AB}, \dot{x}, \ddot{x}
+    if (
+      expr.startsWith('\\vec', i) ||
+      expr.startsWith('\\hat', i) ||
+      expr.startsWith('\\bar', i) ||
+      expr.startsWith('\\overline', i) ||
+      expr.startsWith('\\dot', i) ||
+      expr.startsWith('\\ddot', i)
+    ) {
+      const cmdMatch = expr.substring(i + 1).match(/^(overline|ddot|vec|hat|bar|dot)/);
+      const cmd = cmdMatch ? cmdMatch[1] : 'vec';
+      i += 1 + cmd.length;
       const target = extractEnclosedBraces(expr, i);
       i += target.rawLength;
       const inner = buildMathLayout(target.content, fontSize, textColor, ctx);
-      const vecBox: LayoutBox = {
+      const accentBox: LayoutBox = {
         width: inner.width,
         height: inner.height + fontSize * 0.3,
         ascent: inner.ascent + fontSize * 0.3,
@@ -586,23 +607,38 @@ function buildMathLayout(
           c.strokeStyle = textColor;
           c.fillStyle = textColor;
           c.lineWidth = Math.max(1, fontSize * 0.07);
-          const arrowY = yB - inner.ascent - fontSize * 0.15;
-          const arrowW = Math.max(8, inner.width * 0.8);
+          const arrowY = yB - inner.ascent - fontSize * 0.14;
+          const arrowW = Math.max(8, inner.width * 0.85);
           const startX = x + (inner.width - arrowW) / 2;
-          if (isHat) {
-            // Caret ^
+          if (cmd === 'hat') {
             c.beginPath();
             c.moveTo(startX, arrowY);
             c.lineTo(startX + arrowW / 2, arrowY - fontSize * 0.2);
             c.lineTo(startX + arrowW, arrowY);
             c.stroke();
+          } else if (cmd === 'bar' || cmd === 'overline') {
+            c.beginPath();
+            c.moveTo(x + 1, arrowY);
+            c.lineTo(x + inner.width - 1, arrowY);
+            c.stroke();
+          } else if (cmd === 'dot' || cmd === 'ddot') {
+            const cy = arrowY - fontSize * 0.05;
+            const r = Math.max(1.2, fontSize * 0.065);
+            if (cmd === 'dot') {
+              c.beginPath();
+              c.arc(x + inner.width / 2, cy, r, 0, Math.PI * 2);
+              c.fill();
+            } else {
+              c.beginPath();
+              c.arc(x + inner.width / 2 - r * 1.8, cy, r, 0, Math.PI * 2);
+              c.arc(x + inner.width / 2 + r * 1.8, cy, r, 0, Math.PI * 2);
+              c.fill();
+            }
           } else {
-            // Vector arrow ->
             c.beginPath();
             c.moveTo(startX, arrowY);
             c.lineTo(startX + arrowW, arrowY);
             c.stroke();
-            // Arrowhead
             c.beginPath();
             c.moveTo(startX + arrowW, arrowY);
             c.lineTo(startX + arrowW - fontSize * 0.22, arrowY - fontSize * 0.14);
@@ -613,7 +649,7 @@ function buildMathLayout(
           c.restore();
         },
       };
-      items.push(vecBox);
+      items.push(accentBox);
       continue;
     }
 
@@ -682,6 +718,26 @@ function buildMathLayout(
       if (cmdMatch) {
         const cmd = cmdMatch[0];
         i += 1 + cmd.length;
+
+        // Skip formatting/delimiter commands cleanly
+        if (cmd === 'left' || cmd === 'right' || cmd === 'displaystyle' || cmd === 'limits' || cmd === 'nolimits') {
+          continue;
+        }
+        if (cmd === 'quad' || cmd === 'qquad') {
+          items.push({ width: fontSize * 0.7, height: fontSize, ascent: fontSize * 0.8, descent: fontSize * 0.2, draw: () => {} });
+          continue;
+        }
+
+        // Big operators (\sum, \prod, \int, \oint, \lim) rendered slightly larger
+        if (cmd === 'sum' || cmd === 'prod' || cmd === 'int' || cmd === 'oint') {
+          const glyph = SYMBOL_MAP[cmd] || cmd;
+          items.push(createTextBox(glyph, fontSize * 1.25, textColor, false, false, ctx));
+          continue;
+        }
+        if (cmd === 'lim') {
+          items.push(createTextBox('lim', fontSize, textColor, false, false, ctx));
+          continue;
+        }
 
         // Mathematical Function: \sin, \cos, \ln, etc.
         if (MATH_FUNCTIONS.has(cmd.toLowerCase())) {
@@ -1074,14 +1130,15 @@ function attachScripts(
 function extractEnclosedBraces(str: string, startIndex: number): { content: string; rawLength: number } {
   if (startIndex >= str.length) return { content: '', rawLength: 0 };
   let openIndex = startIndex;
-  while (openIndex < str.length && str[openIndex] !== '{') openIndex++;
-  if (openIndex >= str.length) {
-    const single = str[startIndex] || '';
-    return { content: single, rawLength: single.length };
+  while (openIndex < str.length && /\s/.test(str[openIndex])) openIndex++;
+  if (openIndex >= str.length) return { content: '', rawLength: str.length - startIndex };
+  if (str[openIndex] !== '{') {
+    const single = str[openIndex] || '';
+    return { content: single, rawLength: openIndex - startIndex + single.length };
   }
 
   let depth = 0;
-  let endIndex = openIndex;
+  let endIndex = -1;
   for (let i = openIndex; i < str.length; i++) {
     if (str[i] === '{') depth++;
     else if (str[i] === '}') {
@@ -1091,6 +1148,13 @@ function extractEnclosedBraces(str: string, startIndex: number): { content: stri
         break;
       }
     }
+  }
+
+  if (endIndex === -1) {
+    return {
+      content: str.substring(openIndex + 1),
+      rawLength: Math.max(1, str.length - startIndex),
+    };
   }
 
   const content = str.substring(openIndex + 1, endIndex);
@@ -1105,7 +1169,7 @@ function extractEnclosedDelimiters(
   closeChar: string
 ): { content: string; rawLength: number } {
   let depth = 0;
-  let endIndex = startIndex;
+  let endIndex = -1;
   for (let i = startIndex; i < str.length; i++) {
     if (str[i] === openChar) depth++;
     else if (str[i] === closeChar) {
@@ -1115,6 +1179,13 @@ function extractEnclosedDelimiters(
         break;
       }
     }
+  }
+
+  if (endIndex === -1) {
+    return {
+      content: str.substring(startIndex + 1),
+      rawLength: Math.max(1, str.length - startIndex),
+    };
   }
 
   const content = str.substring(startIndex + 1, endIndex);
@@ -1209,71 +1280,67 @@ export function renderMathFormulaToImage(
   options: MathRenderOptions = {}
 ): MathRenderResult | null {
   if (typeof document === 'undefined') {
-    // Non-browser fallback
     return null;
   }
 
-  const cleanFormula = preprocessFormula(formula);
+  try {
+    const cleanFormula = preprocessFormula(formula);
+    if (!cleanFormula) return null;
 
-  if (!cleanFormula) return null;
+    const fontSize = options.fontSize || 22;
+    const scale = options.scale || 3;
+    const textColor = options.textColor || '#0f172a';
+    const bgColor = options.bgColor || 'rgba(255, 255, 255, 0)';
+    const padX = options.paddingX || 14;
+    const padY = options.paddingY || 10;
 
-  const fontSize = options.fontSize || 22;
-  const scale = options.scale || 3; // 3x oversampling = ~300 DPI vector-sharp quality
-  const textColor = options.textColor || '#0f172a'; // Deep academic navy
-  const bgColor = options.bgColor || 'rgba(255, 255, 255, 0)';
-  const padX = options.paddingX || 14;
-  const padY = options.paddingY || 10;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
 
-  // Offscreen measurement canvas
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
+    const mathBox = buildMathLayout(cleanFormula, fontSize, textColor, ctx);
 
-  // Build the layout tree
-  const mathBox = buildMathLayout(cleanFormula, fontSize, textColor, ctx);
+    const totalW = Math.min(2000, Math.max(24, Math.ceil(mathBox.width + padX * 2)));
+    const totalH = Math.min(800, Math.max(20, Math.ceil(mathBox.height + padY * 2)));
 
-  const totalW = Math.ceil(mathBox.width + padX * 2);
-  const totalH = Math.ceil(mathBox.height + padY * 2);
+    canvas.width = Math.min(4096, Math.max(30, totalW * scale));
+    canvas.height = Math.min(2048, Math.max(20, totalH * scale));
 
-  // Set real pixel dimensions scaled for high DPI
-  canvas.width = Math.max(30, totalW * scale);
-  canvas.height = Math.max(20, totalH * scale);
+    const drawCtx = canvas.getContext('2d');
+    if (!drawCtx) return null;
 
-  const drawCtx = canvas.getContext('2d');
-  if (!drawCtx) return null;
+    drawCtx.scale(canvas.width / totalW, canvas.height / totalH);
 
-  drawCtx.scale(scale, scale);
+    if (bgColor && bgColor !== 'transparent') {
+      drawCtx.fillStyle = bgColor;
+      drawCtx.fillRect(0, 0, totalW, totalH);
+    }
 
-  // Background
-  if (bgColor && bgColor !== 'transparent') {
-    drawCtx.fillStyle = bgColor;
-    drawCtx.fillRect(0, 0, totalW, totalH);
+    const startX = padX;
+    const baselineY = padY + mathBox.ascent;
+    mathBox.draw(drawCtx, startX, baselineY);
+
+    const mmPerPx = 0.264583;
+    let widthMm = totalW * mmPerPx;
+    let heightMm = totalH * mmPerPx;
+
+    if (options.maxWidthMm && widthMm > options.maxWidthMm) {
+      const ratio = options.maxWidthMm / widthMm;
+      widthMm = options.maxWidthMm;
+      heightMm = heightMm * ratio;
+    }
+
+    return {
+      dataUrl: canvas.toDataURL('image/png'),
+      widthMm,
+      heightMm,
+      widthPx: totalW,
+      heightPx: totalH,
+    };
+  } catch (err) {
+    console.warn('Canvas math render fallback triggered:', err);
+    return null;
   }
-
-  // Draw equation
-  const startX = padX;
-  const baselineY = padY + mathBox.ascent;
-  mathBox.draw(drawCtx, startX, baselineY);
-
-  // Dimensions in millimeters for standard 72pt/inch PDF units (1 pt = 0.352778 mm)
-  // At standard 96 DPI: 1 px = 0.264583 mm
-  const mmPerPx = 0.264583;
-  let widthMm = totalW * mmPerPx;
-  let heightMm = totalH * mmPerPx;
-
-  if (options.maxWidthMm && widthMm > options.maxWidthMm) {
-    const ratio = options.maxWidthMm / widthMm;
-    widthMm = options.maxWidthMm;
-    heightMm = heightMm * ratio;
-  }
-
-  return {
-    dataUrl: canvas.toDataURL('image/png'),
-    widthMm,
-    heightMm,
-    widthPx: totalW,
-    heightPx: totalH,
-  };
 }
 
 /**

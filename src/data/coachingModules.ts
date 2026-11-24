@@ -633,7 +633,7 @@ export const COACHING_MODULES: Record<string, CoachingInstituteModule> = {
             categoryTag: 'JEE Main',
             conditionLatex: 'u \\le \\sqrt{2gR}',
             description:
-              'The particle never rises above the horizontal diameter ($\\\\theta \\le 90^\\circ$). Velocity drops to zero before tension vanishes, causing pure oscillation.',
+              'The particle never rises above the horizontal diameter ($\\theta \\le 90^\\circ$). Velocity drops to zero before tension vanishes, causing pure oscillation.',
             formulaLatex: '\\cos\\theta_{\\max} = 1 - \\frac{u^2}{2gR}',
             parameterPreset: { v: 5.0, r: 3.0, m: 1.0, type: 0 },
           },

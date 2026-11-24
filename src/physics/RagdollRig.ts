@@ -214,10 +214,13 @@ export class RagdollPhysicsSimulator {
     this.impulseApplied = false;
     this.currentParams = { ...params };
 
-    // Determine gravity
+    const safeNum = (v: number | undefined, fallback: number): number =>
+      v !== undefined && Number.isFinite(v) ? v : fallback;
+
+    // Determine gravity (allow 0 for zero-G custom cases)
     let g = 9.81;
-    if (params.customGravity !== undefined) {
-      g = Math.max(0.1, params.customGravity);
+    if (params.customGravity !== undefined && Number.isFinite(params.customGravity)) {
+      g = Math.max(0, Math.min(100, params.customGravity));
     } else if (params.gravityPreset === 0) g = 1.62; // Moon
     else if (params.gravityPreset === 1) g = 9.81; // Earth
     else if (params.gravityPreset === 2) g = 24.79; // Jupiter
@@ -229,10 +232,10 @@ export class RagdollPhysicsSimulator {
     this.world.timestep = this.fixedDt;
 
     // Ground plane collider (supports flat or inclined plane)
-    const inclineDeg = params.inclineAngleDeg ?? 0;
+    const inclineDeg = Math.max(-60, Math.min(60, safeNum(params.inclineAngleDeg, 0)));
     const slopeRad = (inclineDeg * Math.PI) / 180;
-    const restitutionVal = params.restitution !== undefined ? Math.min(0.95, Math.max(0.05, params.restitution)) : 0.35;
-    const frictionVal = params.friction !== undefined ? Math.min(1.0, Math.max(0.05, params.friction)) : 0.65;
+    const restitutionVal = Math.min(0.95, Math.max(0.05, safeNum(params.restitution, 0.35)));
+    const frictionVal = Math.min(1.0, Math.max(0.05, safeNum(params.friction, 0.65)));
 
     const groundDesc = this.rapierInstance.ColliderDesc.cuboid(80.0, 0.5, 30.0)
       .setTranslation(30.0 * Math.cos(slopeRad), 30.0 * Math.sin(slopeRad) - 0.5, 0.0)
@@ -242,9 +245,12 @@ export class RagdollPhysicsSimulator {
     this.groundCollider = this.world.createCollider(groundDesc);
 
     const isStanding = params.isStandingStance ?? false;
-    const startX = params.startX ?? 0;
-    const startY = params.startY !== undefined ? params.startY : Math.max(2.5, params.dropHeight ?? 4.5);
-    const startZ = params.startZ ?? 0;
+    const startX = safeNum(params.startX, 0);
+    const startY = Math.max(
+      1.6,
+      safeNum(params.startY, Math.max(2.5, safeNum(params.dropHeight, 4.5)))
+    );
+    const startZ = safeNum(params.startZ, 0);
 
     // Optional target stand pedestal if standing
     if (isStanding) {
@@ -255,12 +261,13 @@ export class RagdollPhysicsSimulator {
       this.world.createCollider(standDesc);
     }
 
-    const v0x = isStanding ? 0 : (params.v0x ?? 0);
-    const v0y = isStanding ? 0 : (params.v0y ?? 0);
+    const v0x = isStanding ? 0 : Math.max(-100, Math.min(100, safeNum(params.v0x, 0)));
+    const v0y = isStanding ? 0 : Math.max(-100, Math.min(100, safeNum(params.v0y, 0)));
     const v0z = 0;
     this.initialV0.set(v0x, v0y, v0z);
+    const initSpin = isStanding ? 0 : Math.max(-50, Math.min(50, safeNum(params.initialSpin, 0)));
 
-    const isFrozen = (params.freezeJoints ?? 0) >= 0.5;
+    const isFrozen = safeNum(params.freezeJoints, 0) >= 0.5;
 
     // Create 10 Rigid Bodies
     RAGDOLL_BONES.forEach((bone) => {
@@ -273,7 +280,7 @@ export class RagdollPhysicsSimulator {
       const rbDesc = this.rapierInstance.RigidBodyDesc.dynamic()
         .setTranslation(posX, posY, posZ)
         .setLinvel(v0x, v0y, v0z)
-        .setAngvel(new this.rapierInstance.Vector3(0, 0, isStanding ? 0 : (params.initialSpin ?? 0)))
+        .setAngvel(new this.rapierInstance.Vector3(0, 0, initSpin))
         .setLinearDamping(0.04)
         .setAngularDamping(0.12);
 
@@ -435,6 +442,7 @@ export class RagdollPhysicsSimulator {
 
   public stepTo(targetTime: number, params: RagdollSimParams): void {
     if (!this.rapierInstance) return;
+    if (!Number.isFinite(targetTime) || targetTime < 0) return;
 
     // Check if configuration parameters changed
     const key = `${params.dropHeight}_${params.v0x}_${params.v0y}_${params.gravityPreset}_${params.freezeJoints}_${params.initialSpin}_${params.customGravity}_${params.startX}_${params.startY}_${params.inclineAngleDeg}_${params.isStandingStance}_${params.dragCoeff}_${params.restitution}_${params.friction}`;
@@ -450,21 +458,30 @@ export class RagdollPhysicsSimulator {
 
     if (!this.world) return;
 
+    const dragCoeff = params.dragCoeff !== undefined && Number.isFinite(params.dragCoeff)
+      ? Math.max(0, params.dragCoeff)
+      : 0;
+    const freezeJointsVal = params.freezeJoints !== undefined && Number.isFinite(params.freezeJoints)
+      ? params.freezeJoints
+      : 0;
+    const flailTorqueVal = params.flailTorque !== undefined && Number.isFinite(params.flailTorque)
+      ? Math.max(0, params.flailTorque)
+      : 0;
+
     // Step world with fixed deterministic physics substepping
     const maxStepsPerFrame = 12;
     let stepsCount = 0;
 
     while (this.simulatedTime + this.fixedDt <= targetTime && stepsCount < maxStepsPerFrame) {
       // Apply physical aerodynamic air resistance to each airborne segment
-      if (params.dragCoeff && params.dragCoeff > 0) {
-        const cd = params.dragCoeff;
+      if (dragCoeff > 0) {
         this.bodies.forEach((body) => {
           const vel = body.linvel();
           const spd = Math.hypot(vel.x, vel.y, vel.z);
-          if (spd > 0.05) {
-            const dragForceX = -cd * spd * vel.x;
-            const dragForceY = -cd * spd * vel.y;
-            const dragForceZ = -cd * spd * vel.z;
+          if (Number.isFinite(spd) && spd > 0.05) {
+            const dragForceX = -dragCoeff * spd * vel.x;
+            const dragForceY = -dragCoeff * spd * vel.y;
+            const dragForceZ = -dragCoeff * spd * vel.z;
             body.applyImpulse(
               new this.rapierInstance!.Vector3(
                 dragForceX * this.fixedDt,
@@ -478,35 +495,52 @@ export class RagdollPhysicsSimulator {
       }
 
       // Apply physical impact impulse if collision time has arrived
-      if (params.impactImpulse && this.simulatedTime >= params.impactImpulse.time && !this.impulseApplied) {
+      if (
+        params.impactImpulse &&
+        Number.isFinite(params.impactImpulse.time) &&
+        this.simulatedTime >= params.impactImpulse.time &&
+        !this.impulseApplied
+      ) {
         const targetBody = this.bodies.get(params.impactImpulse.boneId || 'torso');
         if (targetBody) {
           const f = params.impactImpulse.force;
-          targetBody.applyImpulse(new this.rapierInstance.Vector3(f[0], f[1], f[2]), true);
+          const fx = Number.isFinite(f[0]) ? f[0] : 0;
+          const fy = Number.isFinite(f[1]) ? f[1] : 0;
+          const fz = Number.isFinite(f[2]) ? f[2] : 0;
+          targetBody.applyImpulse(new this.rapierInstance.Vector3(fx, fy, fz), true);
           const headBody = this.bodies.get('head');
           if (headBody) {
-            headBody.applyImpulse(new this.rapierInstance.Vector3(f[0] * 0.35, f[1] * 0.35, 0), true);
+            headBody.applyImpulse(new this.rapierInstance.Vector3(fx * 0.35, fy * 0.35, 0), true);
           }
           this.impulseApplied = true;
         }
       }
 
       // Apply internal flailing impulses if unfrozen and flailTorque > 0
-      if (params.freezeJoints < 0.5 && params.flailTorque > 0) {
-        this.applyInternalFlailForces(params.flailTorque, this.simulatedTime);
+      if (freezeJointsVal < 0.5 && flailTorqueVal > 0) {
+        this.applyInternalFlailForces(flailTorqueVal, this.simulatedTime);
       }
 
-      this.world.step();
+      try {
+        this.world.step();
+      } catch (err) {
+        console.warn('Rapier physics step recovered via reset:', err);
+        this.reset(params);
+        break;
+      }
+
       this.simulatedTime += this.fixedDt;
       stepsCount++;
 
       // Record COM history every few physics steps for smooth trail
       if (stepsCount % 2 === 0) {
         const curCOM = this.calculateSimCOM();
-        // Avoid adding points if landed or static
         if (
-          this.comTrajectory.length === 0 ||
-          curCOM.distanceTo(this.comTrajectory[this.comTrajectory.length - 1]) > 0.08
+          Number.isFinite(curCOM.x) &&
+          Number.isFinite(curCOM.y) &&
+          Number.isFinite(curCOM.z) &&
+          (this.comTrajectory.length === 0 ||
+            curCOM.distanceTo(this.comTrajectory[this.comTrajectory.length - 1]) > 0.08)
         ) {
           if (this.comTrajectory.length < 250) {
             this.comTrajectory.push(curCOM.clone());
@@ -518,6 +552,7 @@ export class RagdollPhysicsSimulator {
 
   public applyImpulseToBone(boneId: string, impulseX: number, impulseY: number, impulseZ: number): void {
     if (!this.rapierInstance) return;
+    if (!Number.isFinite(impulseX) || !Number.isFinite(impulseY) || !Number.isFinite(impulseZ)) return;
     const body = this.bodies.get(boneId);
     if (body) {
       body.applyImpulse(new this.rapierInstance.Vector3(impulseX, impulseY, impulseZ), true);

@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Latex } from './Latex';
-import { Sparkles, AlertTriangle, Lightbulb, CheckCircle, Copy, Check } from 'lucide-react';
+import { Sparkles, AlertTriangle, Lightbulb, Copy, Check } from 'lucide-react';
+import { copyToClipboard } from '../../utils/clipboard';
 
 interface MathMarkdownProps {
   content: string;
@@ -8,21 +9,35 @@ interface MathMarkdownProps {
 }
 
 export const MathMarkdown: React.FC<MathMarkdownProps> = ({ content, className = '' }) => {
-  const [copiedCode, setCopiedCode] = React.useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedCode(text);
-    setTimeout(() => setCopiedCode(null), 2000);
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = async (text: string) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedCode(text);
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+      copyTimerRef.current = window.setTimeout(() => setCopiedCode(null), 2000);
+    }
   };
 
-  // Split content by major block structures: code blocks, block math ($$...$$ or \[...\]), blockquotes, headers, lists, paragraphs
+  // Split content by major block structures: fenced code blocks, block math ($$...$$ or \[...\]), blockquotes, headers, lists, paragraphs
   const parsedElements = useMemo(() => {
     if (!content) return [];
 
     const lines = content.split('\n');
     const elements: Array<{
-      type: 'header' | 'blockquote' | 'math-block' | 'list-item' | 'paragraph' | 'derivation-step';
+      type: 'header' | 'blockquote' | 'math-block' | 'code-block' | 'list-item' | 'paragraph' | 'derivation-step';
       level?: number;
       text: string;
       subtype?: 'trap' | 'shortcut' | 'info';
@@ -30,13 +45,36 @@ export const MathMarkdown: React.FC<MathMarkdownProps> = ({ content, className =
 
     let inBlockMath = false;
     let blockMathBuffer: string[] = [];
+    let inCodeBlock = false;
+    let codeBlockBuffer: string[] = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const trimmed = line.trim();
 
-      // Check for standalone $$ block math opening/closing
-      if (trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length >= 4) {
+      // Handle fenced code blocks ```...```
+      if (trimmed.startsWith('```')) {
+        if (!inCodeBlock) {
+          inCodeBlock = true;
+          codeBlockBuffer = [];
+        } else {
+          elements.push({
+            type: 'code-block',
+            text: codeBlockBuffer.join('\n'),
+          });
+          inCodeBlock = false;
+          codeBlockBuffer = [];
+        }
+        continue;
+      }
+
+      if (inCodeBlock) {
+        codeBlockBuffer.push(line);
+        continue;
+      }
+
+      // Check for standalone single-line $$...$$
+      if (!inBlockMath && trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length >= 4) {
         elements.push({
           type: 'math-block',
           text: trimmed.slice(2, -2).trim(),
@@ -44,7 +82,8 @@ export const MathMarkdown: React.FC<MathMarkdownProps> = ({ content, className =
         continue;
       }
 
-      if (trimmed.startsWith('$$')) {
+      // Multi-line $$ block math start
+      if (!inBlockMath && trimmed.startsWith('$$')) {
         inBlockMath = true;
         blockMathBuffer = [trimmed.slice(2)];
         continue;
@@ -65,7 +104,7 @@ export const MathMarkdown: React.FC<MathMarkdownProps> = ({ content, className =
         continue;
       }
 
-      if (trimmed.startsWith('\\[') && trimmed.endsWith('\\]')) {
+      if (trimmed.startsWith('\\[') && trimmed.endsWith('\\]') && trimmed.length >= 4) {
         elements.push({
           type: 'math-block',
           text: trimmed.slice(2, -2).trim(),
@@ -127,32 +166,23 @@ export const MathMarkdown: React.FC<MathMarkdownProps> = ({ content, className =
       elements.push({ type: 'paragraph', text: line });
     }
 
+    // Flush any unclosed streaming block math / code block at EOF so nothing is dropped during live streaming
+    if (inBlockMath && blockMathBuffer.length > 0) {
+      const residual = blockMathBuffer.join('\n').trim();
+      if (residual) {
+        elements.push({ type: 'math-block', text: residual });
+      }
+    }
+    if (inCodeBlock && codeBlockBuffer.length > 0) {
+      elements.push({ type: 'code-block', text: codeBlockBuffer.join('\n') });
+    }
+
     return elements;
   }, [content]);
 
-  // Helper to render inline formatting with bold, code, and LaTeX math
+  // Always pass inline spans through <Latex> so inline math, bold/italic, and physics prose notations render cleanly
   const renderInlineFormatted = (text: string) => {
-    // If text contains $ math, delegate to Latex component
-    if (text.includes('$') || text.includes('\\(')) {
-      return <Latex math={text} className="inline text-zinc-200" />;
-    }
-
-    // Parse **bold** formatting
-    const boldParts = text.split(/(\*\*.*?\*\*)/g);
-    return (
-      <>
-        {boldParts.map((part, idx) => {
-          if (part.startsWith('**') && part.endsWith('**')) {
-            return (
-              <strong key={idx} className="font-bold text-zinc-100">
-                {part.slice(2, -2)}
-              </strong>
-            );
-          }
-          return part;
-        })}
-      </>
-    );
+    return <Latex className="inline">{text}</Latex>;
   };
 
   return (
@@ -208,11 +238,34 @@ export const MathMarkdown: React.FC<MathMarkdownProps> = ({ content, className =
                 key={idx}
                 className="relative group my-2 p-3.5 rounded-xl bg-[#13131D] border border-cyan-500/30 shadow-md text-center overflow-x-auto"
               >
-                <Latex math={el.text} displayMode className="text-cyan-200 text-xs sm:text-sm font-mono" />
+                <Latex math={el.text} displayMode className="text-cyan-200 text-xs sm:text-sm" />
                 <button
+                  type="button"
                   onClick={() => handleCopy(el.text)}
                   className="absolute top-2 right-2 p-1 rounded-md bg-black/40 text-zinc-400 hover:text-white opacity-0 group-hover:opacity-100 transition"
                   title="Copy LaTeX formula"
+                >
+                  {copiedCode === el.text ? (
+                    <Check className="w-3 h-3 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </button>
+              </div>
+            );
+
+          case 'code-block':
+            return (
+              <div
+                key={idx}
+                className="relative group my-2 p-3 rounded-xl bg-[#0D0E16] border border-white/[0.08] font-mono text-[11px] text-cyan-200 overflow-x-auto"
+              >
+                <pre className="whitespace-pre-wrap break-words">{el.text}</pre>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(el.text)}
+                  className="absolute top-2 right-2 p-1 rounded-md bg-black/50 text-zinc-400 hover:text-white opacity-0 group-hover:opacity-100 transition"
+                  title="Copy snippet"
                 >
                   {copiedCode === el.text ? (
                     <Check className="w-3 h-3 text-emerald-400" />
@@ -231,7 +284,7 @@ export const MathMarkdown: React.FC<MathMarkdownProps> = ({ content, className =
                   className="p-3 rounded-xl bg-rose-950/20 border border-rose-500/30 text-rose-200/90 text-xs flex items-start gap-2.5 my-2"
                 >
                   <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                  <div className="leading-relaxed">{renderInlineFormatted(el.text)}</div>
+                  <div className="leading-relaxed min-w-0 flex-1">{renderInlineFormatted(el.text)}</div>
                 </div>
               );
             }
@@ -242,7 +295,7 @@ export const MathMarkdown: React.FC<MathMarkdownProps> = ({ content, className =
                   className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-emerald-200/90 text-xs flex items-start gap-2.5 my-2"
                 >
                   <Lightbulb className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div className="leading-relaxed">{renderInlineFormatted(el.text)}</div>
+                  <div className="leading-relaxed min-w-0 flex-1">{renderInlineFormatted(el.text)}</div>
                 </div>
               );
             }
@@ -259,7 +312,7 @@ export const MathMarkdown: React.FC<MathMarkdownProps> = ({ content, className =
             return (
               <div key={idx} className="flex items-start gap-2 pl-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-1.5 shrink-0" />
-                <div className="flex-1 leading-relaxed">{renderInlineFormatted(el.text)}</div>
+                <div className="flex-1 min-w-0 leading-relaxed">{renderInlineFormatted(el.text)}</div>
               </div>
             );
 

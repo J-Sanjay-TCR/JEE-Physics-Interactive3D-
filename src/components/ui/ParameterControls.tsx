@@ -100,24 +100,24 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
 
   return (
     <div
-      className={`backdrop-blur-md rounded-2xl p-3.5 sm:p-5 border shadow-xl flex flex-col gap-4 sm:gap-5 transition-colors ${
+      className={`min-w-0 backdrop-blur-md rounded-2xl p-3.5 sm:p-5 border shadow-xl flex flex-col gap-4 sm:gap-5 transition-colors ${
         isDark ? 'bg-[#111114]/90 border-white/[0.08]' : 'bg-white/95 border-slate-200 shadow-slate-200'
       }`}
     >
       {/* 1. Simulation Playback & Speed Bar */}
       <div
-        className={`flex items-center justify-between pb-3 sm:pb-4 border-b flex-wrap gap-3 ${
+        className={`flex items-center justify-between pb-3 sm:pb-4 border-b flex-wrap gap-3 min-w-0 ${
           isDark ? 'border-white/[0.08]' : 'border-slate-200'
         }`}
       >
-        <div className="flex items-center gap-2">
-          <Sliders className="w-4 h-4 text-cyan-400" />
+        <div className="flex items-center gap-2 min-w-0">
+          <Sliders className="w-4 h-4 text-cyan-400 shrink-0" />
           <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-zinc-300' : 'text-slate-700'}`}>
             Simulation Parameters & Speed
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
           {/* Neon Bloom Quick Toggle */}
           {onChangeBloom && bloomIntensity && (
             <div
@@ -727,9 +727,9 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
                 </div>
 
                 {/* Slider Track with Enhanced Touch Padding */}
-                <div className="relative flex items-center gap-2 py-1">
-                  <span className="text-[10px] font-mono text-zinc-500 w-8 shrink-0 text-left">{p.min}</span>
-                  <div className="relative flex-1 flex items-center">
+                <div className="relative flex items-center gap-2 py-1 min-w-0">
+                  <span className="text-[10px] font-mono text-zinc-500 min-w-[2.25rem] max-w-[3.25rem] truncate shrink-0 text-left">{p.min}</span>
+                  <div className="relative flex-1 min-w-0 flex items-center">
                     <input
                       id={`slider-${p.id}`}
                       type="range"
@@ -746,7 +746,7 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
                     {/* Floating Context-Aware Tooltip above slider thumb on hover/focus */}
                     {isHovered && !isExpanded && (
                       <div
-                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-30 pointer-events-none hidden md:block w-72 p-2.5 rounded-xl bg-[#0F101A]/95 text-white border border-cyan-500/40 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-30 pointer-events-none hidden md:block w-[min(288px,calc(100%-8px))] p-2.5 rounded-xl bg-[#0F101A]/95 text-white border border-cyan-500/40 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
                       >
                         <div className="flex items-center justify-between gap-1 border-b border-white/[0.08] pb-1.5 mb-1.5">
                           <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
@@ -755,9 +755,9 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
                           </span>
                           <span className="text-[10px] font-mono text-zinc-400">{insight.percentage}%</span>
                         </div>
-                        <p className="text-[11px] text-zinc-200 leading-relaxed font-medium">
-                          {insight.significance.replace(/\$/g, '')}
-                        </p>
+                        <div className="text-[11px] text-zinc-200 leading-relaxed font-medium">
+                          <Latex>{insight.significance}</Latex>
+                        </div>
                         {insight.boundaryStatus && (
                           <div
                             className="mt-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold"
@@ -770,7 +770,7 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
                       </div>
                     )}
                   </div>
-                  <span className="text-[10px] font-mono text-zinc-500 w-8 shrink-0 text-right">{p.max}</span>
+                  <span className="text-[10px] font-mono text-zinc-500 min-w-[2.25rem] max-w-[3.25rem] truncate shrink-0 text-right">{p.max}</span>
                 </div>
 
                 {/* Boundary Status Pill (if applicable at current value) */}
@@ -822,13 +822,9 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
 
                         {/* Significance Text & Equation */}
                         <div className="text-xs leading-relaxed space-y-1.5">
-                          <p className="font-medium text-zinc-300 dark:text-zinc-200">
-                            {insight.significance.includes('$') ? (
-                              <span>{insight.significance.replace(/\$/g, '')}</span>
-                            ) : (
-                              insight.significance
-                            )}
-                          </p>
+                          <div className="font-medium text-zinc-300 dark:text-zinc-200">
+                            <Latex>{insight.significance}</Latex>
+                          </div>
 
                           <div
                             className={`p-2 rounded-lg text-xs font-mono font-bold flex items-center gap-2 overflow-x-auto ${
@@ -846,7 +842,9 @@ const ParameterControlsComponent: React.FC<ParameterControlsProps> = ({
                             }`}
                           >
                             <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                            <span>{insight.jeeInsight.replace(/\$/g, '')}</span>
+                            <span>
+                              <Latex>{insight.jeeInsight}</Latex>
+                            </span>
                           </div>
                         </div>
                       </div>

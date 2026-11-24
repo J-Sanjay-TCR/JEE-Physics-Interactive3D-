@@ -60,7 +60,7 @@ export const JeeQuestionsArena: React.FC<JeeQuestionsArenaProps> = ({
   };
 
   return (
-    <div className={`w-full text-zinc-100 ${isEmbedded ? 'p-2 sm:p-4' : 'h-full overflow-y-auto bg-[#030611] p-4 sm:p-6 lg:p-8'} space-y-6`}>
+    <div className={`w-full text-zinc-100 ${isEmbedded ? 'p-2 sm:p-4' : 'h-full overflow-y-auto bg-[#030611] p-4 sm:p-6 lg:p-8 pb-28 lg:pb-10'} space-y-6`}>
       {/* Top Arena Header & Statistics Ribbon */}
       <div className="bg-[#0b0e1d]/90 rounded-3xl border border-white/[0.08] p-5 sm:p-8 shadow-2xl backdrop-blur-md relative overflow-hidden">
         {/* Background Ambient Glows */}

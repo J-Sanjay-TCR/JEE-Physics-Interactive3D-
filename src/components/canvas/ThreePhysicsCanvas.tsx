@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { motion, AnimatePresence } from 'motion/react';
 import { SimulationType } from '../../types';
 import { SimulationRenderer } from './SimulationRenderer';
@@ -167,6 +168,22 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
   const axesHelperRef = useRef<THREE.AxesHelper | null>(null);
   const gridHelperBRef = useRef<THREE.GridHelper | null>(null);
   const axesHelperBRef = useRef<THREE.AxesHelper | null>(null);
+  const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
+  const dirLight1Ref = useRef<THREE.DirectionalLight | null>(null);
+  const dirLight2Ref = useRef<THREE.DirectionalLight | null>(null);
+  const hemiLightRef = useRef<THREE.HemisphereLight | null>(null);
+  const accentLightRef = useRef<THREE.PointLight | null>(null);
+  const starfieldRef = useRef<THREE.Points | null>(null);
+  const ambientLightBRef = useRef<THREE.AmbientLight | null>(null);
+  const dirLight1BRef = useRef<THREE.DirectionalLight | null>(null);
+  const dirLight2BRef = useRef<THREE.DirectionalLight | null>(null);
+  const hemiLightBRef = useRef<THREE.HemisphereLight | null>(null);
+  const accentLightBRef = useRef<THREE.PointLight | null>(null);
+  const starfieldBRef = useRef<THREE.Points | null>(null);
+  const pmremEnvRTRef = useRef<THREE.WebGLRenderTarget | null>(null);
+  const drawBufferSizeRef = useRef(new THREE.Vector2());
+  const panRightVecRef = useRef(new THREE.Vector3());
+  const panUpVecRef = useRef(new THREE.Vector3());
   const isSplitScreenRef = useRef(isSplitScreen);
   useEffect(() => {
     isSplitScreenRef.current = isSplitScreen;
@@ -176,8 +193,11 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     paramsBRef.current = paramsB;
   }, [paramsB]);
   const composerRef = useRef<EffectComposer | null>(null);
+  const composerRenderTargetRef = useRef<THREE.WebGLRenderTarget | null>(null);
   const bloomPassRef = useRef<UnrealBloomPass | null>(null);
+  const isLowTierDeviceRef = useRef<boolean>(false);
   const animFrameId = useRef<number>(0);
+  const [webglError, setWebglError] = useState<string | null>(null);
 
   // AR Mode State (controlled externally or internally)
   const [internalARMode, setInternalARMode] = useState(false);
@@ -277,56 +297,228 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     setEnvType((prev) => (prev === 'void' ? 'lab' : prev === 'lab' ? 'space' : 'void'));
   }, []);
 
+  const applyEnvironmentToScene = useCallback(
+    (
+      targetScene: THREE.Scene,
+      lights: {
+        ambient: THREE.AmbientLight | null;
+        dir1: THREE.DirectionalLight | null;
+        dir2: THREE.DirectionalLight | null;
+        hemi: THREE.HemisphereLight | null;
+        accent: THREE.PointLight | null;
+        stars: THREE.Points | null;
+      },
+      existingGridRef: React.MutableRefObject<THREE.GridHelper | null>
+    ) => {
+      const bgColor =
+        envType === 'space'
+          ? 0x000000
+          : envType === 'lab'
+            ? isDark
+              ? 0x1e293b
+              : 0xe2e8f0
+            : isCyberpunk
+              ? 0x030712
+              : isDark
+                ? 0x09090c
+                : 0xf8fafc;
+
+      if (isARMode) {
+        targetScene.background = null;
+      } else {
+        targetScene.background = new THREE.Color(bgColor);
+      }
+      targetScene.environmentIntensity =
+        envType === 'space' ? 0.42 : envType === 'lab' ? 0.58 : isDark || isCyberpunk ? 0.64 : 0.72;
+
+      if (lights.ambient) {
+        lights.ambient.color.setHex(
+          envType === 'space'
+            ? 0x222233
+            : envType === 'lab'
+              ? 0xffffff
+              : isCyberpunk
+                ? 0x0ea5e9
+                : isDark
+                  ? 0xe2e8f0
+                  : 0xf8fafc
+        );
+        lights.ambient.intensity =
+          envType === 'space' ? 0.16 : envType === 'lab' ? 0.30 : isCyberpunk ? 0.22 : isDark ? 0.24 : 0.34;
+      }
+      if (lights.dir1) {
+        lights.dir1.color.setHex(0xffffff);
+        lights.dir1.intensity =
+          envType === 'space' ? 1.85 : envType === 'lab' ? 1.25 : isCyberpunk ? 1.4 : isDark ? 1.35 : 1.35;
+      }
+      if (lights.dir2) {
+        lights.dir2.color.setHex(
+          envType === 'space'
+            ? 0x4488ff
+            : envType === 'lab'
+              ? 0xddddff
+              : isCyberpunk
+                ? 0x00ff9d
+                : isDark
+                  ? 0x38bdf8
+                  : 0x93c5fd
+        );
+        lights.dir2.intensity =
+          envType === 'space' ? 0.65 : envType === 'lab' ? 0.45 : isCyberpunk ? 0.52 : isDark ? 0.48 : 0.38;
+      }
+      if (lights.hemi) {
+        lights.hemi.color.setHex(
+          envType === 'space'
+            ? 0x000000
+            : envType === 'lab'
+              ? 0xffffff
+              : isCyberpunk
+                ? 0x0c4a6e
+                : isDark
+                  ? 0x334155
+                  : 0xffffff
+        );
+        lights.hemi.groundColor.setHex(
+          envType === 'space'
+            ? 0x111122
+            : envType === 'lab'
+              ? 0xbbbbcc
+              : isCyberpunk
+                ? 0x030712
+                : isDark
+                  ? 0x09090c
+                  : 0xe2e8f0
+        );
+        lights.hemi.intensity =
+          envType === 'space' ? 0.22 : envType === 'lab' ? 0.55 : isCyberpunk ? 0.42 : isDark ? 0.42 : 0.52;
+      }
+      if (lights.accent) {
+        lights.accent.color.setHex(
+          envType === 'space'
+            ? 0x00ffff
+            : envType === 'lab'
+              ? 0xffffff
+              : isCyberpunk
+                ? 0x00f0ff
+                : isDark
+                  ? 0x06b6d4
+                  : 0x3b82f6
+        );
+        lights.accent.intensity =
+          envType === 'space' ? 0.90 : envType === 'lab' ? 0.28 : isCyberpunk ? 0.40 : isDark ? 0.32 : 0.20;
+      }
+      if (lights.stars) {
+        lights.stars.visible = envType === 'space' && !isARMode;
+      }
+
+      const oldGrid = existingGridRef.current;
+      const wasVisible = oldGrid ? oldGrid.visible : showGrid;
+      if (oldGrid) {
+        targetScene.remove(oldGrid);
+        oldGrid.geometry.dispose();
+        const gm = oldGrid.material;
+        if (Array.isArray(gm)) gm.forEach((m) => m.dispose());
+        else gm.dispose();
+      }
+      const nextGrid = new THREE.GridHelper(
+        40,
+        40,
+        envType === 'space'
+          ? 0x333344
+          : envType === 'lab'
+            ? 0x999999
+            : isCyberpunk
+              ? 0x00f0ff
+              : isDark
+                ? 0x475569
+                : 0x94a3b8,
+        envType === 'space'
+          ? 0x111122
+          : envType === 'lab'
+            ? 0xcccccc
+            : isCyberpunk
+              ? 0x06283d
+              : isDark
+                ? 0x1e293b
+                : 0xe2e8f0
+      );
+      nextGrid.position.y = -0.01;
+      nextGrid.visible = wasVisible;
+      targetScene.add(nextGrid);
+      existingGridRef.current = nextGrid;
+      return bgColor;
+    },
+    [envType, isARMode, isCyberpunk, isDark, showGrid]
+  );
+
   useEffect(() => {
     if (sceneRef.current && rendererRef.current) {
-      if (isARMode) {
-        sceneRef.current.background = null;
-        rendererRef.current.setClearColor(0x000000, 0);
-      } else {
-        const bgColor = envType === 'space' 
-          ? 0x000000 
-          : envType === 'lab' 
-            ? (isDark ? 0x1e293b : 0xe2e8f0)
-            : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xf8fafc);
-            
-        sceneRef.current.background = new THREE.Color(bgColor);
-        rendererRef.current.setClearColor(bgColor, 1);
-      }
+      const bgColor = applyEnvironmentToScene(
+        sceneRef.current,
+        {
+          ambient: ambientLightRef.current,
+          dir1: dirLight1Ref.current,
+          dir2: dirLight2Ref.current,
+          hemi: hemiLightRef.current,
+          accent: accentLightRef.current,
+          stars: starfieldRef.current,
+        },
+        gridHelperRef
+      );
+      rendererRef.current.setClearColor(isARMode ? 0x000000 : bgColor, isARMode ? 0 : 1);
     }
-  }, [isARMode, isCyberpunk, isDark, envType]);
+    if (sceneBRef.current) {
+      applyEnvironmentToScene(
+        sceneBRef.current,
+        {
+          ambient: ambientLightBRef.current,
+          dir1: dirLight1BRef.current,
+          dir2: dirLight2BRef.current,
+          hemi: hemiLightBRef.current,
+          accent: accentLightBRef.current,
+          stars: starfieldBRef.current,
+        },
+        gridHelperBRef
+      );
+    }
+  }, [isARMode, isCyberpunk, isDark, envType, applyEnvironmentToScene]);
 
   // Update Bloom Pass dynamically when bloom intensity changes without scene rebuild
   useEffect(() => {
     if (rendererRef.current) {
       if (bloomIntensity === 'vibrant') {
-        rendererRef.current.toneMappingExposure = isCyberpunk ? 1.25 : 1.15;
+        rendererRef.current.toneMappingExposure = isCyberpunk ? 1.03 : 0.98;
       } else if (bloomIntensity === 'subtle') {
-        rendererRef.current.toneMappingExposure = isCyberpunk ? 1.05 : 1.0;
+        rendererRef.current.toneMappingExposure = isCyberpunk ? 1.0 : 0.98;
       } else {
-        rendererRef.current.toneMappingExposure = 1.0;
+        rendererRef.current.toneMappingExposure = 0.96;
       }
     }
 
     if (bloomPassRef.current) {
+      const isLowTier = isLowTierDeviceRef.current;
       const isDarkEnv = isDark || isCyberpunk || envType === 'space' || (envType === 'lab' && isDark);
       if (bloomIntensity === 'off') {
         bloomPassRef.current.enabled = false;
         bloomPassRef.current.strength = 0;
       } else if (bloomIntensity === 'subtle') {
         bloomPassRef.current.enabled = true;
-        bloomPassRef.current.strength = 0.58;
-        bloomPassRef.current.radius = 0.38;
-        bloomPassRef.current.threshold = isDarkEnv ? 0.38 : 0.52;
+        bloomPassRef.current.strength = isLowTier ? 0.14 : 0.22;
+        bloomPassRef.current.radius = isLowTier ? 0.18 : 0.24;
+        bloomPassRef.current.threshold = isDarkEnv ? 0.84 : 0.94;
       } else {
-        // Vibrant: High-contrast optical bloom with radiant neon trails, lasers & glowing vectors
+        // Vibrant: Selective HDR optical bloom exclusively on bright emitters while solid surfaces stay crisp
         bloomPassRef.current.enabled = true;
-        bloomPassRef.current.strength = 1.35;
-        bloomPassRef.current.radius = 0.65;
-        bloomPassRef.current.threshold = isDarkEnv ? 0.15 : 0.28;
+        bloomPassRef.current.strength = isLowTier ? 0.30 : 0.45;
+        bloomPassRef.current.radius = isLowTier ? 0.24 : 0.36;
+        bloomPassRef.current.threshold = isDarkEnv ? 0.68 : 0.82;
       }
     }
     if (simRendererRef.current) {
       simRendererRef.current.setBloomIntensity(bloomIntensity);
+    }
+    if (simRendererBRef.current) {
+      simRendererBRef.current.setBloomIntensity(bloomIntensity);
     }
   }, [bloomIntensity, isDark, isCyberpunk, envType]);
 
@@ -361,6 +553,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     }
     return 16 / 9;
   });
+  const [canvasHeight, setCanvasHeight] = useState<number>(480);
 
   // Compute comprehensive projectile trajectory details & metrics
   const projectileTrajectoryData = React.useMemo(() => {
@@ -729,8 +922,9 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     const dx = px - target[0];
     const dy = py - target[1];
     const dz = pz - target[2];
-    let radius = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    const phi = Math.acos(dy / radius);
+    const rawRadius = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    let radius = Math.max(0.001, Number.isFinite(rawRadius) ? rawRadius : 20);
+    const phi = Math.acos(THREE.MathUtils.clamp(dy / radius, -1, 1));
     const theta = Math.atan2(dx, dz);
 
     // Dynamic 4:3 projector and narrow screen distance adaptation
@@ -801,93 +995,197 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
     };
   }, [resetCamera, setCameraPresetView, handleZoom]);
 
-  // Initialize Three.js Scene
+  // Complete GPU Resource Disposal Helper
+  const disposeSceneResources = useCallback((scene: THREE.Scene | null) => {
+    if (!scene) return;
+    const textureSlots = [
+      'map',
+      'normalMap',
+      'roughnessMap',
+      'metalnessMap',
+      'aoMap',
+      'emissiveMap',
+      'alphaMap',
+      'bumpMap',
+      'displacementMap',
+      'envMap',
+      'lightMap',
+    ] as const;
+
+    scene.traverse((child) => {
+      const anyChild = child as any;
+      if (typeof anyChild.dispose === 'function' && child instanceof THREE.InstancedMesh) {
+        anyChild.dispose();
+      }
+      const mesh = child as THREE.Mesh;
+      if (mesh.geometry && typeof mesh.geometry.dispose === 'function') {
+        mesh.geometry.dispose();
+      }
+      if (mesh.material) {
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((m: any) => {
+          if (!m) return;
+          for (const slot of textureSlots) {
+            if (m[slot] && typeof m[slot].dispose === 'function') {
+              m[slot].dispose();
+            }
+          }
+          if (typeof m.dispose === 'function') m.dispose();
+        });
+      }
+    });
+  }, []);
+
+  // Initialize Three.js Scene (Only recreates WebGL context on simulationType change)
   useEffect(() => {
     if (!containerRef.current) return;
+    setWebglError(null);
 
     const width = containerRef.current.clientWidth || 800;
     const height = containerRef.current.clientHeight || 500;
 
     // 1. Scene
     const scene = new THREE.Scene();
-    if (!isARMode) {
-      const bgColor = envType === 'space' 
-        ? 0x000000 
-        : envType === 'lab' 
-          ? (isDark ? 0x1e293b : 0xe2e8f0)
-          : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xf8fafc);
-      scene.background = new THREE.Color(bgColor);
-    } else {
-      scene.background = null;
-    }
     sceneRef.current = scene;
 
     // 2. Camera with Adaptive 4:3 Projector / Widescreen FOV
-    const initialAspect = width / height;
+    const initialAspect = width / Math.max(1, height);
     const initialFov = calculateAdaptiveFov(initialAspect, 45);
     const camera = new THREE.PerspectiveCamera(initialFov, initialAspect, 0.1, 1000);
     cameraRef.current = camera;
     resetCamera();
 
-    // 3. Renderer
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      powerPreference: 'high-performance',
-      preserveDrawingBuffer: true,
-    });
+    // 3. Renderer (guarded against WebGL context failure)
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+        powerPreference: 'high-performance',
+        preserveDrawingBuffer: true,
+      });
+    } catch (err: any) {
+      console.error('[ThreePhysicsCanvas] Failed to initialize WebGLRenderer:', err);
+      setWebglError(
+        err?.message || '3D WebGL hardware acceleration is unavailable in this browser session.'
+      );
+      return;
+    }
+
     renderer.domElement.id = 'three-physics-webgl-canvas';
-    renderer.setClearColor(
-      envType === 'space' 
-        ? 0x000000 
-        : envType === 'lab' 
-          ? (isDark ? 0x1e293b : 0xe2e8f0)
-          : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xf8fafc),
-      isARMode ? 0 : 1
-    );
     const isMobileDevice =
       typeof window !== 'undefined' &&
       (window.innerWidth < 768 || ('ontouchstart' in window && window.innerWidth < 1024));
 
+    // Software WebGL fallback detector (SwiftShader / llvmpipe / WARP)
+    let isSoftwareGl = false;
+    try {
+      const gl = renderer.getContext();
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const unmaskedRenderer = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '') : '';
+      isSoftwareGl = /SwiftShader|llvmpipe|Software Rasterizer|WARP/i.test(unmaskedRenderer);
+    } catch {
+      isSoftwareGl = false;
+    }
+
+    isLowTierDeviceRef.current = isMobileDevice || isSoftwareGl;
+
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = isCyberpunk ? 1.05 : 1.0;
+    renderer.toneMappingExposure =
+      bloomIntensity === 'vibrant'
+        ? isCyberpunk
+          ? 1.03
+          : 0.98
+        : bloomIntensity === 'subtle'
+          ? isCyberpunk
+            ? 1.0
+            : 0.98
+          : 0.96;
     renderer.setSize(width, height);
     renderer.setPixelRatio(
-      isMobileDevice ? Math.min(window.devicePixelRatio, 1.2) : Math.min(window.devicePixelRatio, 2)
+      isSoftwareGl
+        ? Math.min(window.devicePixelRatio || 1, 1.0)
+        : isMobileDevice
+          ? Math.min(window.devicePixelRatio || 1, 1.2)
+          : Math.min(window.devicePixelRatio || 1, 2)
     );
-    // Disable expensive shadow map recalculations on mobile GPUs
-    renderer.shadowMap.enabled = !isMobileDevice;
+    renderer.shadowMap.enabled = !(isMobileDevice || isSoftwareGl);
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     rendererRef.current = renderer;
+
+    // Procedural IBL Reflection Map via RoomEnvironment + PMREMGenerator
+    let pmrem: THREE.PMREMGenerator | null = null;
+    let roomEnv: RoomEnvironment | null = null;
+    try {
+      pmrem = new THREE.PMREMGenerator(renderer);
+      roomEnv = new RoomEnvironment();
+      const envRT = pmrem.fromScene(roomEnv, 0.04);
+      pmremEnvRTRef.current = envRT;
+      scene.environment = envRT.texture;
+      if (sceneBRef.current) {
+        sceneBRef.current.environment = envRT.texture;
+      }
+      roomEnv.dispose();
+      pmrem.dispose();
+      roomEnv = null;
+      pmrem = null;
+    } catch (envErr) {
+      console.warn('[ThreePhysicsCanvas] PMREM environment fallback:', envErr);
+      roomEnv?.dispose();
+      pmrem?.dispose();
+    }
 
     containerRef.current.innerHTML = '';
     containerRef.current.appendChild(renderer.domElement);
 
-    // Setup Post-Processing EffectComposer & UnrealBloomPass for Neon Glowing Effects
+    // Setup Post-Processing EffectComposer & HalfFloat HDR UnrealBloomPass
     try {
-      const composer = new EffectComposer(renderer);
+      let hdrRenderTarget: THREE.WebGLRenderTarget | undefined;
+      try {
+        hdrRenderTarget = new THREE.WebGLRenderTarget(width, height, {
+          type: THREE.HalfFloatType,
+          samples: isMobileDevice || isSoftwareGl ? 0 : 4,
+        });
+        composerRenderTargetRef.current = hdrRenderTarget;
+      } catch {
+        hdrRenderTarget = undefined;
+        composerRenderTargetRef.current = null;
+      }
+
+      const composer = hdrRenderTarget
+        ? new EffectComposer(renderer, hdrRenderTarget)
+        : new EffectComposer(renderer);
       const renderPass = new RenderPass(scene, camera);
       composer.addPass(renderPass);
 
+      const isLowTier = isMobileDevice || isSoftwareGl;
       const isDarkEnv = isDark || isCyberpunk || envType === 'space' || (envType === 'lab' && isDark);
-      const strength = isMobileDevice
+      const strength = isLowTier
         ? bloomIntensity === 'vibrant'
-          ? 0.75
+          ? 0.30
           : bloomIntensity === 'subtle'
-          ? 0.35
-          : 0
+            ? 0.14
+            : 0
         : bloomIntensity === 'vibrant'
-        ? 1.35
-        : bloomIntensity === 'subtle'
-        ? 0.58
-        : 0;
+          ? 0.45
+          : bloomIntensity === 'subtle'
+            ? 0.22
+            : 0;
       const threshold = isDarkEnv
         ? bloomIntensity === 'vibrant'
-          ? 0.15
-          : 0.38
+          ? 0.68
+          : 0.84
         : bloomIntensity === 'vibrant'
-        ? 0.28
-        : 0.52;
-      const radius = isMobileDevice ? 0.35 : bloomIntensity === 'vibrant' ? 0.65 : 0.38;
+          ? 0.82
+          : 0.94;
+      const radius = isLowTier
+        ? bloomIntensity === 'vibrant'
+          ? 0.24
+          : 0.18
+        : bloomIntensity === 'vibrant'
+          ? 0.36
+          : 0.24;
 
       const bloomPass = new UnrealBloomPass(
         new THREE.Vector2(width, height),
@@ -905,78 +1203,79 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       composerRef.current = composer;
     } catch (err) {
       console.warn('Postprocessing bloom setup encountered fallback:', err);
+      composerRenderTargetRef.current?.dispose();
+      composerRenderTargetRef.current = null;
       composerRef.current = null;
       bloomPassRef.current = null;
     }
 
-    // 4. Lights with dynamic theme synchronization
-    const ambientLight = new THREE.AmbientLight(
-      envType === 'space' ? 0x222233 : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x00f0ff : isDark ? 0xffffff : 0xf8fafc),
-      envType === 'space' ? 0.3 : envType === 'lab' ? 1.5 : (isCyberpunk ? 0.95 : isDark ? 0.95 : 1.35)
-    );
+    // 4. Lights (configured via applyEnvironmentToScene & held in refs)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
     scene.add(ambientLight);
+    ambientLightRef.current = ambientLight;
 
-    // Directional Key Sun Light
-    const dirLight1 = new THREE.DirectionalLight(
-      envType === 'space' ? 0xffffff : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0xffffff : isDark ? 0xffffff : 0xffffff),
-      envType === 'space' ? 2.5 : envType === 'lab' ? 1.2 : (isCyberpunk ? 1.6 : isDark ? 1.5 : 1.6)
-    );
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.5);
     dirLight1.position.set(20, 32, 20);
-    dirLight1.castShadow = true;
+    dirLight1.castShadow = !(isMobileDevice || isSoftwareGl);
+    const shadowRes = isMobileDevice || isSoftwareGl ? 512 : 1024;
+    dirLight1.shadow.mapSize.set(shadowRes, shadowRes);
+    dirLight1.shadow.camera.left = -18;
+    dirLight1.shadow.camera.right = 18;
+    dirLight1.shadow.camera.top = 18;
+    dirLight1.shadow.camera.bottom = -18;
+    dirLight1.shadow.camera.near = 1;
+    dirLight1.shadow.camera.far = 85;
+    dirLight1.shadow.bias = -0.0004;
+    dirLight1.shadow.normalBias = 0.02;
     scene.add(dirLight1);
+    dirLight1Ref.current = dirLight1;
 
-    // Directional Fill / Specular Rim Light
-    const dirLight2 = new THREE.DirectionalLight(
-      envType === 'space' ? 0x4488ff : envType === 'lab' ? 0xddddff : (isCyberpunk ? 0x00ff9d : isDark ? 0x38bdf8 : 0x93c5fd),
-      envType === 'space' ? 1.0 : envType === 'lab' ? 0.8 : (isCyberpunk ? 0.9 : isDark ? 0.75 : 0.45)
-    );
+    const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.75);
     dirLight2.position.set(-20, 12, -20);
     scene.add(dirLight2);
+    dirLight2Ref.current = dirLight2;
 
-    // Hemisphere Light (Sky vs Ground Natural Irradiance)
-    const hemiLight = new THREE.HemisphereLight(
-      envType === 'space' ? 0x000000 : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x0c4a6e : isDark ? 0x334155 : 0xffffff),
-      envType === 'space' ? 0x111122 : envType === 'lab' ? 0xbbbbcc : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xe2e8f0),
-      envType === 'space' ? 0.2 : envType === 'lab' ? 0.9 : (isCyberpunk ? 0.7 : isDark ? 0.65 : 0.85)
-    );
+    const hemiLight = new THREE.HemisphereLight(0x334155, 0x09090c, 0.65);
     hemiLight.position.set(0, 50, 0);
     scene.add(hemiLight);
+    hemiLightRef.current = hemiLight;
 
-    // Dynamic Accent Fill Light
-    const accentLight = new THREE.PointLight(
-      envType === 'space' ? 0x00ffff : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x00f0ff : isDark ? 0x06b6d4 : 0x3b82f6),
-      envType === 'space' ? 1.5 : envType === 'lab' ? 0.5 : (isCyberpunk ? 0.75 : isDark ? 0.5 : 0.3),
-      50
-    );
+    const accentLight = new THREE.PointLight(0x06b6d4, 0.5, 50);
     accentLight.position.set(0, 10, 15);
     scene.add(accentLight);
+    accentLightRef.current = accentLight;
 
-    // Add Starfield for Space Environment
-    if (envType === 'space') {
-      const starGeo = new THREE.BufferGeometry();
-      const starCount = 1500;
-      const starPos = new Float32Array(starCount * 3);
-      for(let i=0; i<starCount*3; i++) {
-        starPos[i] = (Math.random() - 0.5) * 300;
-      }
-      starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-      const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, transparent: true, opacity: 0.8 });
-      const stars = new THREE.Points(starGeo, starMat);
-      scene.add(stars);
+    // Pre-create Starfield (toggled via applyEnvironmentToScene without rebuilding renderer)
+    const starGeo = new THREE.BufferGeometry();
+    const starCount = 1500;
+    const starPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount * 3; i++) {
+      starPos[i] = (Math.random() - 0.5) * 300;
     }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, transparent: true, opacity: 0.8 });
+    const stars = new THREE.Points(starGeo, starMat);
+    stars.visible = envType === 'space' && !isARMode;
+    scene.add(stars);
+    starfieldRef.current = stars;
 
-    // 5. Grid and Axes with theme-tuned colors
-    const gridHelper = new THREE.GridHelper(
-      40,
-      40,
-      envType === 'space' ? 0x333344 : envType === 'lab' ? 0x999999 : (isCyberpunk ? 0x00f0ff : isDark ? 0x475569 : 0x94a3b8),
-      envType === 'space' ? 0x111122 : envType === 'lab' ? 0xcccccc : (isCyberpunk ? 0x06283d : isDark ? 0x1e293b : 0xe2e8f0)
+    // 5. Grid and Axes
+    const initialBg = applyEnvironmentToScene(
+      scene,
+      {
+        ambient: ambientLight,
+        dir1: dirLight1,
+        dir2: dirLight2,
+        hemi: hemiLight,
+        accent: accentLight,
+        stars,
+      },
+      gridHelperRef
     );
-    gridHelper.position.y = -0.01;
-    scene.add(gridHelper);
-    gridHelperRef.current = gridHelper;
+    renderer.setClearColor(isARMode ? 0x000000 : initialBg, isARMode ? 0 : 1);
 
     const axesHelper = new THREE.AxesHelper(5);
+    axesHelper.visible = showAxes;
     scene.add(axesHelper);
     axesHelperRef.current = axesHelper;
 
@@ -1002,34 +1301,33 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
       if (w <= 0 || h <= 0) return;
-      
+
       const aspect = w / h;
       cameraRef.current.aspect = aspect;
-
-      // Adaptive Field of View (FOV) calculation:
-      // When rendering on 4:3 projector screens (aspect ~ 1.333) or tablet/mobile displays,
-      // expands vertical FOV to preserve full horizontal viewing volume across all ratios:
       cameraRef.current.fov = calculateAdaptiveFov(aspect, 45);
       cameraRef.current.updateProjectionMatrix();
 
       rendererRef.current.setSize(w, h);
       if (composerRef.current) {
+        composerRef.current.setPixelRatio(rendererRef.current.getPixelRatio());
         composerRef.current.setSize(w, h);
-        if (bloomPassRef.current) {
-          bloomPassRef.current.resolution.set(w, h);
-        }
       }
       setDetectedAspect(aspect);
+      setCanvasHeight(h);
+      if (h < 330) {
+        setIsTrajectoryHudExpanded(false);
+        setIsLegendExpanded(false);
+      }
     };
 
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(containerRef.current);
+    handleResize();
 
-    // 8. Render Loop with Real-time FPS & Frame Time Profiler
+    // 8. Render Loop with Zero-Allocation Scratch Buffers & FPS Profiler
     const render = (now: number) => {
       animFrameId.current = requestAnimationFrame(render);
 
-      // Measure delta between animation frames
       const delta = now - lastFrameTimeRef.current;
       lastFrameTimeRef.current = now;
 
@@ -1040,7 +1338,6 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         }
       }
 
-      // Smoothly update FPS state every 1200ms to eliminate unnecessary React component re-renders
       if (now - lastFpsUpdateRef.current > 1200 && frameTimesRef.current.length > 0) {
         const avgDelta =
           frameTimesRef.current.reduce((sum, val) => sum + val, 0) /
@@ -1051,14 +1348,12 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         setIsLowFps(computedFps < 30);
         lastFpsUpdateRef.current = now;
 
-        // Auto-adjustment feature: triggers when sustained low frame rate (<30 FPS) is detected for > 3.0s (corrected from 1.5s)
         if (adaptivePerformanceRef.current) {
           if (computedFps < 30) {
             if (lowFpsStartTimeRef.current === null) {
               lowFpsStartTimeRef.current = now;
             }
             const sustainedSec = (now - lowFpsStartTimeRef.current) / 1000;
-            // Sustained low frame rate detected for > 3.0 seconds triggers auto-adjustment
             if (sustainedSec >= 3.0) {
               lowFpsStartTimeRef.current = null;
               triggerAutoAdjustment(computedFps, sustainedSec);
@@ -1072,7 +1367,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         try {
           const isSplit = Boolean(isSplitScreenRef.current && sceneBRef.current);
-          const dSize = new THREE.Vector2();
+          const dSize = drawBufferSizeRef.current;
           rendererRef.current.getDrawingBufferSize(dSize);
           const fullW = dSize.x;
           const fullH = dSize.y;
@@ -1081,17 +1376,17 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             const halfW = Math.floor(fullW / 2);
             rendererRef.current.setScissorTest(true);
 
-            // --- Left Viewport: Parameter Setup A ---
             cameraRef.current.aspect = halfW / Math.max(1, fullH);
             cameraRef.current.updateProjectionMatrix();
+            simRendererRef.current?.updateLabelLOD(cameraRef.current, defaultRadius.current);
             rendererRef.current.setViewport(0, 0, halfW, fullH);
             rendererRef.current.setScissor(0, 0, halfW, fullH);
             rendererRef.current.render(sceneRef.current, cameraRef.current);
 
-            // --- Right Viewport: Parameter Setup B ---
             const rightW = fullW - halfW;
             cameraRef.current.aspect = rightW / Math.max(1, fullH);
             cameraRef.current.updateProjectionMatrix();
+            simRendererBRef.current?.updateLabelLOD(cameraRef.current, defaultRadius.current);
             rendererRef.current.setViewport(halfW, 0, rightW, fullH);
             rendererRef.current.setScissor(halfW, 0, rightW, fullH);
             rendererRef.current.render(sceneBRef.current, cameraRef.current);
@@ -1100,6 +1395,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           } else {
             cameraRef.current.aspect = fullW / Math.max(1, fullH);
             cameraRef.current.updateProjectionMatrix();
+            simRendererRef.current?.updateLabelLOD(cameraRef.current, defaultRadius.current);
             rendererRef.current.setViewport(0, 0, fullW, fullH);
 
             if (!isARModeRef.current && composerRef.current && bloomIntensityRef.current !== 'off') {
@@ -1109,7 +1405,6 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             }
           }
 
-          // Mark scene as initialized once the first frame renders successfully
           if (!firstFrameRenderedRef.current) {
             firstFrameRenderedRef.current = true;
             setTimeout(() => {
@@ -1144,33 +1439,40 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       resizeObserver.disconnect();
       if (simRendererRef.current) {
         simRendererRef.current.cleanup();
+        simRendererRef.current = null;
       }
       if (composerRef.current) {
         composerRef.current.dispose();
         composerRef.current = null;
       }
-      bloomPassRef.current = null;
-      if (sceneRef.current) {
-        sceneRef.current.traverse((child) => {
-          const mesh = child as THREE.Mesh;
-          if (mesh.geometry) mesh.geometry.dispose();
-          if (mesh.material) {
-            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-            mats.forEach((m) => {
-              if ((m as any).map) (m as any).map.dispose();
-              m.dispose();
-            });
-          }
-        });
+      if (composerRenderTargetRef.current) {
+        composerRenderTargetRef.current.dispose();
+        composerRenderTargetRef.current = null;
       }
+      bloomPassRef.current = null;
+      if (pmremEnvRTRef.current) {
+        pmremEnvRTRef.current.dispose();
+        pmremEnvRTRef.current = null;
+      }
+      disposeSceneResources(sceneRef.current);
+      sceneRef.current = null;
+      ambientLightRef.current = null;
+      dirLight1Ref.current = null;
+      dirLight2Ref.current = null;
+      hemiLightRef.current = null;
+      accentLightRef.current = null;
+      starfieldRef.current = null;
+      gridHelperRef.current = null;
+      axesHelperRef.current = null;
       renderer.dispose();
+      rendererRef.current = null;
       if (canvasElement && canvasElement.parentNode) {
         canvasElement.parentNode.removeChild(canvasElement);
       }
     };
-  }, [simulationType, isDark, isCyberpunk, envType]);
+  }, [simulationType]);
 
-  // Update real-time physics on time/param changes
+  // Update real-time physics on time/param/theme changes
   useEffect(() => {
     if (simRendererRef.current && sceneRef.current) {
       simRendererRef.current.update({
@@ -1183,12 +1485,11 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         showGrid,
         showAxes,
         isDark,
+        bloomIntensity,
       });
-      if (hiddenVectorIds.size > 0) {
-        simRendererRef.current.setHiddenVectors(hiddenVectorIds);
-      }
+      simRendererRef.current.setHiddenVectors(hiddenVectorIds);
     }
-  }, [params, simTime, showVectors, showLabels, showTrajectory, hiddenVectorIds]);
+  }, [params, simTime, showVectors, showLabels, showTrajectory, hiddenVectorIds, isDark, bloomIntensity]);
 
   // Toggle Grid / Axes
   useEffect(() => {
@@ -1206,96 +1507,88 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         simRendererBRef.current = null;
       }
       if (sceneBRef.current) {
-        sceneBRef.current.traverse((child) => {
-          const mesh = child as THREE.Mesh;
-          if (mesh.geometry) mesh.geometry.dispose();
-          if (mesh.material) {
-            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-            mats.forEach((m) => {
-              if ((m as any).map) (m as any).map.dispose();
-              m.dispose();
-            });
-          }
-        });
+        disposeSceneResources(sceneBRef.current);
         sceneBRef.current = null;
       }
+      ambientLightBRef.current = null;
+      dirLight1BRef.current = null;
+      dirLight2BRef.current = null;
+      hemiLightBRef.current = null;
+      accentLightBRef.current = null;
+      starfieldBRef.current = null;
       gridHelperBRef.current = null;
       axesHelperBRef.current = null;
       return;
     }
 
     const sceneB = new THREE.Scene();
-    if (!isARMode) {
-      const bgColor = envType === 'space' 
-        ? 0x000000 
-        : envType === 'lab' 
-          ? (isDark ? 0x1e293b : 0xe2e8f0)
-          : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xf8fafc);
-      sceneB.background = new THREE.Color(bgColor);
-    } else {
-      sceneB.background = null;
+    if (pmremEnvRTRef.current) {
+      sceneB.environment = pmremEnvRTRef.current.texture;
     }
 
-    const ambientLight = new THREE.AmbientLight(
-      envType === 'space' ? 0x222233 : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x0c1b33 : isDark ? 0x1e293b : 0xffffff),
-      envType === 'space' ? 0.3 : envType === 'lab' ? 1.5 : (isCyberpunk ? 0.95 : isDark ? 0.95 : 1.35)
-    );
+    const isMobileDevice =
+      typeof window !== 'undefined' &&
+      (window.innerWidth < 768 || ('ontouchstart' in window && window.innerWidth < 1024));
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
     sceneB.add(ambientLight);
+    ambientLightBRef.current = ambientLight;
 
-    const dirLight1 = new THREE.DirectionalLight(
-      envType === 'space' ? 0xffffff : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0xffffff : isDark ? 0xffffff : 0xffffff),
-      envType === 'space' ? 2.5 : envType === 'lab' ? 1.2 : (isCyberpunk ? 1.6 : isDark ? 1.5 : 1.6)
-    );
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.5);
     dirLight1.position.set(20, 32, 20);
-    dirLight1.castShadow = true;
+    dirLight1.castShadow = !isMobileDevice;
+    dirLight1.shadow.mapSize.set(isMobileDevice ? 512 : 1024, isMobileDevice ? 512 : 1024);
+    dirLight1.shadow.camera.left = -18;
+    dirLight1.shadow.camera.right = 18;
+    dirLight1.shadow.camera.top = 18;
+    dirLight1.shadow.camera.bottom = -18;
+    dirLight1.shadow.camera.near = 1;
+    dirLight1.shadow.camera.far = 85;
+    dirLight1.shadow.bias = -0.0004;
+    dirLight1.shadow.normalBias = 0.02;
     sceneB.add(dirLight1);
+    dirLight1BRef.current = dirLight1;
 
-    const dirLight2 = new THREE.DirectionalLight(
-      envType === 'space' ? 0x4488ff : envType === 'lab' ? 0xddddff : (isCyberpunk ? 0x00ff9d : isDark ? 0x38bdf8 : 0x93c5fd),
-      envType === 'space' ? 1.0 : envType === 'lab' ? 0.8 : (isCyberpunk ? 0.9 : isDark ? 0.75 : 0.45)
-    );
+    const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.75);
     dirLight2.position.set(-20, 12, -20);
     sceneB.add(dirLight2);
+    dirLight2BRef.current = dirLight2;
 
-    const hemiLight = new THREE.HemisphereLight(
-      envType === 'space' ? 0x000000 : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x0c4a6e : isDark ? 0x334155 : 0xffffff),
-      envType === 'space' ? 0x111122 : envType === 'lab' ? 0xbbbbcc : (isCyberpunk ? 0x030712 : isDark ? 0x09090c : 0xe2e8f0),
-      envType === 'space' ? 0.2 : envType === 'lab' ? 0.9 : (isCyberpunk ? 0.7 : isDark ? 0.65 : 0.85)
-    );
+    const hemiLight = new THREE.HemisphereLight(0x334155, 0x09090c, 0.65);
     hemiLight.position.set(0, 50, 0);
     sceneB.add(hemiLight);
+    hemiLightBRef.current = hemiLight;
 
-    const accentLight = new THREE.PointLight(
-      envType === 'space' ? 0x00ffff : envType === 'lab' ? 0xffffff : (isCyberpunk ? 0x00f0ff : isDark ? 0x06b6d4 : 0x3b82f6),
-      envType === 'space' ? 1.5 : envType === 'lab' ? 0.5 : (isCyberpunk ? 0.75 : isDark ? 0.5 : 0.3),
-      50
-    );
+    const accentLight = new THREE.PointLight(0x06b6d4, 0.5, 50);
     accentLight.position.set(0, 10, 15);
     sceneB.add(accentLight);
+    accentLightBRef.current = accentLight;
 
-    if (envType === 'space') {
-      const starGeo = new THREE.BufferGeometry();
-      const starCount = 1500;
-      const starPos = new Float32Array(starCount * 3);
-      for(let i=0; i<starCount*3; i++) {
-        starPos[i] = (Math.random() - 0.5) * 300;
-      }
-      starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-      const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, transparent: true, opacity: 0.8 });
-      const stars = new THREE.Points(starGeo, starMat);
-      sceneB.add(stars);
+    const starGeo = new THREE.BufferGeometry();
+    const starCount = 1500;
+    const starPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount * 3; i++) {
+      starPos[i] = (Math.random() - 0.5) * 300;
     }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, transparent: true, opacity: 0.8 });
+    const stars = new THREE.Points(starGeo, starMat);
+    stars.visible = envType === 'space' && !isARMode;
+    sceneB.add(stars);
+    starfieldBRef.current = stars;
 
-    const gridHelperB = new THREE.GridHelper(
-      40,
-      40,
-      envType === 'space' ? 0x333344 : envType === 'lab' ? 0x999999 : (isCyberpunk ? 0x00f0ff : isDark ? 0x475569 : 0x94a3b8),
-      envType === 'space' ? 0x111122 : envType === 'lab' ? 0xcccccc : (isCyberpunk ? 0x06283d : isDark ? 0x1e293b : 0xe2e8f0)
+    applyEnvironmentToScene(
+      sceneB,
+      {
+        ambient: ambientLight,
+        dir1: dirLight1,
+        dir2: dirLight2,
+        hemi: hemiLight,
+        accent: accentLight,
+        stars,
+      },
+      gridHelperBRef
     );
-    gridHelperB.position.y = -0.01;
-    gridHelperB.visible = showGrid;
-    sceneB.add(gridHelperB);
-    gridHelperBRef.current = gridHelperB;
 
     const axesHelperB = new THREE.AxesHelper(5);
     axesHelperB.visible = showAxes;
@@ -1325,25 +1618,21 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         simRendererBRef.current = null;
       }
       if (sceneBRef.current) {
-        sceneBRef.current.traverse((child) => {
-          const mesh = child as THREE.Mesh;
-          if (mesh.geometry) mesh.geometry.dispose();
-          if (mesh.material) {
-            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-            mats.forEach((m) => {
-              if ((m as any).map) (m as any).map.dispose();
-              m.dispose();
-            });
-          }
-        });
+        disposeSceneResources(sceneBRef.current);
         sceneBRef.current = null;
       }
+      ambientLightBRef.current = null;
+      dirLight1BRef.current = null;
+      dirLight2BRef.current = null;
+      hemiLightBRef.current = null;
+      accentLightBRef.current = null;
+      starfieldBRef.current = null;
       gridHelperBRef.current = null;
       axesHelperBRef.current = null;
     };
-  }, [isSplitScreen, simulationType, isDark, isCyberpunk, envType]);
+  }, [isSplitScreen, simulationType, disposeSceneResources]);
 
-  // Update Scene B physics on param or time change
+  // Update Scene B physics on param, time, or theme change
   useEffect(() => {
     if (isSplitScreen && simRendererBRef.current && sceneBRef.current) {
       simRendererBRef.current.update({
@@ -1356,12 +1645,11 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         showGrid,
         showAxes,
         isDark,
+        bloomIntensity,
       });
-      if (hiddenVectorIds.size > 0) {
-        simRendererBRef.current.setHiddenVectors(hiddenVectorIds);
-      }
+      simRendererBRef.current.setHiddenVectors(hiddenVectorIds);
     }
-  }, [isSplitScreen, paramsB, simTime, showVectors, showLabels, showTrajectory, hiddenVectorIds]);
+  }, [isSplitScreen, paramsB, simTime, showVectors, showLabels, showTrajectory, hiddenVectorIds, isDark, bloomIntensity]);
 
   // Mouse & Touch Orbit Event Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -1388,8 +1676,8 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       updateCameraTransform();
     } else if (isPanning.current && cameraRef.current) {
       const panSpeed = 0.02;
-      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cameraRef.current.quaternion);
-      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cameraRef.current.quaternion);
+      const right = panRightVecRef.current.set(1, 0, 0).applyQuaternion(cameraRef.current.quaternion);
+      const up = panUpVecRef.current.set(0, 1, 0).applyQuaternion(cameraRef.current.quaternion);
 
       cameraTarget.current.addScaledVector(right, -deltaX * panSpeed);
       cameraTarget.current.addScaledVector(up, deltaY * panSpeed);
@@ -1486,8 +1774,8 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         const deltaMidY = currentMidY - touchStartMidpoint.current.y;
 
         const panSpeed = 0.02;
-        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cameraRef.current.quaternion);
-        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cameraRef.current.quaternion);
+        const right = panRightVecRef.current.set(1, 0, 0).applyQuaternion(cameraRef.current.quaternion);
+        const up = panUpVecRef.current.set(0, 1, 0).applyQuaternion(cameraRef.current.quaternion);
 
         cameraTarget.current.addScaledVector(right, -deltaMidX * panSpeed);
         cameraTarget.current.addScaledVector(up, deltaMidY * panSpeed);
@@ -1520,7 +1808,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
   return (
     <div
-      className="relative w-full h-full min-h-[340px] sm:min-h-[420px] rounded-2xl overflow-hidden border border-white/[0.08] bg-[#0A0A0B] select-none shadow-2xl flex flex-col touch-none"
+      className="relative w-full h-full min-h-[260px] rounded-2xl overflow-hidden border border-white/[0.08] bg-[#0A0A0B] select-none shadow-2xl flex flex-col touch-none"
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* AR Camera Video Overlay */}
@@ -1547,13 +1835,33 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
         onTouchCancel={handleTouchEnd}
       />
 
+      {/* WebGL Context / Hardware Initialization Fallback UI */}
+      {webglError && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center p-4 bg-[#070B14]/96">
+          <div className="max-w-md w-full rounded-2xl border border-rose-500/40 bg-[#10131F] p-5 text-center shadow-2xl space-y-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center mx-auto">
+              <AlertCircle className="w-5 h-5 text-rose-400" />
+            </div>
+            <h3 className="text-sm font-extrabold text-white">3D WebGL Renderer Unavailable</h3>
+            <p className="text-xs text-zinc-400 leading-relaxed">{webglError}</p>
+            <button
+              type="button"
+              onClick={() => setWebglError(null)}
+              className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold text-xs hover:bg-cyan-400 transition cursor-pointer"
+            >
+              Retry Initialization
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Unified Top Controls & Telemetry Bar - Integrated in a single responsive row to prevent collisions */}
       {!isFocusMode && (
         <div className="absolute top-2 sm:top-2.5 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between pointer-events-none gap-1 sm:gap-2 z-30">
           {/* Left Controls: Stage/AR, Split-Screen, Aspect Ratio, Preset Views */}
-          <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto shrink-0 overflow-x-auto max-w-[55%] sm:max-w-[60%] no-scrollbar py-0.5">
+          <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto shrink-0 overflow-x-auto max-w-[56%] sm:max-w-[60%] no-scrollbar py-0.5">
             {isARMode ? (
-              <div className="px-2 py-1 rounded-lg bg-emerald-950/90 backdrop-blur-md border border-emerald-400/50 text-[10px] sm:text-xs font-bold text-emerald-300 flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.35)] shrink-0">
+              <div className="px-2 py-1 rounded-lg bg-emerald-950/95 border border-emerald-400/50 text-[10px] sm:text-xs font-bold text-emerald-300 flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.35)] shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
                 <Camera className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="hidden xs:inline">AR Live</span>
@@ -1566,7 +1874,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-lg bg-[#111114]/90 backdrop-blur-md border border-white/[0.08] text-[10px] sm:text-xs font-semibold text-cyan-400 flex items-center gap-1.5 shadow-md shrink-0">
+              <div className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-lg bg-[#111114]/95 border border-white/[0.1] text-[10px] sm:text-xs font-semibold text-cyan-400 flex items-center gap-1.5 shadow-md shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
                 <span>3D Stage</span>
               </div>
@@ -1577,15 +1885,15 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               <button
                 type="button"
                 onClick={onToggleSplitScreen}
-                className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition border shadow-md backdrop-blur-md cursor-pointer shrink-0 ${
+                className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition border shadow-md cursor-pointer shrink-0 ${
                   isSplitScreen
-                    ? 'bg-gradient-to-r from-cyan-500/30 to-amber-500/30 text-white border-cyan-400 shadow-[0_0_14px_rgba(0,240,255,0.3)] ring-1 ring-cyan-400/40'
-                    : 'bg-[#111114]/90 border-white/[0.08] text-zinc-300 hover:text-cyan-300'
+                    ? 'bg-gradient-to-r from-cyan-600/90 to-amber-600/90 text-white border-cyan-400 shadow-[0_0_14px_rgba(0,240,255,0.3)] ring-1 ring-cyan-400/40'
+                    : 'bg-[#111114]/95 border-white/[0.1] text-zinc-300 hover:text-cyan-300'
                 }`}
                 title="Split-Screen Comparison View (C): Render two parameter sets side-by-side on the same canvas with synchronized orbit camera"
                 aria-label="Toggle Split-Screen Comparison"
               >
-                <Columns className={`w-3.5 h-3.5 ${isSplitScreen ? 'text-cyan-400' : 'text-zinc-400'}`} />
+                <Columns className={`w-3.5 h-3.5 ${isSplitScreen ? 'text-cyan-200' : 'text-zinc-400'}`} />
                 <span className="hidden sm:inline">Compare</span>
                 <span className={`px-1 py-0.2 rounded text-[9px] font-mono font-bold ${
                   isSplitScreen ? 'bg-cyan-400 text-black' : 'bg-white/10 text-zinc-400'
@@ -1599,10 +1907,10 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             <button
               type="button"
               onClick={onToggleProjectorMode}
-              className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-semibold transition border shadow-md backdrop-blur-md cursor-pointer shrink-0 ${
+              className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-semibold transition border shadow-md cursor-pointer shrink-0 ${
                 isProjectorMode || (detectedAspect >= 1.15 && detectedAspect <= 1.48)
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
-                  : 'bg-[#111114]/90 border-white/[0.08] text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-amber-950/95 text-amber-300 border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
+                  : 'bg-[#111114]/95 border-white/[0.1] text-zinc-400 hover:text-zinc-200'
               }`}
               title={`Detected Canvas Ratio: ${detectedAspect.toFixed(2)} (${
                 detectedAspect >= 1.15 && detectedAspect <= 1.48
@@ -1629,7 +1937,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             </button>
 
             {/* Perspective Angle Quick Switchers (Visible on md+ screens) */}
-            <div className="hidden md:flex items-center gap-0.5 bg-[#111114]/90 backdrop-blur-md p-0.5 rounded-lg border border-white/[0.08] text-[10px] font-bold shrink-0">
+            <div className="hidden md:flex items-center gap-0.5 bg-[#111114]/95 p-0.5 rounded-lg border border-white/[0.1] text-[10px] font-bold shrink-0">
               <button
                 onClick={() => setCameraPresetView('3d')}
                 className="px-1.5 py-0.5 rounded text-zinc-300 hover:text-white hover:bg-white/10 transition"
@@ -1655,7 +1963,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </div>
 
           {/* Center: Live Non-Overlapping FPS & Render Telemetry Pill (hidden on narrow screens to avoid crowding) */}
-          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#050A1A]/92 backdrop-blur-xl border border-cyan-500/40 shadow-md text-xs font-mono pointer-events-auto shrink-0">
+          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#050A1A]/95 border border-cyan-500/40 shadow-md text-xs font-mono pointer-events-auto shrink-0">
             <div className="flex items-center gap-1.5">
               <span
                 className={`w-1.5 h-1.5 rounded-full transition-colors ${
@@ -1671,7 +1979,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </div>
 
           {/* Right Action Tools */}
-          <div className="flex items-center gap-1 pointer-events-auto bg-[#111114]/90 backdrop-blur-md p-1 rounded-xl border border-white/[0.08] shadow-md shrink-0">
+          <div className="flex items-center gap-1 pointer-events-auto bg-[#111114]/95 p-1 rounded-xl border border-white/[0.1] shadow-md shrink-0">
             {/* Bloom Toggle */}
             <button
               type="button"
@@ -1734,15 +2042,15 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* Floating Canvas Labels (Legend) & Trajectory Details Toggles - Hidden in Focus Mode & Split Screen */}
       {!isFocusMode && !isSplitScreen && (
-        <div className="absolute top-14 left-3 z-10 pointer-events-auto flex items-center gap-2">
+        <div className="absolute top-12 sm:top-14 left-2 sm:left-3 z-20 pointer-events-auto flex items-center gap-2">
           <button
             onClick={onToggleLabels}
             title="Quickly hide or show the descriptive physics parameter labels directly on the canvas"
             aria-label="Toggle Canvas Legend"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg backdrop-blur-md border transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg border transition-all ${
               showLabels
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                : 'bg-[#111114]/90 text-zinc-400 border-white/[0.08] hover:text-zinc-200 hover:bg-[#1C1C22]/90'
+                ? 'bg-[#2B1F0A]/95 text-amber-300 border-amber-500/40'
+                : 'bg-[#111114]/95 text-zinc-400 border-white/[0.1] hover:text-zinc-200 hover:bg-[#1C1C22]'
             }`}
           >
             <Tag className="w-3.5 h-3.5" />
@@ -1760,10 +2068,10 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               }}
               title="Toggle Trajectory Details & Telemetry Overlay"
               aria-label="Toggle Trajectory Details"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg backdrop-blur-md border transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg border transition-all ${
                 isTrajectoryHudExpanded
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                  : 'bg-[#111114]/90 text-zinc-400 border-white/[0.08] hover:text-zinc-200 hover:bg-[#1C1C22]/90'
+                  ? 'bg-[#07291E]/95 text-emerald-300 border-emerald-500/40'
+                  : 'bg-[#111114]/95 text-zinc-400 border-white/[0.1] hover:text-zinc-200 hover:bg-[#1C1C22]'
               }`}
             >
               <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
@@ -1775,10 +2083,16 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* Projectile Trajectory Flight Analytics & Telemetry HUD - Hidden in Split Screen */}
       {simulationType === 'projectile-motion' && showTrajectory && projectileTrajectoryData && !isSplitScreen && (
-        <div className={`absolute ${isFocusMode ? 'top-20 sm:top-24 left-3 sm:left-5' : 'top-24 left-3'} max-w-[calc(100%-24px)] sm:max-w-[340px] pointer-events-auto z-10 select-none`}>
+        <div
+          className={`absolute ${
+            isFocusMode
+              ? 'top-[7.25rem] sm:top-[6.25rem] lg:top-20 left-2.5 sm:left-4'
+              : 'top-[5.5rem] sm:top-[6rem] left-2 sm:left-3'
+          } max-w-[calc(100%-24px)] sm:max-w-[340px] pointer-events-auto z-10 select-none`}
+        >
           {!isTrajectoryHudExpanded ? (
             /* Micro-Capsule Summary */
-            <div className="flex items-center gap-1.5 p-1 sm:p-1.5 rounded-xl bg-[#0c0d14]/85 hover:bg-[#0c0d14]/95 backdrop-blur-xl border border-emerald-500/30 shadow-xl text-xs transition-all">
+            <div className="flex items-center gap-1.5 p-1 sm:p-1.5 rounded-xl bg-[#0c0d14]/95 hover:bg-[#0c0d14] border border-emerald-500/35 shadow-xl text-xs transition-all">
               <button
                 onClick={() => {
                   setIsTrajectoryHudExpanded(true);
@@ -1810,8 +2124,11 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               </button>
             </div>
           ) : (
-            /* Rich Translucent Trajectory Telemetry Card (scrollable on compact screens to prevent overflow) */
-            <div className="bg-[#0c0d14]/90 backdrop-blur-2xl rounded-2xl border border-emerald-500/30 shadow-2xl overflow-hidden max-h-[230px] sm:max-h-[340px] flex flex-col transition-all duration-200 animate-in fade-in zoom-in-95 text-xs">
+            /* Rich Trajectory Telemetry Card (dynamically height-clamped to canvasHeight to prevent vertical collisions) */
+            <div
+              style={{ maxHeight: Math.max(130, canvasHeight - (isFocusMode ? 240 : 175)) }}
+              className="bg-[#0c0d14]/96 rounded-2xl border border-emerald-500/35 shadow-2xl overflow-hidden flex flex-col transition-all duration-200 animate-in fade-in zoom-in-95 text-xs"
+            >
               {/* Header Bar */}
               <div className="px-3 py-2 flex items-center justify-between gap-2 border-b border-white/[0.08] bg-emerald-950/20">
                 <div
@@ -1933,7 +2250,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* Floating Right Side Zoom Controller (Compatible with Android & Computer) - Hidden in Focus Mode */}
       {!isFocusMode && (
-        <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 sm:gap-1.5 bg-[#111114]/95 backdrop-blur-md p-1 sm:p-1.5 rounded-2xl border border-white/[0.12] shadow-2xl z-20 pointer-events-auto">
+        <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 max-h-[calc(100%-120px)] overflow-y-auto no-scrollbar flex flex-col items-center gap-1 sm:gap-1.5 bg-[#111114]/95 p-1 sm:p-1.5 rounded-2xl border border-white/[0.12] shadow-2xl z-20 pointer-events-auto">
           {/* Zoom In Button */}
           <button
             onClick={() => handleZoom(0.82)}
@@ -1979,10 +2296,18 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* Floating Bottom Left Vector Legend HUD (Names & Representation of All Colored Arrows) */}
       {showVectors && currentVectors.length > 0 && (
-        <div className={`absolute ${isFocusMode ? 'bottom-20 left-3 sm:left-5' : 'bottom-16 left-3'} max-w-[calc(100%-80px)] sm:max-w-xs xl:max-w-sm pointer-events-auto z-10 select-none`}>
+        <div
+          className={`absolute ${
+            isFocusMode
+              ? 'bottom-[8.25rem] sm:bottom-[8.75rem] left-2.5 sm:left-4'
+              : isSplitScreen
+                ? 'bottom-[7.5rem] sm:bottom-[8.25rem] left-2 sm:left-3'
+                : 'bottom-16 sm:bottom-[4.5rem] left-2 sm:left-3'
+          } max-w-[calc(100%-24px)] sm:max-w-xs xl:max-w-sm pointer-events-auto z-10 select-none`}
+        >
           {!isLegendExpanded ? (
             /* Compact Collapsed Micro-Capsule (Non-intrusive, never covers 3D models) */
-            <div className="flex items-center gap-1.5 p-1 sm:p-1.5 rounded-xl bg-[#0c0d14]/80 hover:bg-[#0c0d14]/95 backdrop-blur-xl border border-white/[0.12] shadow-xl text-xs transition-all">
+            <div className="flex items-center gap-1.5 p-1 sm:p-1.5 rounded-xl bg-[#0c0d14]/95 hover:bg-[#0c0d14] border border-white/[0.14] shadow-xl text-xs transition-all">
               <button
                 onClick={() => {
                   setIsLegendExpanded(true);
@@ -2043,8 +2368,8 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               </button>
             </div>
           ) : (
-            /* Sleek Translucent Expanded Legend Card */
-            <div className="w-72 sm:w-80 bg-[#0c0d14]/85 backdrop-blur-2xl rounded-2xl border border-white/[0.14] shadow-2xl overflow-hidden transition-all duration-200 animate-in fade-in zoom-in-95">
+            /* Sleek Opaque Expanded Legend Card */
+            <div className="w-[min(19rem,calc(100vw-24px))] sm:w-80 bg-[#0c0d14]/96 rounded-2xl border border-white/[0.16] shadow-2xl overflow-hidden transition-all duration-200 animate-in fade-in zoom-in-95">
               {/* Legend Header Bar */}
               <div className="px-3 py-2 flex items-center justify-between gap-2 border-b border-white/[0.08] bg-white/[0.02]">
                 <div
@@ -2093,7 +2418,10 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
               </div>
 
               {/* Legend Item Cards */}
-              <div className="p-2 sm:p-2.5 flex flex-col gap-1.5 max-h-48 sm:max-h-52 overflow-y-auto custom-scrollbar">
+              <div
+                style={{ maxHeight: Math.max(110, Math.min(208, canvasHeight - (isFocusMode ? 255 : 185))) }}
+                className="p-2 sm:p-2.5 flex flex-col gap-1.5 overflow-y-auto custom-scrollbar"
+              >
                 {currentVectors.map((v) => {
                   const isHidden = hiddenVectorIds.has(v.id);
                   const liveVal = v.getLiveValue ? v.getLiveValue(params, simTime) : null;
@@ -2193,7 +2521,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* Touch & Navigation Gesture Guide - visible on wide desktop at top right */}
       <div className="hidden 2xl:block absolute top-14 right-3 pointer-events-none z-10">
-        <div className="px-2.5 py-1 rounded-lg bg-[#0A0A0B]/85 backdrop-blur-sm border border-white/[0.08] text-[10px] text-zinc-400 shadow-md">
+        <div className="px-2.5 py-1 rounded-lg bg-[#0A0A0B]/95 border border-white/[0.1] text-[10px] text-zinc-400 shadow-md">
           <span className="text-zinc-300 font-semibold">Drag:</span> Orbit &bull;{' '}
           <span className="text-zinc-300 font-semibold">Wheel:</span> Zoom &bull;{' '}
           <span className="text-zinc-300 font-semibold">2-Finger:</span> Pinch
@@ -2201,8 +2529,8 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
       </div>
 
       {/* Dedicated Non-Overlapping 3D Viewport Playback, Reset & AR Dock */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100%-24px)] overflow-x-auto py-1 px-1">
-        <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 rounded-2xl bg-[#060B18]/92 hover:bg-[#060B18]/98 backdrop-blur-xl border border-cyan-500/35 shadow-[0_8px_32px_rgba(0,0,0,0.7)] text-white text-xs">
+      <div className="absolute bottom-2.5 sm:bottom-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100%-24px)] overflow-x-auto py-0.5 px-1">
+        <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 rounded-2xl bg-[#060B18]/96 hover:bg-[#060B18] border border-cyan-500/40 shadow-[0_8px_32px_rgba(0,0,0,0.75)] text-white text-xs">
           {/* Individual Play / Pause Button */}
           {onTogglePlay && (
             <button
@@ -2318,7 +2646,9 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.96 }}
             transition={{ duration: 0.2 }}
-            className="absolute bottom-16 left-3 right-3 sm:left-auto sm:right-4 sm:max-w-md z-40 p-3 rounded-xl bg-[#090E1E]/95 border border-cyan-500/40 shadow-2xl backdrop-blur-md text-white flex items-center justify-between gap-3 pointer-events-auto"
+            className={`absolute ${
+              isFocusMode || isSplitScreen ? 'bottom-[7.5rem] sm:bottom-[8.5rem]' : 'bottom-16 sm:bottom-[4.5rem]'
+            } left-3 right-3 sm:left-auto sm:right-4 sm:max-w-md z-40 p-3 rounded-xl bg-[#090E1E]/96 border border-cyan-500/45 shadow-2xl text-white flex items-center justify-between gap-3 pointer-events-auto`}
           >
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 shrink-0">
@@ -2356,8 +2686,8 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* AR View Guidance Overlay */}
       {isARMode && (
-        <div className="absolute bottom-16 sm:bottom-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3 w-full max-w-md text-center">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/85 backdrop-blur-md border border-emerald-400/40 text-emerald-300 text-[11px] font-medium shadow-2xl">
+        <div className={`absolute ${isFocusMode ? 'bottom-[8.25rem] sm:bottom-[8.75rem]' : 'bottom-16 sm:bottom-[4.5rem]'} left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3 w-full max-w-md text-center`}>
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/90 border border-emerald-400/40 text-emerald-300 text-[11px] font-medium shadow-2xl">
             <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <span>AR Mode: Drag to move apparatus • Pinch/scroll to resize in your room</span>
           </div>
@@ -2366,7 +2696,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* AR Camera Loading Spinner */}
       {isARMode && cameraLoading && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 pointer-events-none">
           <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-[#111114] border border-emerald-500/40 text-emerald-300 text-xs font-bold shadow-2xl">
             <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
             <span>Connecting Device Camera Stream...</span>
@@ -2376,7 +2706,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
       {/* AR Camera Error Notice */}
       {isARMode && cameraError && (
-        <div className="absolute top-16 left-3 right-3 sm:left-6 sm:right-6 z-40 p-3 rounded-xl bg-rose-950/95 backdrop-blur-md border border-rose-500/40 text-white shadow-2xl flex items-start gap-3 pointer-events-auto">
+        <div className="absolute top-16 left-3 right-3 sm:left-6 sm:right-6 z-40 p-3 rounded-xl bg-rose-950/95 border border-rose-500/40 text-white shadow-2xl flex items-start gap-3 pointer-events-auto">
           <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
           <div className="flex-1 text-xs">
             <div className="font-bold text-rose-200">Camera Stream Notice</div>
@@ -2415,7 +2745,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           <div className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2 w-0.5 bg-gradient-to-b from-cyan-500/80 via-white/50 to-amber-500/80 shadow-[0_0_12px_rgba(0,240,255,0.4)] pointer-events-none z-20" />
 
           {/* Mobile Split-Screen Clean Unified Header (Under 768px - Never overlaps with center divider or badges) */}
-          <div className="md:hidden absolute top-12 left-2 right-2 z-20 pointer-events-auto flex items-center justify-between gap-1 p-1 rounded-xl bg-[#070B14]/95 backdrop-blur-xl border border-white/20 shadow-xl text-xs">
+          <div className="md:hidden absolute top-12 left-2 right-2 z-20 pointer-events-auto flex items-center justify-between gap-1 p-1 rounded-xl bg-[#070B14]/96 border border-white/20 shadow-xl text-xs">
             <button
               type="button"
               onClick={() => onSelectCompareTarget?.('A')}
@@ -2471,7 +2801,7 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </div>
 
           {/* Desktop & Tablet Center Scissor Action Pill (Visible on md+ screens) */}
-          <div className="hidden md:flex absolute top-14 left-1/2 -translate-x-1/2 pointer-events-auto items-center gap-1.5 p-1 rounded-full bg-[#070B14]/95 backdrop-blur-xl border border-white/20 shadow-2xl z-20">
+          <div className="hidden md:flex absolute top-14 left-1/2 -translate-x-1/2 pointer-events-auto items-center gap-1.5 p-1 rounded-full bg-[#070B14]/96 border border-white/20 shadow-2xl z-20">
             <button
               type="button"
               onClick={() => onSelectCompareTarget?.('A')}
@@ -2525,14 +2855,14 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </div>
 
           {/* Viewport A Header Badge (Left - Visible on md+ screens with constrained width) */}
-          <div className="hidden md:block absolute top-12 sm:top-14 left-2 sm:left-3 z-20 pointer-events-auto max-w-[200px]">
+          <div className="hidden md:block absolute top-12 sm:top-14 left-2 sm:left-3 z-20 pointer-events-auto max-w-[180px]">
             <button
               type="button"
               onClick={() => onSelectCompareTarget?.('A')}
-              className={`w-full px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl backdrop-blur-xl border text-left transition shadow-md ${
+              className={`w-full px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl border text-left transition shadow-md ${
                 activeCompareTarget === 'A'
-                  ? 'bg-cyan-950/90 border-cyan-400 text-cyan-200 shadow-[0_0_14px_rgba(0,240,255,0.3)] ring-1 ring-cyan-400'
-                  : 'bg-[#080E1C]/85 border-cyan-500/30 text-cyan-400 hover:border-cyan-400/60'
+                  ? 'bg-cyan-950/96 border-cyan-400 text-cyan-200 shadow-[0_0_14px_rgba(0,240,255,0.3)] ring-1 ring-cyan-400'
+                  : 'bg-[#080E1C]/94 border-cyan-500/35 text-cyan-400 hover:border-cyan-400/60'
               }`}
               title="Click to edit Parameter Set A"
             >
@@ -2563,14 +2893,14 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </div>
 
           {/* Viewport B Header Badge (Right - Visible on md+ screens with constrained width) */}
-          <div className="hidden md:block absolute top-12 sm:top-14 right-2 sm:right-3 z-20 pointer-events-auto max-w-[200px]">
+          <div className="hidden md:block absolute top-12 sm:top-14 right-2 sm:right-3 z-20 pointer-events-auto max-w-[180px]">
             <button
               type="button"
               onClick={() => onSelectCompareTarget?.('B')}
-              className={`w-full px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl backdrop-blur-xl border text-left transition shadow-md ${
+              className={`w-full px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl border text-left transition shadow-md ${
                 activeCompareTarget === 'B'
-                  ? 'bg-amber-950/90 border-amber-400 text-amber-200 shadow-[0_0_14px_rgba(245,158,11,0.3)] ring-1 ring-amber-400'
-                  : 'bg-[#18110A]/85 border-amber-500/30 text-amber-400 hover:border-amber-400/60'
+                  ? 'bg-amber-950/96 border-amber-400 text-amber-200 shadow-[0_0_14px_rgba(245,158,11,0.3)] ring-1 ring-amber-400'
+                  : 'bg-[#18110A]/94 border-amber-500/35 text-amber-400 hover:border-amber-400/60'
               }`}
               title="Click to edit Parameter Set B"
             >
@@ -2601,8 +2931,8 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           </div>
 
           {/* Live Comparative Delta Telemetry Strip at Bottom (elevated cleanly above bottom playback bar) */}
-          <div className="absolute bottom-16 sm:bottom-18 left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] sm:w-[calc(100%-2rem)] max-w-2xl z-20 pointer-events-auto">
-            <div className="p-1 sm:p-2 rounded-xl bg-[#070B14]/92 backdrop-blur-xl border border-white/15 shadow-xl flex items-center justify-between gap-1.5 sm:gap-3 text-[10px] sm:text-[11px] overflow-hidden">
+          <div className={`absolute ${isFocusMode ? 'bottom-[7.75rem] sm:bottom-[8.25rem]' : 'bottom-[3.75rem] sm:bottom-[4.25rem]'} left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] sm:w-[calc(100%-2rem)] max-w-2xl z-20 pointer-events-auto`}>
+            <div className="p-1 sm:p-2 rounded-xl bg-[#070B14]/96 border border-white/15 shadow-xl flex items-center justify-between gap-1.5 sm:gap-3 text-[10px] sm:text-[11px] overflow-hidden">
               {/* Setup A Summary */}
               <div className="flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg bg-cyan-950/60 border border-cyan-500/40 text-cyan-200 text-[10px] sm:text-[11px] font-mono shrink min-w-0">
                 <span className="font-bold text-cyan-400 font-sans shrink-0">A:</span>

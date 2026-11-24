@@ -30,7 +30,7 @@ export const EXTRA_CONCEPTS: PhysicsConcept[] = [
       { name: 'Resultant Vector (R = A + B)', latex: '\\vec{R} = (A_x + B_x)\\hat{i} + (A_y + B_y)\\hat{j} + (A_z + B_z)\\hat{k}', explanation: 'Parallelogram law of vector addition.' },
       { name: 'Dot Product (Scalar)', latex: '\\vec{A}\\cdot\\vec{B} = A_x B_x + A_y B_y + A_z B_z = |\\vec{A}||\\vec{B}|\\cos\\theta', explanation: 'Measure of projection / work done.' },
       { name: 'Cross Product (Vector)', latex: '\\vec{A}\\times\\vec{B} = (A_y B_z - A_z B_y)\\hat{i} - (A_x B_z - A_z B_x)\\hat{j} + (A_x B_y - A_y B_x)\\hat{k}', explanation: 'Normal vector to plane of A and B with magnitude equal to parallelogram area.' },
-      { name: 'Angle between Vectors (\\theta)', latex: '\\cos\\theta = \\frac{\\vec{A}\\cdot\\vec{B}}{|\\vec{A}||\\vec{B}|}', explanation: 'Direct angle between vector lines.' },
+      { name: 'Angle between Vectors ($\\theta$)', latex: '\\cos\\theta = \\frac{\\vec{A}\\cdot\\vec{B}}{|\\vec{A}||\\vec{B}|}', explanation: 'Direct angle between vector lines.' },
     ],
     jeeMain: {
       weightage: 'Essential',

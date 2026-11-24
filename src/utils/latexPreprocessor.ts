@@ -65,9 +65,11 @@ export function formatToStandardLatexMath(rawFormula: string): string {
   str = str.replace(/^\$\$([\s\S]*?)\$\$$/g, '$1').trim();
   str = str.replace(/^\$([^\$]*?)\$$/g, '$1').trim();
 
+  // Normalize common physics spelling/command typos (e.g. "lamba" -> \lambda)
+  str = str.replace(/\\?lamba\b/gi, ' \\lambda ');
+
   // 1. Convert Unicode Greek characters to proper LaTeX commands
   for (const [uChar, latexCmd] of Object.entries(UNICODE_TO_LATEX_GREEK)) {
-    // Replace standalone unicode char with space-padded LaTeX command
     str = str.split(uChar).join(` ${latexCmd} `);
   }
 
@@ -129,6 +131,7 @@ export function formatToStandardLatexMath(rawFormula: string): string {
   str = str.replace(/±/g, ' \\pm ');
   str = str.replace(/∓/g, ' \\mp ');
   str = str.replace(/≈/g, ' \\approx ');
+  str = str.replace(/≡/g, ' \\equiv ');
   str = str.replace(/≠/g, ' \\neq ');
   str = str.replace(/≤/g, ' \\le ');
   str = str.replace(/≥/g, ' \\ge ');
@@ -141,7 +144,6 @@ export function formatToStandardLatexMath(rawFormula: string): string {
   str = str.replace(/∝/g, ' \\propto ');
 
   // 5. Functions (convert plain text sin, cos, etc. to proper LaTeX operators)
-  // Ensure we do not double prefix e.g. \\sin
   str = str.replace(/(\\\\)?\b(sin|cos|tan|cot|sec|csc|ln|log|exp|arcsin|arccos|arctan)\b/g, (match, slash) => {
     return slash ? match : `\\${match} `;
   });
@@ -162,8 +164,17 @@ export function formatToStandardLatexMath(rawFormula: string): string {
   str = str.replace(/√([a-zA-Z0-9_\^·]+)/g, '\\sqrt{$1}');
   str = str.replace(/sqrt\(([^()]+)\)/g, '\\sqrt{$1}');
 
-  // 8. Fractions: Convert slash division expressions to \frac{num}{den}
-  // Standard fraction conversions
+  // 8. Fractions: Protect \text{...} / \mathrm{...} and SI unit ratios before converting slash division
+  const protectedChunks: string[] = [];
+  const protect = (segment: string): string => {
+    const idx = protectedChunks.length;
+    protectedChunks.push(segment);
+    return `__LATEX_PROTECTED_${idx}__`;
+  };
+
+  str = str.replace(/\\(?:text|mathrm|textbf|textit)\{[^{}]*\}/g, (m) => protect(m));
+  str = str.replace(/\b(?:km\/h|m\/s(?:\^2|\^\{\-?\d+\})?|rad\/s(?:\^2)?|kg\/m\^?3?|g\/cm\^?3?|J\/(?:kg|K|mol|s)|N\/m(?:\^2)?|W\/m\^?2?|C\/m(?:\^2|\^3)?|V\/m|eV\/c\^?2?)\b/g, (m) => protect(m));
+
   str = str.replace(/\(1\/2\)/g, '\\frac{1}{2}');
   str = str.replace(/\b1\/2\b/g, '\\frac{1}{2}');
   str = str.replace(/\(1\/4\)/g, '\\frac{1}{4}');
@@ -175,16 +186,19 @@ export function formatToStandardLatexMath(rawFormula: string): string {
     // (A) / (B)
     str = str.replace(/\(([^()]+)\)\s*\/\s*\(([^()]+)\)/g, '\\frac{$1}{$2}');
     // (A) / B
-    str = str.replace(/\(([^()]+)\)\s*\/\s*([a-zA-Z0-9_\\^·\\]+)/g, '\\frac{$1}{$2}');
+    str = str.replace(/\(([^()]+)\)\s*\/\s*([a-zA-Z0-9_\\^·]+)/g, '\\frac{$1}{$2}');
     // A / (B)
-    str = str.replace(/([a-zA-Z0-9_\\^·\\]+)\s*\/\s*\(([^()]+)\)/g, '\\frac{$1}{$2}');
+    str = str.replace(/([a-zA-Z0-9_\\^·]+)\s*\/\s*\(([^()]+)\)/g, '\\frac{$1}{$2}');
     // Single term / single term (e.g. u^2 / g) avoiding already-wrapped \frac tokens
     str = str.replace(/(?:^|[^{\\a-zA-Z0-9_\^·])([a-zA-Z0-9_\^·\\]+)\s*\/\s*([a-zA-Z0-9_\^·\\]+)(?!\})/g, (m, num, den) => {
-      if (m.startsWith('\\frac')) return m;
+      if (m.startsWith('\\frac') || num.includes('__LATEX_PROTECTED_') || den.includes('__LATEX_PROTECTED_')) return m;
       const prefix = m.slice(0, m.indexOf(num));
       return `${prefix}\\frac{${num}}{${den}}`;
     });
   }
+
+  // Restore protected blocks
+  str = str.replace(/__LATEX_PROTECTED_(\d+)__/g, (_, idx) => protectedChunks[Number(idx)] ?? '');
 
   // Clean redundant whitespace
   str = str.replace(/\s+/g, ' ').trim();

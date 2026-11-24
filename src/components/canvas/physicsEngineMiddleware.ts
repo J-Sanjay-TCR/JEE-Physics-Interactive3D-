@@ -63,31 +63,42 @@ export class PhysicsEngineMiddleware {
   private tempQuat = new THREE.Quaternion();
   private tempEuler = new THREE.Euler();
 
+  private rampTangentScratch = new THREE.Vector3();
+  private rampNormalScratch = new THREE.Vector3();
+  private readonly floorTangentConst = new THREE.Vector3(1, 0, 0);
+  private readonly floorNormalConst = new THREE.Vector3(0, 1, 0);
+
   constructor(config?: PhysicsMiddlewareConfig) {
     this.fixedTimeStep = config?.fixedTimeStep ?? 1 / 120;
     this.maxSubSteps = config?.maxSubSteps ?? 10;
     this.contactTolerance = config?.contactTolerance ?? 0.0025;
   }
 
+  private safeNum(val: number | undefined, fallback: number, min = -Infinity, max = Infinity): number {
+    const n = val !== undefined && Number.isFinite(val) ? val : fallback;
+    return Math.min(max, Math.max(min, n));
+  }
+
   /**
    * Set contact clearance tolerance (used to prevent z-fighting on coplanar faces)
    */
   public setContactTolerance(tolerance: number) {
-    this.contactTolerance = tolerance;
+    this.contactTolerance = this.safeNum(tolerance, 0.0025, 0, 0.1);
   }
 
   /**
    * Computes the geometric track surface profile for an incline plane setup
    */
   public computeInclineProfile(params: Record<string, number>, rampLength = 12.0): TrackSurfaceProfile {
-    const thetaDeg = params.theta ?? 30;
-    const thetaRad = (Math.max(0.1, Math.min(85, thetaDeg)) * Math.PI) / 180;
+    const thetaDeg = this.safeNum(params.theta, 30, 0.1, 85);
+    const safeRampLen = this.safeNum(rampLength, 12.0, 1.0, 50.0);
+    const thetaRad = (thetaDeg * Math.PI) / 180;
     const boardThickness = 0.3;
 
     // Top pivot point of the incline track
     const topX = -6.5;
-    const topY = rampLength * Math.sin(thetaRad);
-    const botX = topX + rampLength * Math.cos(thetaRad);
+    const topY = safeRampLen * Math.sin(thetaRad);
+    const botX = topX + safeRampLen * Math.cos(thetaRad);
     const botY = 0;
     const trackLength = Math.max(8, 18 - botX);
 
@@ -96,7 +107,7 @@ export class PhysicsEngineMiddleware {
       topY,
       botX,
       botY,
-      rampLength,
+      rampLength: safeRampLen,
       thetaRad,
       boardThickness,
       trackLength,
@@ -117,28 +128,22 @@ export class PhysicsEngineMiddleware {
     params: Record<string, number>,
     simTime: number
   ): PhysicsBodyTransform {
-    const {
-      theta = 30,
-      shapeFactor = 0.5, // β (0.5 for solid cylinder, 1.0 for hoop, 0.4 for solid sphere)
-      R = 1.2,
-      mass = 2,
-      mu_s = 0.5,
-    } = params;
+    const shapeFactor = this.safeNum(params.shapeFactor, 0.5, 0.01, 5.0);
+    const R = this.safeNum(params.R, 1.2, 0.15, 5.0);
+    const mu_s = this.safeNum(params.mu_s, 0.5, 0, 5.0);
+    const safeSimTime = this.safeNum(simTime, 0, 0, 1e6);
 
     const g = 9.81;
     const profile = this.computeInclineProfile(params, 12.0);
     const { topX, topY, botX, thetaRad, rampLength } = profile;
 
-    // Incline unit tangent & normal vectors
-    const rampTangent = new THREE.Vector3(Math.cos(thetaRad), -Math.sin(thetaRad), 0).normalize();
-    const rampNormal = new THREE.Vector3(Math.sin(thetaRad), Math.cos(thetaRad), 0).normalize();
-
-    // Horizontal floor tangent & normal
-    const floorTangent = new THREE.Vector3(1, 0, 0);
-    const floorNormal = new THREE.Vector3(0, 1, 0);
+    // Incline unit tangent & normal vectors (reusing scratch vectors)
+    const rampTangent = this.rampTangentScratch.set(Math.cos(thetaRad), -Math.sin(thetaRad), 0).normalize();
+    const rampNormal = this.rampNormalScratch.set(Math.sin(thetaRad), Math.cos(thetaRad), 0).normalize();
+    const floorTangent = this.floorTangentConst;
+    const floorNormal = this.floorNormalConst;
 
     // Physics acceleration: check if pure rolling condition is satisfied: tan(θ) <= (1 + 1/β) * μ_s
-    const tanTheta = Math.tan(thetaRad);
     const maxSlipAngle = Math.atan((1 + 1 / Math.max(0.01, shapeFactor)) * mu_s);
     const isPureRolling = thetaRad <= maxSlipAngle;
 
@@ -146,19 +151,18 @@ export class PhysicsEngineMiddleware {
     if (isPureRolling) {
       a_ramp = (g * Math.sin(thetaRad)) / (1 + shapeFactor);
     } else {
-      // Slipping rolling with kinetic friction
-      const mu_k = params.mu_k ?? (mu_s * 0.8);
+      const mu_k = this.safeNum(params.mu_k, mu_s * 0.8, 0, 5.0);
       a_ramp = g * (Math.sin(thetaRad) - mu_k * Math.cos(thetaRad));
     }
-    a_ramp = Math.max(0.1, a_ramp);
+    a_ramp = Math.max(0.1, Number.isFinite(a_ramp) ? a_ramp : 0.1);
 
     // Transition geometry: Effective usable ramp length before bottom blend
-    const sUsable = rampLength - 0.4;
+    const sUsable = Math.max(0.5, rampLength - 0.4);
     const tRamp = Math.sqrt((2 * sUsable) / a_ramp);
     const vBottom = a_ramp * tRamp;
     const tFloor = 2.8;
-    const tCycle = tRamp + tFloor + 1.2;
-    const t = simTime % tCycle;
+    const tCycle = Math.max(0.1, tRamp + tFloor + 1.2);
+    const t = safeSimTime % tCycle;
 
     let posX = topX;
     let posY = topY;
@@ -166,9 +170,9 @@ export class PhysicsEngineMiddleware {
     let currentVel = 0;
     let totalRollAngle = 0;
     let isOnRamp = true;
-    let surfaceNormal = rampNormal.clone();
-    let surfaceTangent = rampTangent.clone();
-    let contactPoint = new THREE.Vector3();
+    const surfaceNormal = rampNormal.clone();
+    const surfaceTangent = rampTangent.clone();
+    const contactPoint = new THREE.Vector3();
 
     // Constant offset to ensure absolute zero z-fighting on contact plane
     const effectiveRadius = R + this.contactTolerance;
@@ -263,15 +267,21 @@ export class PhysicsEngineMiddleware {
     simTime: number,
     blockHalfHeight = 0.6
   ): PhysicsBodyTransform {
-    const { theta = 30, mu_s = 0.5, mu_k = 0.3, m = 2, F_ext = 0 } = params;
+    const mu_s = this.safeNum(params.mu_s, 0.5, 0, 5.0);
+    const mu_k = this.safeNum(params.mu_k, 0.3, 0, 5.0);
+    const m = this.safeNum(params.m, 2, 0.05, 1000);
+    const F_ext = this.safeNum(params.F_ext, 0, -5000, 5000);
+    const safeSimTime = this.safeNum(simTime, 0, 0, 1e6);
+    const safeBlockHalfH = this.safeNum(blockHalfHeight, 0.6, 0.05, 5.0);
+
     const g = 9.81;
     const profile = this.computeInclineProfile(params, 12.0);
     const { topX, topY, botX, thetaRad, rampLength } = profile;
 
-    const rampTangent = new THREE.Vector3(Math.cos(thetaRad), -Math.sin(thetaRad), 0).normalize();
-    const rampNormal = new THREE.Vector3(Math.sin(thetaRad), Math.cos(thetaRad), 0).normalize();
-    const floorNormal = new THREE.Vector3(0, 1, 0);
-    const floorTangent = new THREE.Vector3(1, 0, 0);
+    const rampTangent = this.rampTangentScratch.set(Math.cos(thetaRad), -Math.sin(thetaRad), 0).normalize();
+    const rampNormal = this.rampNormalScratch.set(Math.sin(thetaRad), Math.cos(thetaRad), 0).normalize();
+    const floorNormal = this.floorNormalConst;
+    const floorTangent = this.floorTangentConst;
 
     const N = m * g * Math.cos(thetaRad);
     const mg_down = m * g * Math.sin(thetaRad);
@@ -290,17 +300,17 @@ export class PhysicsEngineMiddleware {
       a = netDriving > 0 ? (netDriving - f_k) / m : (netDriving + f_k) / m;
     }
 
-    const effectiveHalfHeight = blockHalfHeight + this.contactTolerance;
+    const effectiveHalfHeight = safeBlockHalfH + this.contactTolerance;
     let posX = topX;
     let posY = topY;
     let currentAngle = thetaRad;
     let vel = 0;
     let isOnRamp = true;
-    let contactPoint = new THREE.Vector3();
-    let surfaceNormal = rampNormal.clone();
-    let surfaceTangent = rampTangent.clone();
+    const contactPoint = new THREE.Vector3();
+    const surfaceNormal = rampNormal.clone();
+    const surfaceTangent = rampTangent.clone();
 
-    if (!isSliding || a === 0) {
+    if (!isSliding || Math.abs(a) < 0.01) {
       const s = 1.0;
       contactPoint.set(topX + s * Math.cos(thetaRad), topY - s * Math.sin(thetaRad), 0);
       posX = contactPoint.x + effectiveHalfHeight * rampNormal.x;
@@ -309,11 +319,11 @@ export class PhysicsEngineMiddleware {
       vel = 0;
       isOnRamp = true;
     } else {
-      const aPos = Math.abs(a);
-      const sRamp = rampLength - 1.5;
+      const aPos = Math.max(0.05, Math.abs(a));
+      const sRamp = Math.max(0.5, rampLength - 1.5);
       const tRamp = Math.sqrt((2 * sRamp) / aPos);
-      const tCycle = tRamp + 2.6;
-      const t = simTime % tCycle;
+      const tCycle = Math.max(0.1, tRamp + 2.6);
+      const t = safeSimTime % tCycle;
 
       if (t <= tRamp) {
         const s = 1.0 + 0.5 * aPos * t * t;
@@ -326,9 +336,9 @@ export class PhysicsEngineMiddleware {
       } else {
         const vBot = aPos * tRamp;
         const deltaT = t - tRamp;
-        const groundDecel = mu_k * g;
+        const groundDecel = Math.max(0.001, mu_k * g);
         vel = Math.max(0, vBot - groundDecel * deltaT);
-        const groundDist = Math.min(10.0, vBot * deltaT - 0.5 * groundDecel * deltaT * deltaT);
+        const groundDist = Math.min(10.0, Math.max(0, vBot * deltaT - 0.5 * groundDecel * deltaT * deltaT));
         contactPoint.set(botX + groundDist, 0, 0);
         posX = contactPoint.x;
         posY = effectiveHalfHeight;
@@ -368,17 +378,29 @@ export class PhysicsEngineMiddleware {
     transform: PhysicsBodyTransform,
     spinTargetGroup?: THREE.Object3D | null
   ): void {
-    if (!targetObj) return;
+    if (!targetObj || !transform) return;
 
-    // Apply primary translation
-    targetObj.position.copy(transform.position);
+    const { position, quaternion, spinAngle } = transform;
+    if (
+      Number.isFinite(position.x) &&
+      Number.isFinite(position.y) &&
+      Number.isFinite(position.z)
+    ) {
+      targetObj.position.copy(position);
+    }
 
-    // Apply tilt/orientation
-    targetObj.quaternion.copy(transform.quaternion);
+    if (
+      Number.isFinite(quaternion.x) &&
+      Number.isFinite(quaternion.y) &&
+      Number.isFinite(quaternion.z) &&
+      Number.isFinite(quaternion.w)
+    ) {
+      targetObj.quaternion.copy(quaternion);
+    }
 
     // If there is an internal spin component (e.g. cylinder or wheel rolling)
-    if (spinTargetGroup) {
-      spinTargetGroup.rotation.z = -transform.spinAngle;
+    if (spinTargetGroup && Number.isFinite(spinAngle)) {
+      spinTargetGroup.rotation.z = -spinAngle;
     }
 
     targetObj.updateMatrix();

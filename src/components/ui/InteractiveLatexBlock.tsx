@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { PhysicsFormula, PhysicsParameter, RealtimeQuantity } from '../../types';
 import { Latex } from './Latex';
 import { HighlightedPhysicsText } from './TerminologyTooltip';
+import { copyToClipboard } from '../../utils/clipboard';
 import {
   Copy,
   Check,
@@ -44,6 +45,13 @@ export const InteractiveLatexBlock: React.FC<InteractiveLatexBlockProps> = ({
     showAllEvaluated ? 'evaluated' : 'symbolic'
   );
   const [showVariableControls, setShowVariableControls] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   // Sync mode if parent requests all evaluated
   React.useEffect(() => {
@@ -130,15 +138,18 @@ export const InteractiveLatexBlock: React.FC<InteractiveLatexBlockProps> = ({
     return `\\begin{aligned} \\text{Formula: } & ${formula.latex} \\\\[6pt] \\text{Active Values: } & ${substituted} \\end{aligned}`;
   }, [formula, parameters, currentParams, liveQuantities]);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(formula.latex);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(formula.latex);
+    if (ok) {
+      setCopied(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   return (
     <div
-      className={`rounded-2xl border transition-all duration-200 flex flex-col justify-between overflow-hidden ${
+      className={`min-w-0 rounded-2xl border transition-all duration-200 flex flex-col justify-between overflow-hidden ${
         focusedVariable && relatedParams.some((p) => p.symbol === focusedVariable || p.id === focusedVariable)
           ? 'bg-[#151828] border-cyan-500/50 shadow-lg shadow-cyan-500/10 ring-1 ring-cyan-500/30'
           : 'bg-[#0E0E14] border-white/[0.08] hover:border-white/[0.16] shadow-md'
@@ -148,7 +159,9 @@ export const InteractiveLatexBlock: React.FC<InteractiveLatexBlockProps> = ({
       <div className="px-4 py-3 border-b border-white/[0.06] bg-[#12121A] flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />
-          <h4 className="text-xs font-bold text-zinc-100 truncate">{formula.name}</h4>
+          <h4 className="text-xs font-bold text-zinc-100 truncate">
+            <Latex>{formula.name}</Latex>
+          </h4>
         </div>
 
         {/* View Mode Toggle Pill Buttons */}
@@ -187,8 +200,8 @@ export const InteractiveLatexBlock: React.FC<InteractiveLatexBlockProps> = ({
       </div>
 
       {/* Main LaTeX Math Stage */}
-      <div className="p-4 flex flex-col gap-3">
-        <div className="bg-[#151520] py-3.5 px-4 rounded-xl border border-white/[0.08] text-center overflow-x-auto my-0.5 shadow-inner">
+      <div className="p-4 flex flex-col gap-3 min-w-0">
+        <div className="min-w-0 bg-[#151520] py-3.5 px-4 rounded-xl border border-white/[0.08] text-center overflow-x-auto my-0.5 shadow-inner">
           {mode === 'symbolic' ? (
             <Latex math={highlightedLatex} displayMode className="text-cyan-200 text-sm md:text-base font-mono" />
           ) : (
@@ -221,7 +234,8 @@ export const InteractiveLatexBlock: React.FC<InteractiveLatexBlockProps> = ({
             {/* Variable Pills */}
             <div className="flex items-center gap-1.5 flex-wrap">
               {relatedParams.map((p) => {
-                const val = currentParams[p.id] ?? p.defaultVal;
+                const rawVal = currentParams[p.id] ?? p.defaultVal;
+                const val = Number.isFinite(rawVal) ? rawVal : p.defaultVal;
                 const isHovered = focusedVariable === p.symbol || focusedVariable === p.id;
                 return (
                   <button
@@ -242,7 +256,9 @@ export const InteractiveLatexBlock: React.FC<InteractiveLatexBlockProps> = ({
                         : 'bg-[#181824] text-zinc-300 border-white/[0.08] hover:border-cyan-500/40 hover:text-cyan-200'
                     }`}
                   >
-                    <span className="font-bold text-cyan-400">{p.symbol}:</span>
+                    <span className="font-bold text-cyan-400">
+                      <Latex math={p.symbol} />:
+                    </span>
                     <span>
                       {val.toFixed(p.step < 0.1 ? 2 : 1)} {p.unit}
                     </span>
@@ -258,14 +274,15 @@ export const InteractiveLatexBlock: React.FC<InteractiveLatexBlockProps> = ({
                   Live Variable Tweaker
                 </div>
                 {relatedParams.map((p) => {
-                  const val = currentParams[p.id] ?? p.defaultVal;
+                  const rawVal = currentParams[p.id] ?? p.defaultVal;
+                  const val = Number.isFinite(rawVal) ? rawVal : p.defaultVal;
                   return (
                     <div key={p.id} className="space-y-1">
-                      <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center justify-between text-xs gap-2">
                         <span className="text-zinc-300 font-medium truncate">
-                          {p.label} ({p.symbol})
+                          <Latex>{p.label}</Latex> (<Latex math={p.symbol} />)
                         </span>
-                        <span className="font-mono text-cyan-400 font-bold text-[11px]">
+                        <span className="font-mono text-cyan-400 font-bold text-[11px] shrink-0">
                           {val.toFixed(2)} {p.unit}
                         </span>
                       </div>
@@ -275,7 +292,12 @@ export const InteractiveLatexBlock: React.FC<InteractiveLatexBlockProps> = ({
                         max={p.max}
                         step={p.step}
                         value={val}
-                        onChange={(e) => onParamChange(p.id, parseFloat(e.target.value))}
+                        onChange={(e) => {
+                          const parsed = parseFloat(e.target.value);
+                          if (Number.isFinite(parsed)) {
+                            onParamChange(p.id, parsed);
+                          }
+                        }}
                         className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
                       />
                     </div>

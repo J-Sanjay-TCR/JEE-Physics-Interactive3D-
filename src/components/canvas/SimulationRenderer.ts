@@ -56,6 +56,29 @@ export class SimulationRenderer {
   private projectileLiveAltitudeLine: THREE.Line | null = null;
   private projectileGroundTrackLine: THREE.Line | null = null;
 
+  private ydseScreenCacheKey: string = '';
+  private tempDirVec = new THREE.Vector3();
+  private activeHiddenVectorIds: Set<string> = new Set();
+
+  // Zero-allocation scratch buffers for 3D label LOD & overlap decluttering
+  private _lodProjVec = new THREE.Vector3();
+  private _lodCamForward = new THREE.Vector3();
+  private _lodCamUp = new THREE.Vector3();
+  private _lodDeltaVec = new THREE.Vector3();
+  private _lodCandidates: {
+    sprite: THREE.Sprite;
+    dist: number;
+    distZ: number;
+    priority: number;
+    ndcX: number;
+    ndcY: number;
+    halfW: number;
+    halfH: number;
+    opacity: number;
+    scaleMult: number;
+  }[] = [];
+  private _lodPlacedBoxes: { minX: number; maxX: number; minY: number; maxY: number }[] = [];
+
   // Projectile caching
   private lastProjectileParamsStr: string = '';
   private projectilePath: {
@@ -192,6 +215,19 @@ export class SimulationRenderer {
     } else {
       this.setBloomIntensity(this.currentBloomIntensity);
     }
+
+    // Enable coherent real-time shadow casting & receiving across primary opaque apparatus meshes
+    this.objectsGroup.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.isMesh) {
+        const mat = mesh.material as THREE.Material | undefined;
+        const isTransparent = Array.isArray(mat)
+          ? mat.some((m) => m.transparent && m.opacity < 0.85)
+          : !!(mat && mat.transparent && mat.opacity < 0.85);
+        mesh.castShadow = !isTransparent;
+        mesh.receiveShadow = true;
+      }
+    });
   }
 
   public setBloomIntensity(intensity: 'vibrant' | 'subtle' | 'off') {
@@ -221,30 +257,25 @@ export class SimulationRenderer {
         mat.userData.origEmissiveHex = stdMat.emissive.getHex();
         mat.userData.origEmissiveIntensity = stdMat.emissiveIntensity ?? 0;
       }
-      if (intensity === 'vibrant') {
-        if (mat.userData.origEmissiveHex === 0) {
-          if (stdMat.color) {
-            stdMat.emissive.copy(stdMat.color);
-            stdMat.emissiveIntensity = 0.45;
-          }
-        } else {
-          stdMat.emissive.setHex(mat.userData.origEmissiveHex);
-          stdMat.emissiveIntensity = Math.min(1.3, Math.max(0.65, (mat.userData.origEmissiveIntensity || 0.35) * 2.2));
-        }
-      } else if (intensity === 'subtle') {
-        if (mat.userData.origEmissiveHex === 0) {
-          if (stdMat.color) {
-            stdMat.emissive.copy(stdMat.color);
-            stdMat.emissiveIntensity = 0.12;
-          }
-        } else {
-          stdMat.emissive.setHex(mat.userData.origEmissiveHex);
-          stdMat.emissiveIntensity = Math.min(0.45, Math.max(0.18, (mat.userData.origEmissiveIntensity || 0.2) * 1.0));
-        }
-      } else {
-        // 'off': Clean, matte realistic shading with zero emissive bloom glow
+      const origHex = mat.userData.origEmissiveHex as number;
+      const origInt = (mat.userData.origEmissiveIntensity as number) || 0;
+
+      // Never inject fake emissive glow onto solid diffuse/metallic geometry
+      if (origHex === 0 || origInt <= 0) {
         stdMat.emissive.setHex(0x000000);
         stdMat.emissiveIntensity = 0;
+        return;
+      }
+
+      stdMat.emissive.setHex(origHex);
+      if (intensity === 'vibrant') {
+        // Selective HDR peak (> 0.68 luminance threshold) on true light-emitting elements only
+        stdMat.emissiveIntensity = Math.min(2.05, Math.max(1.22, origInt * 1.15));
+      } else if (intensity === 'subtle') {
+        stdMat.emissiveIntensity = Math.min(0.85, Math.max(0.24, origInt * 0.62));
+      } else {
+        // 'off': Preserve readable self-colored indicators without HDR bloom glare
+        stdMat.emissiveIntensity = Math.min(0.45, Math.max(0.12, origInt * 0.35));
       }
     }
   }
@@ -253,6 +284,9 @@ export class SimulationRenderer {
     if (!this.currentType) return;
     this.vectorGroup.visible = context.showVectors;
     this.labelsGroup.visible = context.showLabels;
+    if (context.bloomIntensity && context.bloomIntensity !== this.currentBloomIntensity) {
+      this.setBloomIntensity(context.bloomIntensity);
+    }
 
     switch (this.currentType) {
       case 'projectile-motion':
@@ -405,89 +439,208 @@ export class SimulationRenderer {
     this.projectileImpactReticle = null;
     this.projectileLiveAltitudeLine = null;
     this.projectileGroundTrackLine = null;
+    this.ydseScreenCacheKey = '';
+    this.activeHiddenVectorIds = new Set();
   }
 
   private disposeObject(obj: THREE.Object3D) {
     if (!obj) return;
+    const disposeMaterial = (mat: THREE.Material) => {
+      const anyMat = mat as unknown as Record<string, unknown>;
+      const texSlots = [
+        'map',
+        'lightMap',
+        'bumpMap',
+        'normalMap',
+        'roughnessMap',
+        'metalnessMap',
+        'aoMap',
+        'emissiveMap',
+        'specularMap',
+        'alphaMap',
+        'envMap',
+      ];
+      for (const slot of texSlots) {
+        const tex = anyMat[slot] as { dispose?: () => void } | undefined;
+        if (tex && typeof tex.dispose === 'function') tex.dispose();
+      }
+      mat.dispose();
+    };
+
     obj.traverse((child) => {
+      const ud = child.userData;
+      if (ud) {
+        if (ud.sharedGeo && typeof ud.sharedGeo.dispose === 'function') ud.sharedGeo.dispose();
+        if (ud.sharedMat && typeof ud.sharedMat.dispose === 'function') disposeMaterial(ud.sharedMat);
+        if (ud.sharedMatCyan && typeof ud.sharedMatCyan.dispose === 'function') disposeMaterial(ud.sharedMatCyan);
+        if (ud.sharedMatReturn && typeof ud.sharedMatReturn.dispose === 'function') disposeMaterial(ud.sharedMatReturn);
+        if (ud.tubeMat && typeof ud.tubeMat.dispose === 'function') disposeMaterial(ud.tubeMat);
+        if (ud.sharedLineMat && typeof ud.sharedLineMat.dispose === 'function') disposeMaterial(ud.sharedLineMat);
+        if (ud.sharedArrowMat && typeof ud.sharedArrowMat.dispose === 'function') disposeMaterial(ud.sharedArrowMat);
+      }
       const mesh = child as THREE.Mesh;
+      if ((mesh as unknown as THREE.InstancedMesh).isInstancedMesh) {
+        (mesh as unknown as THREE.InstancedMesh).dispose();
+      }
       if (mesh.geometry) {
         mesh.geometry.dispose();
       }
       if (mesh.material) {
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         for (const mat of mats) {
-          // Dispose all texture maps to prevent GPU VRAM memory leaks
-          const anyMat = mat as any;
-          if (anyMat.map && typeof anyMat.map.dispose === 'function') anyMat.map.dispose();
-          if (anyMat.lightMap && typeof anyMat.lightMap.dispose === 'function') anyMat.lightMap.dispose();
-          if (anyMat.bumpMap && typeof anyMat.bumpMap.dispose === 'function') anyMat.bumpMap.dispose();
-          if (anyMat.normalMap && typeof anyMat.normalMap.dispose === 'function') anyMat.normalMap.dispose();
-          if (anyMat.specularMap && typeof anyMat.specularMap.dispose === 'function') anyMat.specularMap.dispose();
-          if (anyMat.envMap && typeof anyMat.envMap.dispose === 'function') anyMat.envMap.dispose();
-          mat.dispose();
+          disposeMaterial(mat);
         }
       }
     });
   }
 
-  // --- Helper: Create Text Billboard Sprite for 3D Arrow Labels ---
+  // --- Helper: Crisp HiDPI Text Billboard Sprite with Cached Canvas Reuse ---
+  private drawLabelCanvas(
+    canvas: HTMLCanvasElement,
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    colorHex: string
+  ): number {
+    const cw = canvas.width;
+    const ch = canvas.height;
+    ctx.clearRect(0, 0, cw, ch);
+
+    ctx.font = '700 28px "Inter", system-ui, -apple-system, sans-serif';
+    const measured = ctx.measureText(text).width;
+    const pillWidth = Math.max(120, Math.min(cw - 14, Math.ceil(measured) + 46));
+    const pillHeight = ch - 14;
+    const pillX = (cw - pillWidth) * 0.5;
+    const pillY = 7;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(10, 14, 24, 0.88)';
+    ctx.beginPath();
+    if (typeof (ctx as any).roundRect === 'function') {
+      (ctx as any).roundRect(pillX, pillY, pillWidth, pillHeight, 16);
+    } else {
+      ctx.rect(pillX, pillY, pillWidth, pillHeight);
+    }
+    ctx.fill();
+
+    ctx.strokeStyle = colorHex;
+    ctx.lineWidth = 3.2;
+    ctx.stroke();
+
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+    ctx.shadowBlur = 4;
+    ctx.fillStyle = '#e6edf7';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, cw * 0.5, ch * 0.5 + 1, pillWidth - 26);
+    ctx.restore();
+
+    return pillWidth / cw;
+  }
+
+  private getRequiredLabelCanvasWidth(text: string): number {
+    if (text.length > 32) return 768;
+    return 512;
+  }
+
   private createTextSprite(text: string, colorHex = '#22c55e'): THREE.Sprite {
     const canvas = document.createElement('canvas');
-    const canvasWidth = Math.max(256, Math.min(720, text.length * 13 + 44));
-    canvas.width = canvasWidth;
-    canvas.height = 72;
+    canvas.width = this.getRequiredLabelCanvasWidth(text);
+    canvas.height = 96;
     const ctx = canvas.getContext('2d');
+    let pillFraction = 0.65;
     if (ctx) {
-      ctx.fillStyle = 'rgba(12, 12, 18, 0.90)';
-      ctx.beginPath();
-      if (typeof (ctx as any).roundRect === 'function') {
-        (ctx as any).roundRect(6, 6, canvasWidth - 12, 60, 14);
-      } else {
-        ctx.rect(6, 6, canvasWidth - 12, 60);
-      }
-      ctx.fill();
-
-      ctx.strokeStyle = colorHex;
-      ctx.lineWidth = 3.5;
-      ctx.stroke();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, canvasWidth / 2, 36);
+      pillFraction = this.drawLabelCanvas(canvas, ctx, text, colorHex);
     }
 
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
     texture.minFilter = THREE.LinearFilter;
-    const material = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true });
+    texture.magFilter = THREE.LinearFilter;
+
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      toneMapped: false,
+    });
+
     const sprite = new THREE.Sprite(material);
-    const spriteScaleX = (canvasWidth / 256) * 2.2;
-    sprite.scale.set(spriteScaleX, 0.62, 1);
-    (sprite as any).userData = { text, colorHex };
+    sprite.renderOrder = 1050;
+    const baseScaleY = 0.62;
+    const baseScaleX = (canvas.width / canvas.height) * baseScaleY;
+    sprite.scale.set(baseScaleX, baseScaleY, 1);
+    sprite.userData = {
+      text,
+      colorHex,
+      canvas,
+      ctx,
+      texture,
+      baseScaleX,
+      baseScaleY,
+      pillFraction,
+      anchorPos: new THREE.Vector3(),
+      desiredVisible: true,
+      hiddenByFilter: false,
+    };
     return sprite;
   }
 
   private updateArrowLabel(name: string, text: string, colorHex: string, position: THREE.Vector3, visible = true) {
-    let sprite = this.labelsGroup.getObjectByName(`label-${name}`) as THREE.Sprite;
-    if (!sprite) {
-      sprite = this.createTextSprite(text, colorHex);
-      sprite.name = `label-${name}`;
-      this.labelsGroup.add(sprite);
-    } else if ((sprite as any).userData?.text !== text || (sprite as any).userData?.colorHex !== colorHex) {
-      this.labelsGroup.remove(sprite);
-      this.disposeObject(sprite);
-      sprite = this.createTextSprite(text, colorHex);
-      sprite.name = `label-${name}`;
-      this.labelsGroup.add(sprite);
+    const trimmed = text ? text.trim() : '';
+    let sprite = this.labelsGroup.getObjectByName(`label-${name}`) as THREE.Sprite | undefined;
+
+    // Never allocate or redraw canvases for hidden or empty labels
+    if (!visible || !trimmed) {
+      if (sprite) {
+        sprite.userData.desiredVisible = false;
+        sprite.visible = false;
+      }
+      return;
     }
+
+    if (!sprite) {
+      sprite = this.createTextSprite(trimmed, colorHex);
+      sprite.name = `label-${name}`;
+      this.labelsGroup.add(sprite);
+    } else if (sprite.userData.text !== trimmed || sprite.userData.colorHex !== colorHex) {
+      const neededWidth = this.getRequiredLabelCanvasWidth(trimmed);
+      const canvas = sprite.userData.canvas as HTMLCanvasElement | undefined;
+      const ctx = sprite.userData.ctx as CanvasRenderingContext2D | undefined;
+      const tex = sprite.userData.texture as THREE.CanvasTexture | undefined;
+
+      // In-place canvas redraw when texture tier matches (zero GPU reallocation)
+      if (canvas && ctx && tex && canvas.width === neededWidth) {
+        sprite.userData.pillFraction = this.drawLabelCanvas(canvas, ctx, trimmed, colorHex);
+        sprite.userData.text = trimmed;
+        sprite.userData.colorHex = colorHex;
+        tex.needsUpdate = true;
+      } else {
+        this.labelsGroup.remove(sprite);
+        this.disposeObject(sprite);
+        sprite = this.createTextSprite(trimmed, colorHex);
+        sprite.name = `label-${name}`;
+        this.labelsGroup.add(sprite);
+      }
+    }
+
+    const ud = sprite.userData;
+    if (ud.anchorPos instanceof THREE.Vector3) {
+      ud.anchorPos.copy(position);
+    } else {
+      ud.anchorPos = position.clone();
+    }
+    ud.desiredVisible = true;
+    ud.hiddenByFilter = this.activeHiddenVectorIds.has(name);
+
     sprite.position.copy(position);
-    sprite.visible = visible;
+    sprite.visible = !ud.hiddenByFilter;
   }
 
   // --- Helper: Apply Hidden Vectors Filter ---
   public setHiddenVectors(hiddenIds: Set<string>) {
+    this.activeHiddenVectorIds = hiddenIds;
     this.vectorGroup.children.forEach((child) => {
       if (child.name && hiddenIds.has(child.name)) {
         child.visible = false;
@@ -495,15 +648,212 @@ export class SimulationRenderer {
     });
     this.labelsGroup.children.forEach((child) => {
       const arrowName = child.name.replace('label-', '');
-      if (hiddenIds.has(arrowName)) {
+      const isHidden = hiddenIds.has(arrowName);
+      child.userData.hiddenByFilter = isHidden;
+      if (isHidden) {
         child.visible = false;
       }
     });
   }
 
+  private getLabelPriority(labelName: string): number {
+    if (labelName.includes('vel') || labelName.includes('net') || labelName.includes('resultant')) return 3;
+    if (labelName.includes('apex') || labelName.includes('landing') || labelName.includes('com') || labelName.includes('tracker')) return 2.5;
+    if (labelName.startsWith('label-wp-')) return 0.5;
+    return 1.5;
+  }
+
+  // --- Distance Culling, Smooth Opacity Fade & 2D Overlap Decluttering for 3D Labels ---
+  public updateLabelLOD(camera: THREE.PerspectiveCamera, sceneRefDist = 20) {
+    if (!this.labelsGroup.visible || this.labelsGroup.children.length === 0) return;
+
+    camera.updateMatrixWorld();
+    this._lodCamForward.set(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+    this._lodCamUp.set(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+
+    const refDist = Math.max(8, Math.min(45, sceneRefDist || 20));
+    const fadeStart = refDist * 1.4;
+    const fadeEnd = refDist * 1.95;
+    const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+    const aspect = Math.max(0.4, camera.aspect || 1);
+
+    this._lodCandidates.length = 0;
+    this._lodPlacedBoxes.length = 0;
+
+    for (let i = 0; i < this.labelsGroup.children.length; i++) {
+      const child = this.labelsGroup.children[i] as THREE.Sprite;
+      if (!child || !(child as any).isSprite) continue;
+
+      const ud = child.userData;
+      if (!ud?.desiredVisible || ud.hiddenByFilter) {
+        child.visible = false;
+        continue;
+      }
+
+      const anchor = (ud.anchorPos as THREE.Vector3) || child.position;
+      const dist = camera.position.distanceTo(anchor);
+
+      // Aggressive distance cutoff: hide cleanly when far from model or clipped too close
+      if (!Number.isFinite(dist) || dist >= fadeEnd || dist < 1.0) {
+        child.visible = false;
+        continue;
+      }
+
+      this._lodDeltaVec.subVectors(anchor, camera.position);
+      const distZ = this._lodDeltaVec.dot(this._lodCamForward);
+      if (distZ <= 0.8) {
+        child.visible = false;
+        continue;
+      }
+
+      this._lodProjVec.copy(anchor).project(camera);
+      if (
+        !Number.isFinite(this._lodProjVec.x) ||
+        !Number.isFinite(this._lodProjVec.y) ||
+        this._lodProjVec.z < -1 ||
+        this._lodProjVec.z > 1 ||
+        Math.abs(this._lodProjVec.x) > 1.02 ||
+        Math.abs(this._lodProjVec.y) > 1.02
+      ) {
+        child.visible = false;
+        continue;
+      }
+
+      // Smooth cubic hermite distance fade-out + near-clip fade-in
+      let opacity = 1.0;
+      if (dist > fadeStart) {
+        const t = THREE.MathUtils.clamp((dist - fadeStart) / Math.max(1, fadeEnd - fadeStart), 0, 1);
+        opacity = 1 - t * t * (3 - 2 * t);
+      } else if (dist < 2.2) {
+        opacity = THREE.MathUtils.clamp((dist - 1.0) / 1.2, 0, 1);
+      }
+
+      if (opacity <= 0.04) {
+        child.visible = false;
+        continue;
+      }
+
+      const baseScaleX = (ud.baseScaleX as number) || child.scale.x;
+      const baseScaleY = (ud.baseScaleY as number) || child.scale.y;
+      const pillFrac = (ud.pillFraction as number) || 0.7;
+      const scaleMult = THREE.MathUtils.clamp(dist / Math.max(9, refDist * 0.9), 0.55, 1.42);
+
+      const halfH = (baseScaleY * scaleMult * 0.5) / (distZ * tanHalfFov);
+      const halfW = (baseScaleX * pillFrac * scaleMult * 0.5) / (distZ * tanHalfFov * aspect);
+
+      this._lodCandidates.push({
+        sprite: child,
+        dist,
+        distZ,
+        priority: this.getLabelPriority(child.name || '') - dist * 0.02,
+        ndcX: this._lodProjVec.x,
+        ndcY: this._lodProjVec.y,
+        halfW: halfW * 1.06,
+        halfH: halfH * 1.12,
+        opacity,
+        scaleMult,
+      });
+    }
+
+    // Highest priority & closest labels lock their spot first; overlapping lower-priority labels nudge or hide
+    this._lodCandidates.sort((a, b) => b.priority - a.priority);
+
+    const collidesWithPlaced = (minX: number, maxX: number, minY: number, maxY: number) => {
+      for (let i = 0; i < this._lodPlacedBoxes.length; i++) {
+        const b = this._lodPlacedBoxes[i];
+        if (minX < b.maxX && maxX > b.minX && minY < b.maxY && maxY > b.minY) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    for (let i = 0; i < this._lodCandidates.length; i++) {
+      const c = this._lodCandidates[i];
+      const ud = c.sprite.userData;
+      const anchor = (ud.anchorPos as THREE.Vector3) || c.sprite.position;
+
+      let chosenNdcY = c.ndcY;
+      let worldYOffset = 0;
+      let placed = !collidesWithPlaced(c.ndcX - c.halfW, c.ndcX + c.halfW, chosenNdcY - c.halfH, chosenNdcY + c.halfH);
+
+      if (!placed) {
+        const ndcStep = c.halfH * 2.15;
+        const upY = c.ndcY + ndcStep;
+        if (
+          upY + c.halfH <= 0.98 &&
+          !collidesWithPlaced(c.ndcX - c.halfW, c.ndcX + c.halfW, upY - c.halfH, upY + c.halfH)
+        ) {
+          chosenNdcY = upY;
+          worldYOffset = ndcStep * c.distZ * tanHalfFov;
+          placed = true;
+        } else {
+          const downY = c.ndcY - ndcStep;
+          if (
+            downY - c.halfH >= -0.98 &&
+            !collidesWithPlaced(c.ndcX - c.halfW, c.ndcX + c.halfW, downY - c.halfH, downY + c.halfH)
+          ) {
+            chosenNdcY = downY;
+            worldYOffset = -ndcStep * c.distZ * tanHalfFov;
+            placed = true;
+          }
+        }
+      }
+
+      if (!placed) {
+        c.sprite.visible = false;
+        continue;
+      }
+
+      this._lodPlacedBoxes.push({
+        minX: c.ndcX - c.halfW,
+        maxX: c.ndcX + c.halfW,
+        minY: chosenNdcY - c.halfH,
+        maxY: chosenNdcY + c.halfH,
+      });
+
+      c.sprite.position.copy(anchor);
+      if (worldYOffset !== 0) {
+        c.sprite.position.addScaledVector(this._lodCamUp, worldYOffset);
+      }
+
+      const baseScaleX = (ud.baseScaleX as number) || c.sprite.scale.x;
+      const baseScaleY = (ud.baseScaleY as number) || c.sprite.scale.y;
+      c.sprite.scale.set(baseScaleX * c.scaleMult, baseScaleY * c.scaleMult, 1);
+
+      const mat = c.sprite.material as THREE.SpriteMaterial;
+      if (mat) {
+        mat.opacity = c.opacity;
+      }
+      c.sprite.visible = true;
+    }
+  }
+
+  // --- Helper: Safe Vector Direction Guard (prevents NaN quaternions on zero-length vectors) ---
+  private setSafeArrowDirection(
+    arrow: THREE.ArrowHelper | null | undefined,
+    x: number,
+    y: number,
+    z: number,
+    fallbackX = 1,
+    fallbackY = 0,
+    fallbackZ = 0
+  ) {
+    if (!arrow) return;
+    const lenSq = x * x + y * y + z * z;
+    if (Number.isFinite(lenSq) && lenSq > 1e-8) {
+      this.tempDirVec.set(x, y, z).normalize();
+    } else {
+      this.tempDirVec.set(fallbackX, fallbackY, fallbackZ).normalize();
+    }
+    arrow.setDirection(this.tempDirVec);
+  }
+
   // --- Helper: Create Arrow Vector ---
   private createArrow(name: string, color: number, origin = new THREE.Vector3(), dir = new THREE.Vector3(1, 0, 0), length = 1): THREE.ArrowHelper {
-    const arrow = new THREE.ArrowHelper(dir.normalize(), origin, Math.max(0.1, length), color, 0.45, 0.22);
+    const safeDir = dir.lengthSq() > 1e-8 ? dir.clone().normalize() : new THREE.Vector3(1, 0, 0);
+    const safeLen = Number.isFinite(length) ? Math.max(0.1, length) : 1;
+    const arrow = new THREE.ArrowHelper(safeDir, origin, safeLen, color, 0.45, 0.22);
     arrow.name = name;
     arrow.renderOrder = 999;
     this.vectorGroup.add(arrow);
@@ -2077,7 +2427,7 @@ export class SimulationRenderer {
       const vMag = vVec.length();
       const vLen = Math.min(6, vMag * 0.14);
       velArrow.position.set(currentState.x, currentState.y, 0);
-      velArrow.setDirection(vVec.clone().normalize());
+      this.setSafeArrowDirection(velArrow, vVec.x, vVec.y, vVec.z, 1, 0, 0);
       velArrow.setLength(Math.max(0.1, vLen), 0.4, 0.2);
 
       const velAngleDeg = (Math.atan2(currentState.vy, currentState.vx) * 180) / Math.PI;
@@ -2224,8 +2574,9 @@ export class SimulationRenderer {
   private setupInclinedPlane(ctx: SimRenderContext) {
     const L = 12.0;
 
-    // Wedge Support Structure
+    // Wedge Support Structure (pre-allocated vertex buffer)
     const wedgeGeo = new THREE.BufferGeometry();
+    wedgeGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(54), 3));
     const wedgeMat = new THREE.MeshStandardMaterial({
       color: 0x334155,
       roughness: 0.7,
@@ -2235,6 +2586,24 @@ export class SimulationRenderer {
     const wedgeMesh = new THREE.Mesh(wedgeGeo, wedgeMat);
     wedgeMesh.name = 'wedge-support-mesh';
     this.objectsGroup.add(wedgeMesh);
+
+    // Telescoping Screw Jack Support Stand + Pivot Clevis beneath Top Hinge
+    const jackStandGroup = new THREE.Group();
+    jackStandGroup.name = 'incline-jack-stand';
+    const steelMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.85, roughness: 0.22 });
+    const basePlate = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.16, 4.4), steelMat);
+    basePlate.position.set(0, 0.08, 0);
+    jackStandGroup.add(basePlate);
+    const jackColumn = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 1.0, 16), steelMat);
+    jackColumn.name = 'incline-jack-column';
+    jackStandGroup.add(jackColumn);
+    [-1.9, 1.9].forEach((zp) => {
+      const pivotCap = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.28, 16), new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.85, roughness: 0.25 }));
+      pivotCap.rotation.x = Math.PI / 2;
+      pivotCap.name = `pivot-cap-${zp > 0 ? 'f' : 'b'}`;
+      jackStandGroup.add(pivotCap);
+    });
+    this.objectsGroup.add(jackStandGroup);
 
     // Incline Board Group
     const boardGroup = new THREE.Group();
@@ -2249,12 +2618,27 @@ export class SimulationRenderer {
     boardMesh.position.set(L / 2, -0.1, 0);
     boardGroup.add(boardMesh);
 
+    // Side Guide Rails & Mounting Bolts
+    const sideRailGeo = new THREE.BoxGeometry(L, 0.24, 0.14);
+    const boltGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.06, 10);
+    const boltMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.9, roughness: 0.15 });
+    [-2.14, 2.14].forEach((zr) => {
+      const rail = new THREE.Mesh(sideRailGeo, steelMat);
+      rail.position.set(L / 2, 0.02, zr);
+      boardGroup.add(rail);
+      for (let bx = 1.5; bx < L; bx += 3.0) {
+        const bolt = new THREE.Mesh(boltGeo, boltMat);
+        bolt.position.set(bx, 0.15, zr);
+        boardGroup.add(bolt);
+      }
+    });
+
     // Board Surface Track Grid Lines
     const lineMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.6 });
     for (let d = 1; d < L; d += 1) {
       const lineGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(d, 0.01, -2.1),
-        new THREE.Vector3(d, 0.01, 2.1),
+        new THREE.Vector3(d, 0.01, -2.05),
+        new THREE.Vector3(d, 0.01, 2.05),
       ]);
       boardGroup.add(new THREE.Line(lineGeo, lineMat));
     }
@@ -2270,13 +2654,21 @@ export class SimulationRenderer {
     groundTrack.name = 'ground-track';
     this.objectsGroup.add(groundTrack);
 
-    // End Stopper
-    const stopperMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.4 });
-    const stopper = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.0, 4.2), stopperMat);
-    stopper.name = 'end-stopper';
-    this.objectsGroup.add(stopper);
+    // End Stopper with Rubber Impact Cushion Pad
+    const stopperGroup = new THREE.Group();
+    stopperGroup.name = 'end-stopper';
+    const stopperMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.4, metalness: 0.4 });
+    const stopperBody = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.0, 4.2), stopperMat);
+    stopperGroup.add(stopperBody);
+    const bumperPad = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.85, 4.0),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 })
+    );
+    bumperPad.position.set(-0.16, 0, 0);
+    stopperGroup.add(bumperPad);
+    this.objectsGroup.add(stopperGroup);
 
-    // Sliding Block
+    // Sliding Block with Chamfered Corner Braces
     const blockGroup = new THREE.Group();
     blockGroup.name = 'sliding-block';
 
@@ -2287,6 +2679,11 @@ export class SimulationRenderer {
     });
     const blockMesh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.2, 1.6), blockMat);
     blockGroup.add(blockMesh);
+
+    // Top Lifting Eye-Bolt Detail on Block
+    const eyeBolt = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.035, 10, 20), steelMat);
+    eyeBolt.position.set(0, 0.72, 0);
+    blockGroup.add(eyeBolt);
 
     // Inner grip & border on block
     const blockEdgeGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.6, 1.2, 1.6));
@@ -2316,25 +2713,40 @@ export class SimulationRenderer {
 
   private updateInclinedPlane(ctx: SimRenderContext) {
     const { theta = 30, mu_s = 0.5, mu_k = 0.3, m = 2, F_ext = 0 } = ctx.params;
-    const rad = (theta * Math.PI) / 180;
+    const rad = (Math.max(0.1, Math.min(85, theta)) * Math.PI) / 180;
     const L = 12.0;
-    const g = 9.8;
+    const g = 9.81;
 
     const block = this.objectsGroup.getObjectByName('sliding-block');
     const boardGroup = this.objectsGroup.getObjectByName('incline-board-group');
     const wedge = this.objectsGroup.getObjectByName('wedge-support-mesh') as THREE.Mesh;
+    const jackStand = this.objectsGroup.getObjectByName('incline-jack-stand');
     const stopper = this.objectsGroup.getObjectByName('end-stopper');
     const groundTrack = this.objectsGroup.getObjectByName('ground-track');
 
     const topX = -6.5;
     const topY = L * Math.sin(rad);
     const botX = topX + L * Math.cos(rad);
-    const botY = 0;
 
     // Update Incline Board Position & Rotation
     if (boardGroup) {
       boardGroup.position.set(topX, topY, 0);
       boardGroup.rotation.z = -rad;
+    }
+
+    // Update Jack Stand & Pivot Hinge Caps
+    if (jackStand) {
+      jackStand.position.set(topX, 0, 0);
+      const col = jackStand.getObjectByName('incline-jack-column');
+      if (col) {
+        const colH = Math.max(0.1, topY);
+        col.scale.set(1, colH, 1);
+        col.position.set(0, colH / 2, 0);
+      }
+      const capF = jackStand.getObjectByName('pivot-cap-f');
+      const capB = jackStand.getObjectByName('pivot-cap-b');
+      if (capF) capF.position.set(0, topY, 2.25);
+      if (capB) capB.position.set(0, topY, -2.25);
     }
 
     // Update Ground Track Position
@@ -2345,37 +2757,26 @@ export class SimulationRenderer {
       stopper.position.set(botX + trackLen - 0.15, 0.5, 0);
     }
 
-    // Dynamic Triangular Wedge Support Geometry
-    if (wedge) {
-      const depth = 4.8;
-      const hDepth = depth / 2;
-      // Vertices: TopLeft(topX, topY), BotLeft(topX, 0), BotRight(botX, 0)
-      const positions = new Float32Array([
-        // Front face (+z)
-        topX, topY, hDepth,
-        topX, 0, hDepth,
-        botX, 0, hDepth,
-        // Back face (-z)
-        topX, topY, -hDepth,
-        botX, 0, -hDepth,
-        topX, 0, -hDepth,
-        // Left vertical back wall
-        topX, topY, hDepth,
-        topX, topY, -hDepth,
-        topX, 0, -hDepth,
-        topX, topY, hDepth,
-        topX, 0, -hDepth,
-        topX, 0, hDepth,
-        // Bottom ground base
-        topX, 0, hDepth,
-        topX, 0, -hDepth,
-        botX, 0, -hDepth,
-        topX, 0, hDepth,
-        botX, 0, -hDepth,
-        botX, 0, hDepth,
-      ]);
-      wedge.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      wedge.geometry.computeVertexNormals();
+    // Update Pre-allocated Wedge Support Buffer ONLY when theta changes
+    if (wedge && wedge.userData.lastTheta !== theta) {
+      wedge.userData.lastTheta = theta;
+      const posAttr = wedge.geometry.getAttribute('position') as THREE.BufferAttribute;
+      if (posAttr && posAttr.array) {
+        const arr = posAttr.array as Float32Array;
+        const hDepth = 2.4;
+        const vals = [
+          topX, topY, hDepth,  topX, 0, hDepth,   botX, 0, hDepth,
+          topX, topY, -hDepth, botX, 0, -hDepth,  topX, 0, -hDepth,
+          topX, topY, hDepth,  topX, topY, -hDepth, topX, 0, -hDepth,
+          topX, topY, hDepth,  topX, 0, -hDepth,  topX, 0, hDepth,
+          topX, 0, hDepth,     topX, 0, -hDepth,  botX, 0, -hDepth,
+          topX, 0, hDepth,     botX, 0, -hDepth,  botX, 0, hDepth,
+        ];
+        arr.set(vals);
+        posAttr.needsUpdate = true;
+        wedge.geometry.computeVertexNormals();
+        wedge.geometry.computeBoundingSphere();
+      }
     }
 
     // Compute non-penetrating sliding block transform via PhysicsEngineMiddleware
@@ -2468,31 +2869,95 @@ export class SimulationRenderer {
   // 3. SHM (SPRING & OSCILLATOR)
   // ==========================================
   private setupSHM(ctx: SimRenderContext) {
-    // Rigid Support Wall
-    const wallGeo = new THREE.BoxGeometry(0.8, 4, 3);
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.5 });
-    const wall = new THREE.Mesh(wallGeo, wallMat);
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.55, roughness: 0.4 });
+    const steelMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.9, roughness: 0.15 });
+    const brassMat = new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.85, roughness: 0.25 });
+
+    // Rigid Support Wall & Anchor Flange
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(0.8, 4, 3), wallMat);
     wall.position.set(-8, 2, 0);
     this.objectsGroup.add(wall);
 
-    // Track
-    const trackGeo = new THREE.BoxGeometry(16, 0.4, 3);
-    const trackMat = new THREE.MeshStandardMaterial({ color: 0x1e293b });
-    const track = new THREE.Mesh(trackGeo, trackMat);
+    const wallAnchor = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.05, 10, 20), brassMat);
+    wallAnchor.position.set(-7.56, 1.0, 0);
+    this.objectsGroup.add(wallAnchor);
+
+    // Track Bed & Twin Linear Chrome Guide Rails
+    const track = new THREE.Mesh(
+      new THREE.BoxGeometry(16, 0.4, 3),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7, metalness: 0.2 })
+    );
     track.position.set(0, 0, 0);
     this.objectsGroup.add(track);
 
-    // Mass Block
-    const blockGeo = new THREE.BoxGeometry(1.6, 1.6, 1.6);
-    const blockMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.6, roughness: 0.2 });
-    const block = new THREE.Mesh(blockGeo, blockMat);
-    block.name = 'shm-block';
-    block.position.set(0, 1.0, 0);
-    this.objectsGroup.add(block);
+    [-0.9, 0.9].forEach((zr) => {
+      const guideRod = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 15.2, 16), steelMat);
+      guideRod.rotation.z = Math.PI / 2;
+      guideRod.position.set(0.2, 0.28, zr);
+      this.objectsGroup.add(guideRod);
+    });
 
-    // Dynamic Spring Tube
+    // Equilibrium Reference x = 0 Index Plate
+    const eqLine = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.03, 2.8),
+      new THREE.MeshBasicMaterial({ color: 0x10b981 })
+    );
+    eqLine.position.set(0, 0.22, 0);
+    this.objectsGroup.add(eqLine);
+
+    // Mass Block + Linear Carriage Shoes & Spring Hook
+    const blockGroup = new THREE.Group();
+    blockGroup.name = 'shm-block';
+    blockGroup.position.set(0, 1.0, 0);
+
+    const blockMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 1.4, 1.6),
+      new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.65, roughness: 0.22 })
+    );
+    blockMesh.position.y = 0.06;
+    blockGroup.add(blockMesh);
+
+    const carriageBase = new THREE.Mesh(
+      new THREE.BoxGeometry(1.8, 0.26, 2.1),
+      new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85, roughness: 0.25 })
+    );
+    carriageBase.position.y = -0.68;
+    blockGroup.add(carriageBase);
+
+    const blockHook = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.045, 10, 20), brassMat);
+    blockHook.position.set(-0.82, 0, 0);
+    blockGroup.add(blockHook);
+
+    this.objectsGroup.add(blockGroup);
+
+    // Pre-allocated Helical Steel Spring Tube Mesh (mutated in-place at 60 FPS with 0 allocations)
     const springGroup = new THREE.Group();
     springGroup.name = 'spring-mesh-group';
+    const axialSegs = 120;
+    const radialSegs = 6;
+    const vertCount = (axialSegs + 1) * radialSegs;
+    const positions = new Float32Array(vertCount * 3);
+    const normals = new Float32Array(vertCount * 3);
+    const indices: number[] = [];
+    for (let i = 0; i < axialSegs; i++) {
+      for (let j = 0; j < radialSegs; j++) {
+        const jNext = (j + 1) % radialSegs;
+        const a = i * radialSegs + j;
+        const b = (i + 1) * radialSegs + j;
+        const c = (i + 1) * radialSegs + jNext;
+        const d = i * radialSegs + jNext;
+        indices.push(a, b, d, b, c, d);
+      }
+    }
+    const springGeo = new THREE.BufferGeometry();
+    springGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    springGeo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    springGeo.setIndex(indices);
+    const springMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.85, roughness: 0.2 });
+    const springMesh = new THREE.Mesh(springGeo, springMat);
+    springMesh.name = 'shm-helix-mesh';
+    springMesh.userData = { axialSegs, radialSegs };
+    springGroup.add(springMesh);
     this.objectsGroup.add(springGroup);
 
     // Velocity and Restoring Force Vectors
@@ -2502,53 +2967,99 @@ export class SimulationRenderer {
 
   private updateSHM(ctx: SimRenderContext) {
     const { k = 20, m = 1, A = 2, phi = 0 } = ctx.params;
-    const safeK = Math.max(0.001, k || 20);
-    const safeM = Math.max(0.001, m || 1);
+    const safeK = Math.max(0.001, Number.isFinite(k) ? k : 20);
+    const safeM = Math.max(0.001, Number.isFinite(m) ? m : 1);
+    const safeA = Number.isFinite(A) ? A : 2;
+    const safePhi = Number.isFinite(phi) ? phi : 0;
     const omega = Math.sqrt(safeK / safeM);
-    const phiRad = (phi * Math.PI) / 180;
+    const phiRad = (safePhi * Math.PI) / 180;
     const phase = omega * ctx.simTime + phiRad;
-    const x = A * Math.cos(phase);
-    const v = -A * omega * Math.sin(phase);
+    const x = safeA * Math.cos(phase);
+    const v = -safeA * omega * Math.sin(phase);
 
     const block = this.objectsGroup.getObjectByName('shm-block');
     if (block) {
       block.position.set(x, 1.0, 0);
     }
 
-    // Update spring coils
+    // Mutate pre-allocated helix vertex buffer in-place (zero GC pressure & uniform wire gauge)
     const springGroup = this.objectsGroup.getObjectByName('spring-mesh-group');
-    if (springGroup) {
-      // Retain reusable material on userData to eliminate 60 FPS material shader recompilations
-      if (!springGroup.userData.tubeMat) {
-        springGroup.userData.tubeMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.2 });
+    const springMesh = springGroup?.getObjectByName('shm-helix-mesh') as THREE.Mesh | undefined;
+    if (springMesh && springMesh.geometry) {
+      const posAttr = springMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const normAttr = springMesh.geometry.getAttribute('normal') as THREE.BufferAttribute;
+      const { axialSegs, radialSegs } = springMesh.userData as { axialSegs: number; radialSegs: number };
+      if (posAttr && normAttr && axialSegs && radialSegs) {
+        const posArr = posAttr.array as Float32Array;
+        const normArr = normAttr.array as Float32Array;
+        const startX = -7.56;
+        const endX = x - 0.82;
+        const length = Math.max(0.35, endX - startX);
+        const coils = 16;
+        const helixRadius = 0.44;
+        const wireRadius = 0.065;
+
+        let idx = 0;
+        for (let i = 0; i <= axialSegs; i++) {
+          const t = i / axialSegs;
+          const theta = t * coils * Math.PI * 2;
+          const sinT = Math.sin(theta);
+          const cosT = Math.cos(theta);
+          // Smoothly taper first/last half-turn toward centerline hooks
+          const endTaper = Math.min(1, Math.min(t * 14, (1 - t) * 14));
+          const rCur = helixRadius * endTaper;
+          const cx = startX + t * length;
+          const cy = 1.0 + sinT * rCur;
+          const cz = cosT * rCur;
+
+          // Tangent & normal frame for uniform wire cross-section
+          const tx = length;
+          const ty = coils * Math.PI * 2 * rCur * cosT;
+          const tz = -coils * Math.PI * 2 * rCur * sinT;
+          const tLen = Math.hypot(tx, ty, tz) || 1;
+          const utx = tx / tLen;
+          const uty = ty / tLen;
+          const utz = tz / tLen;
+
+          // Radial outward vector (in YZ plane, orthogonalized)
+          let n1x = 0;
+          let n1y = sinT;
+          let n1z = cosT;
+          const dot = uty * n1y + utz * n1z;
+          n1x -= dot * utx;
+          n1y -= dot * uty;
+          n1z -= dot * utz;
+          const n1Len = Math.hypot(n1x, n1y, n1z) || 1;
+          n1x /= n1Len;
+          n1y /= n1Len;
+          n1z /= n1Len;
+
+          // Binormal = T x N1
+          const n2x = uty * n1z - utz * n1y;
+          const n2y = utz * n1x - utx * n1z;
+          const n2z = utx * n1y - uty * n1x;
+
+          for (let j = 0; j < radialSegs; j++) {
+            const a = (j / radialSegs) * Math.PI * 2;
+            const ca = Math.cos(a);
+            const sa = Math.sin(a);
+            const nx = n1x * ca + n2x * sa;
+            const ny = n1y * ca + n2y * sa;
+            const nz = n1z * ca + n2z * sa;
+
+            normArr[idx] = nx;
+            normArr[idx + 1] = ny;
+            normArr[idx + 2] = nz;
+            posArr[idx] = cx + nx * wireRadius;
+            posArr[idx + 1] = cy + ny * wireRadius;
+            posArr[idx + 2] = cz + nz * wireRadius;
+            idx += 3;
+          }
+        }
+        posAttr.needsUpdate = true;
+        normAttr.needsUpdate = true;
+        springMesh.geometry.computeBoundingSphere();
       }
-
-      while (springGroup.children.length > 0) {
-        const child = springGroup.children[0] as THREE.Mesh;
-        if (child.geometry) child.geometry.dispose();
-        springGroup.remove(child);
-      }
-
-      const startX = -7.6;
-      const endX = x - 0.8;
-      const length = Math.max(0.2, endX - startX);
-      const coils = 18;
-      const radius = 0.5;
-      const points: THREE.Vector3[] = [];
-      const segments = 100;
-
-      for (let i = 0; i <= segments; i++) {
-        const t = i / segments;
-        const px = startX + t * length;
-        const py = 1.0 + Math.sin(t * coils * Math.PI * 2) * radius;
-        const pz = Math.cos(t * coils * Math.PI * 2) * radius;
-        points.push(new THREE.Vector3(px, py, pz));
-      }
-
-      const curve = new THREE.CatmullRomCurve3(points);
-      const tubeGeo = new THREE.TubeGeometry(curve, 80, 0.08, 6, false);
-      const springMesh = new THREE.Mesh(tubeGeo, springGroup.userData.tubeMat);
-      springGroup.add(springMesh);
     }
 
     // Update vectors
@@ -2927,12 +3438,14 @@ export class SimulationRenderer {
     const vNet = (k_const * q1 * 1e-6) / Math.max(0.1, r1) + (k_const * q2 * 1e-6) / Math.max(0.1, r2);
 
     if (probeArrow && probeGroup) {
-      const eVec = new THREE.Vector3(ex, ey, 0);
       probeArrow.position.set(probeX, probeY, 0);
       if (eMag > 0.0001) {
-        probeArrow.setDirection(eVec.normalize());
+        probeArrow.visible = ctx.showVectors;
+        this.setSafeArrowDirection(probeArrow, ex, ey, 0, 1, 0, 0);
         const arrowLen = Math.min(4.2, Math.max(0.8, eMag * 1.6));
         probeArrow.setLength(arrowLen, 0.45, 0.22);
+      } else {
+        probeArrow.visible = false;
       }
     }
 
@@ -3693,38 +4206,45 @@ export class SimulationRenderer {
       saddleScreen.position.x = screenX;
     }
 
-    // 5. Render Expanding Primary Wavefronts from S0 towards S1 & S2 (Spatial Coherence)
+    // 5. Render Expanding Primary Wavefronts via Reusable Pooled Unit Ring Arcs (Zero GC churn)
     const primaryWaveGroup = this.objectsGroup.getObjectByName('ydse-primary-waves') as THREE.Group;
     if (primaryWaveGroup) {
-      while (primaryWaveGroup.children.length > 0) {
-        this.disposeObject(primaryWaveGroup.children[0]);
-        primaryWaveGroup.remove(primaryWaveGroup.children[0]);
-      }
-
       const primaryDist = x_s12 - x_s0; // = 5.0
       const waveSpeed = 2.4;
       const waveSpacing = 0.75;
       const numPrimaryArcs = 7;
       const animOffsetPrimary = (ctx.simTime * waveSpeed) % waveSpacing;
 
-      for (let i = 0; i < numPrimaryArcs; i++) {
-        const radius = i * waveSpacing + animOffsetPrimary;
-        if (radius > 0.2 && radius < primaryDist + 0.4) {
-          const arcAngle = Math.PI * 0.42;
-          const arcGeo = new THREE.RingGeometry(radius - 0.025, radius + 0.025, 32, 1, -arcAngle / 2, arcAngle);
-          const opacity = Math.max(0.12, 0.75 * (1 - radius / (primaryDist + 0.8)));
+      if (!primaryWaveGroup.userData.initialized) {
+        const arcAngle = Math.PI * 0.42;
+        const unitArcGeo = new THREE.RingGeometry(0.975, 1.025, 32, 1, -arcAngle / 2, arcAngle);
+        primaryWaveGroup.userData.sharedGeo = unitArcGeo;
+        for (let i = 0; i < numPrimaryArcs; i++) {
           const arcMat = new THREE.MeshBasicMaterial({
             color: spectral.threeColor,
             transparent: true,
-            opacity: opacity,
+            opacity: 0.6,
             side: THREE.DoubleSide,
           });
-          const arcMesh = new THREE.Mesh(arcGeo, arcMat);
+          const arcMesh = new THREE.Mesh(unitArcGeo, arcMat);
           arcMesh.position.set(s0_pos.x, s0_pos.y, 0);
-          // RingGeometry is in XY plane with arc opening along +X axis (forward towards slits)
           primaryWaveGroup.add(arcMesh);
+        }
+        primaryWaveGroup.userData.initialized = true;
+      }
 
-
+      for (let i = 0; i < numPrimaryArcs; i++) {
+        const arcMesh = primaryWaveGroup.children[i] as THREE.Mesh;
+        if (!arcMesh) continue;
+        const radius = i * waveSpacing + animOffsetPrimary;
+        if (radius > 0.2 && radius < primaryDist + 0.4) {
+          arcMesh.visible = true;
+          arcMesh.scale.set(radius, radius, 1);
+          const mat = arcMesh.material as THREE.MeshBasicMaterial;
+          mat.color.copy(spectral.threeColor);
+          mat.opacity = Math.max(0.12, 0.75 * (1 - radius / (primaryDist + 0.8)));
+        } else {
+          arcMesh.visible = false;
         }
       }
     }
@@ -3814,111 +4334,119 @@ export class SimulationRenderer {
       mat.uniforms.uK.value = Math.max(10.0, Math.min(60.0, (d_3D / 1.0) * 20.0));
     }
 
-    // 7. Render Constructive Interference Antinodes (Maxima) & Destructive Nodes (Minima) Loci
+    // 7. Render Constructive Interference Antinodes (Maxima) & Destructive Nodes (Minima) Loci (Pooled Buffers)
     const antinodalGroup = this.objectsGroup.getObjectByName('ydse-antinodal-lines') as THREE.Group;
     if (antinodalGroup) {
-      while (antinodalGroup.children.length > 0) {
-        this.disposeObject(antinodalGroup.children[0]);
-        antinodalGroup.remove(antinodalGroup.children[0]);
+      const maximaOrders = [-3, -2, -1, 1, 2, 3];
+      const minimaOrders = [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5];
+      if (!antinodalGroup.userData.initialized) {
+        const centralGeo = new THREE.BufferGeometry();
+        centralGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+        const centralMat = new THREE.LineBasicMaterial({ color: spectral.threeColor, transparent: true, opacity: 0.4 });
+        const centralLine = new THREE.Line(centralGeo, centralMat);
+        centralLine.name = 'ydse-central-maxima-line';
+        antinodalGroup.add(centralLine);
+
+        const maxMat = new THREE.LineDashedMaterial({ color: spectral.threeColor, dashSize: 0.35, gapSize: 0.2, transparent: true, opacity: 0.25 });
+        maximaOrders.forEach((n) => {
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+          const l = new THREE.Line(geo, maxMat);
+          l.name = `ydse-max-${n}`;
+          antinodalGroup.add(l);
+        });
+
+        const minMat = new THREE.LineDashedMaterial({ color: 0xef4444, dashSize: 0.2, gapSize: 0.3, transparent: true, opacity: 0.15 });
+        minimaOrders.forEach((m) => {
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+          const l = new THREE.Line(geo, minMat);
+          l.name = `ydse-min-${m}`;
+          antinodalGroup.add(l);
+        });
+        antinodalGroup.userData.sharedLineMat = maxMat;
+        antinodalGroup.userData.sharedMat = minMat;
+        antinodalGroup.userData.initialized = true;
       }
 
-      const slitMidpoint = new THREE.Vector3(x_s12, 0.5, 0);
+      const updateSeg = (line: THREE.Line | undefined, yEnd: number, recomputeDash: boolean) => {
+        if (!line) return;
+        const attr = line.geometry.getAttribute('position') as THREE.BufferAttribute;
+        const arr = attr.array as Float32Array;
+        arr[0] = x_s12; arr[1] = 0.5; arr[2] = 0;
+        arr[3] = screenX - 0.16; arr[4] = yEnd; arr[5] = 0;
+        attr.needsUpdate = true;
+        if (recomputeDash) line.computeLineDistances();
+        line.geometry.computeBoundingSphere();
+      };
 
-      // Central Maxima (0th order, n=0, Δx = 0)
-      const centralLinePts = [slitMidpoint, new THREE.Vector3(screenX - 0.16, 0.5, 0)];
-      const centralLineGeo = new THREE.BufferGeometry().setFromPoints(centralLinePts);
-      const centralLineMat = new THREE.LineBasicMaterial({ color: spectral.threeColor, transparent: true, opacity: 0.4, linewidth: 1 });
-      const centralLine = new THREE.Line(centralLineGeo, centralLineMat);
-      antinodalGroup.add(centralLine);
-
-      // Higher order Maxima (n = ±1, ±2, ±3)
-      [-3, -2, -1, 1, 2, 3].forEach((n) => {
-        const yScreen_n = 0.5 + n * beta_3D;
-        const targetPt = new THREE.Vector3(screenX - 0.16, yScreen_n, 0);
-        const pts = [slitMidpoint, targetPt];
-        const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
-        const lineMat = new THREE.LineDashedMaterial({
-          color: spectral.threeColor,
-          dashSize: 0.35,
-          gapSize: 0.2,
-          transparent: true,
-          opacity: 0.25,
-        });
-        const line = new THREE.Line(lineGeo, lineMat);
-        line.computeLineDistances();
-        antinodalGroup.add(line);
+      const centralLine = antinodalGroup.getObjectByName('ydse-central-maxima-line') as THREE.Line;
+      if (centralLine) {
+        (centralLine.material as THREE.LineBasicMaterial).color.copy(spectral.threeColor);
+        updateSeg(centralLine, 0.5, false);
+      }
+      if (antinodalGroup.userData.sharedLineMat) {
+        (antinodalGroup.userData.sharedLineMat as THREE.LineDashedMaterial).color.copy(spectral.threeColor);
+      }
+      maximaOrders.forEach((n) => {
+        updateSeg(antinodalGroup.getObjectByName(`ydse-max-${n}`) as THREE.Line, 0.5 + n * beta_3D, true);
       });
-
-      // Minima lines (n = ±0.5, ±1.5, ±2.5)
-      [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5].forEach((m) => {
-        const yScreen_m = 0.5 + m * beta_3D;
-        const targetPt = new THREE.Vector3(screenX - 0.16, yScreen_m, 0);
-        const pts = [slitMidpoint, targetPt];
-        const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
-        const lineMat = new THREE.LineDashedMaterial({
-          color: 0xef4444,
-          dashSize: 0.2,
-          gapSize: 0.3,
-          transparent: true,
-          opacity: 0.15,
-        });
-        const line = new THREE.Line(lineGeo, lineMat);
-        line.computeLineDistances();
-        antinodalGroup.add(line);
+      minimaOrders.forEach((m) => {
+        updateSeg(antinodalGroup.getObjectByName(`ydse-min-${m}`) as THREE.Line, 0.5 + m * beta_3D, true);
       });
     }
 
-    // 8. Optical Ray Tracing from S1 and S2 to Point P & Perpendicular Path Difference Segment S1-N
+    // 8. Optical Ray Tracing from S1 and S2 to Point P & Perpendicular Path Difference Segment S1-N (Pooled)
     const rayGroup = this.objectsGroup.getObjectByName('ydse-ray-optics') as THREE.Group;
     if (rayGroup) {
-      while (rayGroup.children.length > 0) {
-        this.disposeObject(rayGroup.children[0]);
-        rayGroup.remove(rayGroup.children[0]);
+      if (!rayGroup.userData.initialized) {
+        const makeSeg = (name: string, mat: THREE.Material) => {
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+          const line = new THREE.Line(geo, mat);
+          line.name = name;
+          rayGroup.add(line);
+          return line;
+        };
+        const rayMat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2.5 });
+        makeSeg('ydse-ray-1', rayMat);
+        makeSeg('ydse-ray-2', rayMat);
+        makeSeg('ydse-perp-line', new THREE.LineDashedMaterial({ color: 0x38bdf8, dashSize: 0.15, gapSize: 0.1, linewidth: 2 }));
+        makeSeg('ydse-diff-line', new THREE.LineBasicMaterial({ color: 0xa855f7, linewidth: 4 }));
+        const nBead = new THREE.Mesh(
+          new THREE.SphereGeometry(0.1, 12, 12),
+          new THREE.MeshBasicMaterial({ color: 0xa855f7 })
+        );
+        nBead.name = 'ydse-n-bead';
+        rayGroup.add(nBead);
+        rayGroup.userData.initialized = true;
       }
 
-      // Ray 1: S1 -> P
-      const ray1Pts = [s1_pos, pointP_pos];
-      const ray1Geo = new THREE.BufferGeometry().setFromPoints(ray1Pts);
-      const ray1Mat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2.5 });
-      const ray1 = new THREE.Line(ray1Geo, ray1Mat);
-      rayGroup.add(ray1);
-
-      // Ray 2: S2 -> P
-      const ray2Pts = [s2_pos, pointP_pos];
-      const ray2Geo = new THREE.BufferGeometry().setFromPoints(ray2Pts);
-      const ray2Mat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2.5 });
-      const ray2 = new THREE.Line(ray2Geo, ray2Mat);
-      rayGroup.add(ray2);
-
-      // Perpendicular point N dropped from S1 onto ray S2 -> P
       const vRay2 = new THREE.Vector3().subVectors(pointP_pos, s2_pos);
-      const lenRay2 = vRay2.length();
-      const unitRay2 = vRay2.clone().normalize();
+      const unitRay2 = vRay2.lengthSq() > 1e-8 ? vRay2.clone().normalize() : new THREE.Vector3(1, 0, 0);
       const vS1S2 = new THREE.Vector3().subVectors(s1_pos, s2_pos);
       const proj = vS1S2.dot(unitRay2);
       const ptN = s2_pos.clone().add(unitRay2.clone().multiplyScalar(proj));
 
-      // Perpendicular Dropped Line S1 -> N
-      const perpPts = [s1_pos, ptN];
-      const perpGeo = new THREE.BufferGeometry().setFromPoints(perpPts);
-      const perpMat = new THREE.LineDashedMaterial({ color: 0x38bdf8, dashSize: 0.15, gapSize: 0.1, linewidth: 2 });
-      const perpLine = new THREE.Line(perpGeo, perpMat);
-      perpLine.computeLineDistances();
-      rayGroup.add(perpLine);
+      const setRaySeg = (name: string, a: THREE.Vector3, b: THREE.Vector3, dashed = false) => {
+        const l = rayGroup.getObjectByName(name) as THREE.Line;
+        if (!l) return;
+        const attr = l.geometry.getAttribute('position') as THREE.BufferAttribute;
+        const arr = attr.array as Float32Array;
+        arr[0] = a.x; arr[1] = a.y; arr[2] = a.z;
+        arr[3] = b.x; arr[4] = b.y; arr[5] = b.z;
+        attr.needsUpdate = true;
+        if (dashed) l.computeLineDistances();
+        l.geometry.computeBoundingSphere();
+      };
 
-      // Highlighted Path Difference Segment S2 -> N (Δx = d sin θ)
-      const diffPts = [s2_pos, ptN];
-      const diffGeo = new THREE.BufferGeometry().setFromPoints(diffPts);
-      const diffMat = new THREE.LineBasicMaterial({ color: 0xa855f7, linewidth: 4 });
-      const diffLine = new THREE.Line(diffGeo, diffMat);
-      rayGroup.add(diffLine);
+      setRaySeg('ydse-ray-1', s1_pos, pointP_pos);
+      setRaySeg('ydse-ray-2', s2_pos, pointP_pos);
+      setRaySeg('ydse-perp-line', s1_pos, ptN, true);
+      setRaySeg('ydse-diff-line', s2_pos, ptN);
 
-      // Small glowing bead at point N
-      const nBeadGeo = new THREE.SphereGeometry(0.1, 12, 12);
-      const nBeadMat = new THREE.MeshBasicMaterial({ color: 0xa855f7 });
-      const nBead = new THREE.Mesh(nBeadGeo, nBeadMat);
-      nBead.position.copy(ptN);
-      rayGroup.add(nBead);
+      const nBead = rayGroup.getObjectByName('ydse-n-bead');
+      if (nBead) nBead.position.copy(ptN);
     }
 
     // 9. Update Point P Probe Cursor Bead
@@ -3928,15 +4456,16 @@ export class SimulationRenderer {
       (probeBead.material as THREE.MeshBasicMaterial).color.copy(spectral.threeColor);
     }
 
-    // 10. Procedural High-Fidelity Canvas Texture for Screen Interference Pattern I(y)
-    if (this.ydseScreenCanvas && this.ydseScreenTexture) {
+    // 10. Procedural High-Fidelity Canvas Texture for Screen Interference Pattern I(y) (Cached when params unchanged!)
+    const screenCacheKey = `${wavelength}_${d}_${D}_${probeY_mm.toFixed(2)}`;
+    if (this.ydseScreenCanvas && this.ydseScreenTexture && this.ydseScreenCacheKey !== screenCacheKey) {
+      this.ydseScreenCacheKey = screenCacheKey;
       const cv = this.ydseScreenCanvas;
       const ctx2d = cv.getContext('2d');
       if (ctx2d) {
         ctx2d.fillStyle = '#060810';
         ctx2d.fillRect(0, 0, cv.width, cv.height);
 
-        // Physical interference pattern: I(y) = 4 I_0 cos^2(π d y / λ D)
         const centerY = cv.height / 2;
         const pixelsPerBeta = (beta_3D / 7.8) * cv.height;
 
@@ -3950,7 +4479,6 @@ export class SimulationRenderer {
               const phase = (Math.PI * dy) / Math.max(1, pixelsPerBeta);
               const intensity = Math.pow(Math.cos(phase), 2);
 
-              // Horizontal Gaussian profile (beam width envelope)
               for (let px = 0; px < cv.width; px++) {
                 const dx = px - cv.width / 2;
                 const hFactor = Math.exp(-(dx * dx) / (2 * 110 * 110));
@@ -3969,13 +4497,11 @@ export class SimulationRenderer {
           // Gracefully continue if offscreen pixel arrays restricted
         }
 
-        // Draw Screen Coordinate Tick Marks on Side
         ctx2d.strokeStyle = 'rgba(255, 255, 255, 0.4)';
         ctx2d.fillStyle = 'rgba(255, 255, 255, 0.9)';
         ctx2d.font = 'bold 16px system-ui, -apple-system, sans-serif';
         ctx2d.lineWidth = 2;
 
-        // Center line (y = 0, Central Bright Fringe)
         ctx2d.strokeStyle = 'rgba(6, 182, 212, 0.8)';
         ctx2d.beginPath();
         ctx2d.moveTo(cv.width - 70, centerY);
@@ -3983,7 +4509,6 @@ export class SimulationRenderer {
         ctx2d.stroke();
         ctx2d.fillText('y=0 (O)', cv.width - 120, centerY + 5);
 
-        // Maxima ticks (±1β, ±2β, ±3β)
         [-3, -2, -1, 1, 2, 3].forEach((n) => {
           const tickY = centerY + n * pixelsPerBeta;
           if (tickY >= 15 && tickY <= cv.height - 15) {
@@ -3995,7 +4520,6 @@ export class SimulationRenderer {
           }
         });
 
-        // Minima ticks (±0.5β, ±1.5β, ±2.5β)
         [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5].forEach((m) => {
           const tickY = centerY + m * pixelsPerBeta;
           if (tickY >= 15 && tickY <= cv.height - 15) {
@@ -4007,7 +4531,6 @@ export class SimulationRenderer {
           }
         });
 
-        // Draw Point P cursor indicator line
         const pPixelY = centerY - (probeY_mm / beta_mm) * pixelsPerBeta;
         if (pPixelY >= 0 && pPixelY <= cv.height) {
           ctx2d.strokeStyle = '#f59e0b';
@@ -4028,42 +4551,55 @@ export class SimulationRenderer {
       }
     }
 
-    // 11. Render 3D Floating Intensity Profile Curve I(y)
+    // 11. Render 3D Floating Intensity Profile Curve I(y) (Pooled Buffers)
     const curveGroup = this.objectsGroup.getObjectByName('ydse-intensity-curve') as THREE.Group;
     if (curveGroup) {
-      while (curveGroup.children.length > 0) {
-        this.disposeObject(curveGroup.children[0]);
-        curveGroup.remove(curveGroup.children[0]);
-      }
-
-      const curvePts: THREE.Vector3[] = [];
       const zBase = -3.8;
       const numPts = 120;
       const yRange = 3.6;
 
-      for (let i = 0; i <= numPts; i++) {
-        const yVal = -yRange + (i / numPts) * (2 * yRange);
-        const dy = yVal;
-        const phase = (Math.PI * dy) / beta_3D;
-        const I_norm = Math.pow(Math.cos(phase), 2);
-        const zOffset = zBase - I_norm * 2.2;
-        curvePts.push(new THREE.Vector3(screenX - 0.16, 0.5 + yVal, zOffset));
+      if (!curveGroup.userData.initialized) {
+        const cGeo = new THREE.BufferGeometry();
+        cGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((numPts + 1) * 3), 3));
+        const cLine = new THREE.Line(cGeo, new THREE.LineBasicMaterial({ color: spectral.threeColor, linewidth: 3 }));
+        cLine.name = 'ydse-intensity-line';
+        curveGroup.add(cLine);
+
+        const bGeo = new THREE.BufferGeometry();
+        bGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+        const bLine = new THREE.Line(bGeo, new THREE.LineBasicMaterial({ color: 0x475569 }));
+        bLine.name = 'ydse-intensity-base';
+        curveGroup.add(bLine);
+        curveGroup.userData.initialized = true;
       }
 
-      const curveGeo = new THREE.BufferGeometry().setFromPoints(curvePts);
-      const curveMat = new THREE.LineBasicMaterial({ color: spectral.threeColor, linewidth: 3 });
-      const curveLine = new THREE.Line(curveGeo, curveMat);
-      curveGroup.add(curveLine);
+      const cLine = curveGroup.getObjectByName('ydse-intensity-line') as THREE.Line;
+      if (cLine) {
+        (cLine.material as THREE.LineBasicMaterial).color.copy(spectral.threeColor);
+        const attr = cLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+        const arr = attr.array as Float32Array;
+        for (let i = 0; i <= numPts; i++) {
+          const yVal = -yRange + (i / numPts) * (2 * yRange);
+          const phase = (Math.PI * yVal) / beta_3D;
+          const I_norm = Math.pow(Math.cos(phase), 2);
+          const zOffset = zBase - I_norm * 2.2;
+          arr[i * 3] = screenX - 0.16;
+          arr[i * 3 + 1] = 0.5 + yVal;
+          arr[i * 3 + 2] = zOffset;
+        }
+        attr.needsUpdate = true;
+        cLine.geometry.computeBoundingSphere();
+      }
 
-      // Baseline reference for intensity curve
-      const basePts = [
-        new THREE.Vector3(screenX - 0.16, 0.5 - yRange, zBase),
-        new THREE.Vector3(screenX - 0.16, 0.5 + yRange, zBase),
-      ];
-      const baseGeo = new THREE.BufferGeometry().setFromPoints(basePts);
-      const baseMat = new THREE.LineBasicMaterial({ color: 0x475569 });
-      const baseLine = new THREE.Line(baseGeo, baseMat);
-      curveGroup.add(baseLine);
+      const bLine = curveGroup.getObjectByName('ydse-intensity-base') as THREE.Line;
+      if (bLine) {
+        const attr = bLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+        const arr = attr.array as Float32Array;
+        arr[0] = screenX - 0.16; arr[1] = 0.5 - yRange; arr[2] = zBase;
+        arr[3] = screenX - 0.16; arr[4] = 0.5 + yRange; arr[5] = zBase;
+        attr.needsUpdate = true;
+        bLine.geometry.computeBoundingSphere();
+      }
     }
 
     // 12. Update High-Contrast 3D Floating Billboards & Labels
@@ -4337,10 +4873,14 @@ export class SimulationRenderer {
     movUpperJaw.position.set(0, 0, -0.21);
     slidingGroup.add(movUpperJaw);
 
-    // Top Locking Thumbscrew
-    const screwKnobGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.6, 24);
+    // Top Locking Thumbscrew + Brass Threaded Collar
+    const screwCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.25, 24), jawMetalMat);
+    screwCollar.position.set(3.2, 1.72, 0);
+    slidingGroup.add(screwCollar);
+
+    const screwKnobGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.55, 24);
     const screwKnob = new THREE.Mesh(screwKnobGeo, brassMat);
-    screwKnob.position.set(3.2, 2.0, 0);
+    screwKnob.position.set(3.2, 2.02, 0);
     slidingGroup.add(screwKnob);
 
     // Bottom Ergonomic Thumb Rest with grooved ridges
@@ -4348,6 +4888,11 @@ export class SimulationRenderer {
     const thumbRest = new THREE.Mesh(thumbRestGeo, jawMetalMat);
     thumbRest.position.set(3.6, -0.9, 0);
     slidingGroup.add(thumbRest);
+
+    // Brass Gib Strip along top beam guide edge
+    const gibStrip = new THREE.Mesh(new THREE.BoxGeometry(4.8, 0.12, 0.58), brassMat);
+    gibStrip.position.set(2.5, 1.62, 0);
+    slidingGroup.add(gibStrip);
 
     // Live Coincidence Highlight Indicator Line
     const coincLineGeo = new THREE.BufferGeometry().setFromPoints([
@@ -4364,15 +4909,15 @@ export class SimulationRenderer {
 
     this.objectsGroup.add(slidingGroup);
 
-    // 5. Depth Gauge Rod extending out of rear tail of main beam
-    const depthRodGeo = new THREE.BoxGeometry(20, 0.2, 0.08);
+    // 5. Depth Gauge Blade extending rigidly from Slider through Tail Slot (center-anchored so left end never escapes slider)
+    const depthRodGeo = new THREE.BoxGeometry(22.0, 0.2, 0.08);
     const depthRod = new THREE.Mesh(depthRodGeo, chromeMat);
     depthRod.name = 'vernier-depth-rod';
-    depthRod.position.set(15.0, 0.5, -0.16);
+    depthRod.position.set(16.0 - 11.0, 0.5, -0.16);
     this.objectsGroup.add(depthRod);
 
-    // 6. Measured Object (Cylindrical Specimen)
-    const objGeo = new THREE.CylinderGeometry(1, 1, 2.5, 36);
+    // 6. Measured Object (Unit-length Cylinder scaled to exact jaw gap width so ends sit flush!)
+    const objGeo = new THREE.CylinderGeometry(1, 1, 1.0, 36);
     const objMat = new THREE.MeshStandardMaterial({
       color: 0xd97706,
       metalness: 0.75,
@@ -4388,8 +4933,8 @@ export class SimulationRenderer {
     const errorGroup = new THREE.Group();
     errorGroup.name = 'vernier-error-margin-group';
 
-    // (a) Translucent Holographic Error Volume Envelope
-    const envelopeGeo = new THREE.CylinderGeometry(1.15, 1.15, 1, 36);
+    // (a) Translucent Holographic Error Volume Envelope (unit-length cylinder)
+    const envelopeGeo = new THREE.CylinderGeometry(1.15, 1.15, 1.0, 36);
     const envelopeMat = new THREE.MeshStandardMaterial({
       color: 0xec4899,
       emissive: 0xdb2777,
@@ -4492,21 +5037,21 @@ export class SimulationRenderer {
       }
     }
 
-    // 2. Adjust Specimen (Cylinder)
+    // 2. Adjust Specimen (Unit-length cylinder scaled by exact realWidth so ends flush with jaws at x = -6.0 and -6.0 + realWidth)
     const realWidth = Math.max(0.1, objectSize) * scaleFactor;
-    const radius = Math.min(1.8, Math.max(0.6, realWidth / 2));
+    const radius = Math.min(1.6, Math.max(0.55, realWidth * 0.45));
     const obj = this.objectsGroup.getObjectByName('measured-object');
     if (obj) {
-      obj.scale.set(radius, realWidth / 2, radius);
+      obj.scale.set(radius, realWidth, radius);
       obj.position.set(-6.0 + realWidth / 2, -2.5, 0);
       obj.visible = objectSize > 0.05;
     }
 
-    // 3. Extend Depth Gauge Rod
+    // 3. Extend Depth Gauge Rod rigidly with Sliding Assembly
     const depthRod = this.objectsGroup.getObjectByName('vernier-depth-rod');
     if (depthRod) {
-      depthRod.position.set(16.0 + apparentDisp / 2, 0.5, -0.16);
-      depthRod.scale.set(1 + apparentDisp / 20, 1, 1);
+      // Blade attaches inside slider at X = (-6.0 + apparentDisp + 4.5), spans 22 units rightward so tip protrudes proportionally from tail X = 16.0
+      depthRod.position.set(-6.0 + apparentDisp + 4.5 + 11.0, 0.5, -0.16);
     }
 
     // 4. Update 3D Visual Error Margin & Tolerance Band Representation
@@ -4523,50 +5068,26 @@ export class SimulationRenderer {
       const envelope = errorGroup.getObjectByName('vernier-error-envelope') as THREE.Mesh;
       if (envelope) {
         envelope.position.set((minX + maxX) / 2, -2.5, 0);
-        envelope.scale.set(radius * 1.18, errorSpan / 2, radius * 1.18);
-        envelope.visible = ctx.showVectors || ctx.showLabels || true;
+        envelope.scale.set(radius * 1.12, errorSpan, radius * 1.12);
+        envelope.visible = true;
       }
 
-      // (b) 3D Tolerance Bracket & Limits
-      const bracketLine = errorGroup.getObjectByName('vernier-bracket-axis') as THREE.Line;
-      if (bracketLine) {
-        const positions = new Float32Array([
-          minX, -4.2, 0.4,
-          maxX, -4.2, 0.4,
-        ]);
-        bracketLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        bracketLine.geometry.computeBoundingSphere();
-      }
-
-      const minTick = errorGroup.getObjectByName('vernier-bracket-min') as THREE.Line;
-      if (minTick) {
-        const pos = new Float32Array([
-          minX, -4.45, 0.4,
-          minX, -3.95, 0.4,
-        ]);
-        minTick.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        minTick.geometry.computeBoundingSphere();
-      }
-
-      const maxTick = errorGroup.getObjectByName('vernier-bracket-max') as THREE.Line;
-      if (maxTick) {
-        const pos = new Float32Array([
-          maxX, -4.45, 0.4,
-          maxX, -3.95, 0.4,
-        ]);
-        maxTick.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        maxTick.geometry.computeBoundingSphere();
-      }
-
-      const nomTick = errorGroup.getObjectByName('vernier-bracket-nom') as THREE.Line;
-      if (nomTick) {
-        const pos = new Float32Array([
-          nomX, -4.35, 0.4,
-          nomX, -4.05, 0.4,
-        ]);
-        nomTick.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        nomTick.geometry.computeBoundingSphere();
-      }
+      // (b) 3D Tolerance Bracket & Limits (In-place BufferAttribute mutation)
+      const setLineX = (lineName: string, x1: number, x2: number) => {
+        const l = errorGroup.getObjectByName(lineName) as THREE.Line;
+        if (!l) return;
+        const attr = l.geometry.getAttribute('position') as THREE.BufferAttribute;
+        if (!attr) return;
+        const arr = attr.array as Float32Array;
+        arr[0] = x1;
+        arr[3] = x2;
+        attr.needsUpdate = true;
+        l.geometry.computeBoundingSphere();
+      };
+      setLineX('vernier-bracket-axis', minX, maxX);
+      setLineX('vernier-bracket-min', minX, minX);
+      setLineX('vernier-bracket-max', maxX, maxX);
+      setLineX('vernier-bracket-nom', nomX, nomX);
 
       // (c) Repeated Measurement Sample Scatter in 3D
       const sampleGroup = errorGroup.getObjectByName('vernier-sample-dots');
@@ -4917,25 +5438,30 @@ export class SimulationRenderer {
 
     const arrowA = this.vectorGroup.getObjectByName('vec-A') as THREE.ArrowHelper;
     if (arrowA) {
-      arrowA.setDirection(vecA.clone().normalize());
+      arrowA.visible = ctx.showVectors && vecA.lengthSq() > 1e-6;
+      this.setSafeArrowDirection(arrowA, vecA.x, vecA.y, vecA.z, 1, 0, 0);
       arrowA.setLength(lenA, 0.5, 0.25);
     }
 
     const arrowB = this.vectorGroup.getObjectByName('vec-B') as THREE.ArrowHelper;
     if (arrowB) {
-      arrowB.setDirection(vecB.clone().normalize());
+      arrowB.visible = ctx.showVectors && vecB.lengthSq() > 1e-6;
+      this.setSafeArrowDirection(arrowB, vecB.x, vecB.y, vecB.z, 0, 1, 0);
       arrowB.setLength(lenB, 0.5, 0.25);
     }
 
     const arrowR = this.vectorGroup.getObjectByName('vec-R') as THREE.ArrowHelper;
     if (arrowR) {
-      arrowR.setDirection(vecR.clone().normalize());
+      arrowR.visible = ctx.showVectors && vecR.lengthSq() > 1e-6;
+      this.setSafeArrowDirection(arrowR, vecR.x, vecR.y, vecR.z, 1, 0, 0);
       arrowR.setLength(Math.max(0.1, vecR.length()), 0.6, 0.3);
     }
 
     const arrowCross = this.vectorGroup.getObjectByName('vec-Cross') as THREE.ArrowHelper;
     if (arrowCross) {
-      arrowCross.setDirection(vecCross.clone().normalize());
+      const hasCross = vecCross.lengthSq() > 1e-6;
+      arrowCross.visible = ctx.showVectors && hasCross;
+      this.setSafeArrowDirection(arrowCross, vecCross.x, vecCross.y, vecCross.z, 0, 0, 1);
       arrowCross.setLength(Math.min(9, Math.max(0.1, vecCross.length() * 0.22)), 0.6, 0.3);
     }
 
@@ -5210,7 +5736,7 @@ export class SimulationRenderer {
     const fgArrow = this.vectorGroup.getObjectByName('orbit-fg-arrow') as THREE.ArrowHelper;
     if (fgArrow && planetGroup) {
       fgArrow.position.copy(planetGroup.position);
-      fgArrow.setDirection(rToStar.clone().negate().normalize());
+      this.setSafeArrowDirection(fgArrow, -rToStar.x, -rToStar.y, -rToStar.z, -1, 0, 0);
       fgArrow.setLength(Math.min(3.5, 2.5 / (rLen * 0.4)), 0.4, 0.2);
     }
 
@@ -5955,13 +6481,25 @@ export class SimulationRenderer {
     lockLever.position.set(0.4, 1.8, 0);
     this.objectsGroup.add(lockLever);
 
-    // 4. Movable Spindle (Advances through sleeve)
-    const spindleGeo = new THREE.CylinderGeometry(0.45, 0.45, 8.0, 32);
-    const spindle = new THREE.Mesh(spindleGeo, chromeMat);
-    spindle.name = 'screw-spindle';
-    spindle.rotation.z = Math.PI / 2;
-    spindle.position.set(0.5, 0.8, 0);
-    this.objectsGroup.add(spindle);
+    // 4. Movable Spindle Group (Length 8.0 centered at X = +0.7 so left carbide tip rests exactly at X = -3.3 at zero gap!)
+    const spindleGroup = new THREE.Group();
+    spindleGroup.name = 'screw-spindle';
+    spindleGroup.position.set(0.7, 0.8, 0);
+
+    const spindleGeo = new THREE.CylinderGeometry(0.45, 0.45, 7.6, 32);
+    spindleGeo.rotateZ(Math.PI / 2);
+    const spindleRod = new THREE.Mesh(spindleGeo, chromeMat);
+    spindleRod.position.set(0.2, 0, 0); // left face at -3.6 local (X = -2.9 world)
+    spindleGroup.add(spindleRod);
+
+    const spindleCarbideTip = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.42, 0.45, 0.4, 32),
+      carbideMat
+    );
+    spindleCarbideTip.rotation.z = Math.PI / 2;
+    spindleCarbideTip.position.set(-3.8, 0, 0); // left tip at -4.0 local (exactly X = -3.3 world at disp=0!)
+    spindleGroup.add(spindleCarbideTip);
+    this.objectsGroup.add(spindleGroup);
 
     // 5. Rotating & Translating Thimble Assembly
     const thimbleGroup = new THREE.Group();
@@ -6015,12 +6553,19 @@ export class SimulationRenderer {
     bevelCone.position.set(-1.8, 0, 0);
     thimbleGroup.add(bevelCone);
 
-    // Knurled Thimble Body
+    // Knurled Thimble Body + Grip Ring Grooves
     const thimbleBodyGeo = new THREE.CylinderGeometry(1.22, 1.22, 3.4, 36);
     const thimbleBody = new THREE.Mesh(thimbleBodyGeo, knurledMat);
     thimbleBody.rotation.z = Math.PI / 2;
     thimbleBody.position.set(0.3, 0, 0);
     thimbleGroup.add(thimbleBody);
+
+    [-0.9, -0.3, 0.3, 0.9, 1.5].forEach((gx) => {
+      const gripRing = new THREE.Mesh(new THREE.TorusGeometry(1.23, 0.03, 8, 36), satinMetalMat);
+      gripRing.rotation.y = Math.PI / 2;
+      gripRing.position.set(gx, 0, 0);
+      thimbleGroup.add(gripRing);
+    });
 
     // Ratchet Stop Assembly
     const ratchetNeckGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 32);
@@ -6039,8 +6584,8 @@ export class SimulationRenderer {
     thimbleGroup.position.set(2.8, 0.8, 0);
     this.objectsGroup.add(thimbleGroup);
 
-    // 6. Measured Object (Wire / Sphere / Sheet)
-    const wireGeo = new THREE.CylinderGeometry(0.8, 0.8, 2.5, 36);
+    // 6. Measured Specimen (Unit-length cylinder centered horizontally along X? Keep vertical wire axis & exact diameter = 2*radius = realWidth!)
+    const wireGeo = new THREE.CylinderGeometry(1.0, 1.0, 2.6, 36);
     const wireMat = new THREE.MeshStandardMaterial({
       color: 0xf59e0b,
       metalness: 0.8,
@@ -6056,7 +6601,7 @@ export class SimulationRenderer {
     errorGroup.name = 'screw-error-margin-group';
 
     // (a) Translucent Holographic Error Volume Envelope
-    const envelopeGeo = new THREE.CylinderGeometry(1.0, 1.0, 1.0, 36);
+    const envelopeGeo = new THREE.CylinderGeometry(1.0, 1.0, 2.75, 36);
     const envelopeMat = new THREE.MeshStandardMaterial({
       color: 0xec4899,
       emissive: 0xdb2777,
@@ -6168,15 +6713,15 @@ export class SimulationRenderer {
       thimble.rotation.x = -(totalRotations * 2 * Math.PI);
     }
 
-    // 2. Advance Spindle
+    // 2. Advance Spindle rigidly with Thimble so tip stays flush at X = -3.3 + apparentDisp
     const spindle = this.objectsGroup.getObjectByName('screw-spindle');
     if (spindle) {
-      spindle.position.set(0.5 + apparentDisp / 2, 0.8, 0);
+      spindle.position.set(0.7 + apparentDisp, 0.8, 0);
     }
 
-    // 3. Adjust Clamped Wire / Specimen
+    // 3. Adjust Clamped Wire / Specimen (Exact diameter = realWidth seated between -3.3 and -3.3 + realWidth)
     const realWidth = Math.max(0.05, objectThickness) * scaleFactor;
-    const rad = Math.min(1.2, Math.max(0.4, realWidth / 2));
+    const rad = Math.max(0.02, realWidth / 2);
     const wire = this.objectsGroup.getObjectByName('screw-measured-wire');
     if (wire) {
       wire.scale.set(rad, 1, rad);
@@ -6192,67 +6737,43 @@ export class SimulationRenderer {
       const minX = -3.3 + Math.max(0, objectThickness - deltaD) * scaleFactor;
       const maxX = -3.3 + (objectThickness + deltaD) * scaleFactor;
       const nomX = -3.3 + realWidth;
-      const errorSpan = Math.max(0.02, maxX - minX);
+      const errorRad = Math.max(0.03, (maxX - minX) / 2);
 
       // (a) Holographic Error Volume Envelope
       const envelope = errorGroup.getObjectByName('screw-error-envelope') as THREE.Mesh;
       if (envelope) {
         envelope.position.set((minX + maxX) / 2, 0.8, 0);
-        envelope.scale.set(rad * 1.18, 1.05, rad * 1.18);
-        envelope.visible = ctx.showVectors || ctx.showLabels || true;
+        envelope.scale.set(Math.max(rad * 1.12, errorRad), 1.0, Math.max(rad * 1.12, errorRad));
+        envelope.visible = true;
       }
 
-      // (b) 3D Tolerance Bracket & Limits
-      const bracketLine = errorGroup.getObjectByName('screw-bracket-axis') as THREE.Line;
-      if (bracketLine) {
-        const positions = new Float32Array([
-          minX, -1.2, 0.4,
-          maxX, -1.2, 0.4,
-        ]);
-        bracketLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        bracketLine.geometry.computeBoundingSphere();
-      }
+      // (b) 3D Tolerance Bracket & Limits (In-place BufferAttribute mutation)
+      const setLineX = (lineName: string, x1: number, x2: number) => {
+        const l = errorGroup.getObjectByName(lineName) as THREE.Line;
+        if (!l) return;
+        const attr = l.geometry.getAttribute('position') as THREE.BufferAttribute;
+        if (!attr) return;
+        const arr = attr.array as Float32Array;
+        arr[0] = x1;
+        arr[3] = x2;
+        attr.needsUpdate = true;
+        l.geometry.computeBoundingSphere();
+      };
+      setLineX('screw-bracket-axis', minX, maxX);
+      setLineX('screw-bracket-min', minX, minX);
+      setLineX('screw-bracket-max', maxX, maxX);
+      setLineX('screw-bracket-nom', nomX, nomX);
 
-      const minTick = errorGroup.getObjectByName('screw-bracket-min') as THREE.Line;
-      if (minTick) {
-        const pos = new Float32Array([
-          minX, -1.45, 0.4,
-          minX, -0.95, 0.4,
-        ]);
-        minTick.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        minTick.geometry.computeBoundingSphere();
-      }
-
-      const maxTick = errorGroup.getObjectByName('screw-bracket-max') as THREE.Line;
-      if (maxTick) {
-        const pos = new Float32Array([
-          maxX, -1.45, 0.4,
-          maxX, -0.95, 0.4,
-        ]);
-        maxTick.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        maxTick.geometry.computeBoundingSphere();
-      }
-
-      const nomTick = errorGroup.getObjectByName('screw-bracket-nom') as THREE.Line;
-      if (nomTick) {
-        const pos = new Float32Array([
-          nomX, -1.35, 0.4,
-          nomX, -1.05, 0.4,
-        ]);
-        nomTick.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        nomTick.geometry.computeBoundingSphere();
-      }
-
-      // (c) 3D Angular Uncertainty Wedge / Arc on Thimble Bevel
+      // (c) 3D Angular Uncertainty Wedge / Arc aligned with thimble bevel edge (X = 0.6 + apparentDisp)
       const arcMesh = errorGroup.getObjectByName('screw-angular-arc') as THREE.Mesh;
       if (arcMesh) {
-        const angularDeltaRad = Math.min(Math.PI, (deltaD / pitch) * 2 * Math.PI);
-        arcMesh.position.set(1.0 + apparentDisp, 0.8, 0);
+        const angularDeltaRad = Math.min(Math.PI, (deltaD / Math.max(0.01, pitch)) * 2 * Math.PI);
+        arcMesh.position.set(0.6 + apparentDisp, 0.8, 0);
         arcMesh.rotation.x = 0;
         arcMesh.rotation.y = Math.PI / 2;
         arcMesh.rotation.z = -angularDeltaRad;
         arcMesh.scale.set(1, 1, Math.max(0.1, (angularDeltaRad * 2) / (Math.PI / 4)));
-        arcMesh.visible = ctx.showVectors || ctx.showLabels || true;
+        arcMesh.visible = true;
       }
 
       // (d) Repeated Measurement Sample Scatter Dots
@@ -7062,8 +7583,9 @@ export class SimulationRenderer {
 
     rollingGroup.add(boardGroup);
 
-    // 2. Dynamic Wedge Support Mesh
+    // 2. Dynamic Wedge Support Mesh (pre-allocated buffer)
     const wedgeGeo = new THREE.BufferGeometry();
+    wedgeGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(54), 3));
     const wedgeMat = new THREE.MeshStandardMaterial({
       color: 0x0f172a,
       roughness: 0.65,
@@ -7074,6 +7596,24 @@ export class SimulationRenderer {
     wedgeMesh.name = 'rolling-wedge-mesh';
     rollingGroup.add(wedgeMesh);
 
+    // Telescoping Screw Jack Support Stand + Pivot Clevis beneath Top Hinge
+    const rollJackGroup = new THREE.Group();
+    rollJackGroup.name = 'rolling-jack-stand';
+    const jackMetalMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.85, roughness: 0.22 });
+    const jackBase = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.16, 4.8), jackMetalMat);
+    jackBase.position.set(0, 0.08, 0);
+    rollJackGroup.add(jackBase);
+    const jackCol = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 1.0, 16), jackMetalMat);
+    jackCol.name = 'rolling-jack-column';
+    rollJackGroup.add(jackCol);
+    [-2.55, 2.55].forEach((zp) => {
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.26, 16), new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.85, roughness: 0.25 }));
+      cap.rotation.x = Math.PI / 2;
+      cap.name = `rolling-pivot-${zp > 0 ? 'f' : 'b'}`;
+      rollJackGroup.add(cap);
+    });
+    rollingGroup.add(rollJackGroup);
+
     // 3. Ground Level Horizontal Track (Extension at bottom)
     const groundTrackGeo = new THREE.BoxGeometry(14, 0.15, 5.2);
     const groundTrackMat = new THREE.MeshStandardMaterial({ color: 0x14141e, roughness: 0.7, metalness: 0.2 });
@@ -7082,13 +7622,16 @@ export class SimulationRenderer {
     groundTrack.position.set(7, -0.075, 0);
     rollingGroup.add(groundTrack);
 
-    // End stopper bumper
-    const stopGeo = new THREE.BoxGeometry(0.3, 1.2, 5.0);
+    // End stopper bumper with rubber cushion pad
+    const stopperGroup = new THREE.Group();
+    stopperGroup.name = 'rolling-end-stopper';
+    stopperGroup.position.set(13.85, 0.6, 0);
     const stopMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.4, metalness: 0.5 });
-    const stopper = new THREE.Mesh(stopGeo, stopMat);
-    stopper.name = 'rolling-end-stopper';
-    stopper.position.set(13.85, 0.6, 0);
-    rollingGroup.add(stopper);
+    stopperGroup.add(new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.2, 5.0), stopMat));
+    const cushion = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.0, 4.8), new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 }));
+    cushion.position.set(-0.16, 0, 0);
+    stopperGroup.add(cushion);
+    rollingGroup.add(stopperGroup);
 
     // 4. Rolling Cylinder Assembly (High-contrast, non-blending multi-texture rigid body)
     const rollerGroup = new THREE.Group();
@@ -7202,6 +7745,7 @@ export class SimulationRenderer {
     const spinGroup = roller?.getObjectByName('roller-spin-group');
     const boardGroup = this.objectsGroup.getObjectByName('rolling-incline-board');
     const wedge = this.objectsGroup.getObjectByName('rolling-wedge-mesh') as THREE.Mesh;
+    const jackStand = this.objectsGroup.getObjectByName('rolling-jack-stand');
     const stopper = this.objectsGroup.getObjectByName('rolling-end-stopper');
     const groundTrack = this.objectsGroup.getObjectByName('rolling-ground-track');
 
@@ -7215,6 +7759,20 @@ export class SimulationRenderer {
       boardGroup.rotation.z = -thetaRad;
     }
 
+    if (jackStand) {
+      jackStand.position.set(topX, 0, 0);
+      const col = jackStand.getObjectByName('rolling-jack-column');
+      if (col) {
+        const colH = Math.max(0.1, topY);
+        col.scale.set(1, colH, 1);
+        col.position.set(0, colH / 2, 0);
+      }
+      const capF = jackStand.getObjectByName('rolling-pivot-f');
+      const capB = jackStand.getObjectByName('rolling-pivot-b');
+      if (capF) capF.position.set(0, topY, 2.65);
+      if (capB) capB.position.set(0, topY, -2.65);
+    }
+
     // 3. Update Ground Track Position & Stopper
     if (groundTrack && stopper) {
       groundTrack.position.set(botX + trackLength / 2, -0.075, 0);
@@ -7222,36 +7780,25 @@ export class SimulationRenderer {
       stopper.position.set(botX + trackLength - 0.15, 0.6, 0);
     }
 
-    // 4. Dynamic Triangular Wedge Support Geometry
-    if (wedge) {
-      const depth = 5.0;
-      const hDepth = depth / 2;
-      const positions = new Float32Array([
-        // Front face (+z)
-        topX, topY, hDepth,
-        topX, 0, hDepth,
-        botX, 0, hDepth,
-        // Back face (-z)
-        topX, topY, -hDepth,
-        botX, 0, -hDepth,
-        topX, 0, -hDepth,
-        // Left vertical back wall
-        topX, topY, hDepth,
-        topX, topY, -hDepth,
-        topX, 0, -hDepth,
-        topX, topY, hDepth,
-        topX, 0, -hDepth,
-        topX, 0, hDepth,
-        // Bottom ground base
-        topX, 0, hDepth,
-        topX, 0, -hDepth,
-        botX, 0, -hDepth,
-        topX, 0, hDepth,
-        botX, 0, -hDepth,
-        botX, 0, hDepth,
-      ]);
-      wedge.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      wedge.geometry.computeVertexNormals();
+    // 4. Update Pre-allocated Triangular Wedge Buffer ONLY when theta changes
+    if (wedge && wedge.userData.lastTheta !== theta) {
+      wedge.userData.lastTheta = theta;
+      const posAttr = wedge.geometry.getAttribute('position') as THREE.BufferAttribute;
+      if (posAttr && posAttr.array) {
+        const arr = posAttr.array as Float32Array;
+        const hDepth = 2.5;
+        arr.set([
+          topX, topY, hDepth,  topX, 0, hDepth,   botX, 0, hDepth,
+          topX, topY, -hDepth, botX, 0, -hDepth,  topX, 0, -hDepth,
+          topX, topY, hDepth,  topX, topY, -hDepth, topX, 0, -hDepth,
+          topX, topY, hDepth,  topX, 0, -hDepth,  topX, 0, hDepth,
+          topX, 0, hDepth,     topX, 0, -hDepth,  botX, 0, -hDepth,
+          topX, 0, hDepth,     botX, 0, -hDepth,  botX, 0, hDepth,
+        ]);
+        posAttr.needsUpdate = true;
+        wedge.geometry.computeVertexNormals();
+        wedge.geometry.computeBoundingSphere();
+      }
     }
 
     // 5. Compute rigorous non-penetration transform via PhysicsEngineMiddleware
@@ -7602,60 +8149,70 @@ export class SimulationRenderer {
       mat.emissive.setHex(isApproaching ? 0x16a34a : 0xe11d48);
     }
 
-    // 3. Dynamic Magnetic Flux Streamlines (Bridging Magnet & Solenoid)
+    // 3. Dynamic Magnetic Flux Streamlines (Pooled BufferGeometry Lines — 0 allocations/frame)
     const fluxLines = this.objectsGroup.getObjectByName('emi-flux-lines') as THREE.Group;
     if (fluxLines) {
-      while (fluxLines.children.length > 0) {
-        this.disposeObject(fluxLines.children[0]);
-        fluxLines.remove(fluxLines.children[0]);
-      }
-
-      if (ctx.showVectors) {
-        const numLines = 8;
+      const numLines = 8;
+      const numPts = 31;
+      if (!fluxLines.userData.initialized) {
         const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.6 });
-
+        fluxLines.userData.sharedLineMat = lineMat;
         for (let i = 0; i < numLines; i++) {
+          const geom = new THREE.BufferGeometry();
+          geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(numPts * 3), 3));
+          fluxLines.add(new THREE.Line(geom, lineMat));
+        }
+        fluxLines.userData.initialized = true;
+      }
+      fluxLines.visible = ctx.showVectors;
+      if (ctx.showVectors) {
+        const magnetTipX = oscX - 2.2;
+        for (let i = 0; i < numLines; i++) {
+          const line = fluxLines.children[i] as THREE.Line;
+          if (!line) continue;
           const phi = (i * 2 * Math.PI) / numLines;
-          const curvePts: THREE.Vector3[] = [];
-          const magnetTipX = oscX - 2.2;
-
-          for (let step = 0; step <= 30; step++) {
-            const t = step / 30;
+          const cosP = Math.cos(phi);
+          const sinP = Math.sin(phi);
+          const posAttr = line.geometry.getAttribute('position') as THREE.BufferAttribute;
+          const arr = posAttr.array as Float32Array;
+          for (let step = 0; step < numPts; step++) {
+            const t = step / (numPts - 1);
             const px = magnetTipX - t * 8.0;
             const spread = 0.7 + Math.sin(t * Math.PI) * (1.6 + distToCoil * 0.15);
-            const py = spread * Math.cos(phi);
-            const pz = spread * Math.sin(phi);
-            curvePts.push(new THREE.Vector3(px, py, pz));
+            arr[step * 3] = px;
+            arr[step * 3 + 1] = spread * cosP;
+            arr[step * 3 + 2] = spread * sinP;
           }
-
-          const geom = new THREE.BufferGeometry().setFromPoints(curvePts);
-          fluxLines.add(new THREE.Line(geom, lineMat));
+          posAttr.needsUpdate = true;
+          line.geometry.computeBoundingSphere();
         }
       }
     }
 
-    // 4. Circulating Induced Current Arrows in Solenoid
+    // 4. Circulating Induced Current Arrows in Solenoid (Pooled 4 ArrowHelpers)
     const inducedIGroup = this.objectsGroup.getObjectByName('emi-induced-current-group') as THREE.Group;
     if (inducedIGroup) {
-      while (inducedIGroup.children.length > 0) {
-        this.disposeObject(inducedIGroup.children[0]);
-        inducedIGroup.remove(inducedIGroup.children[0]);
+      const numArrows = 4;
+      if (!inducedIGroup.userData.initialized) {
+        for (let a = 0; a < numArrows; a++) {
+          const curArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-3.5, 0, 0), 0.9, 0x22c55e, 0.3, 0.15);
+          inducedIGroup.add(curArrow);
+        }
+        inducedIGroup.userData.initialized = true;
       }
 
-      if (ctx.showVectors && absEMF > 0.1) {
+      const showCurrentArrows = ctx.showVectors && absEMF > 0.1;
+      inducedIGroup.visible = showCurrentArrows;
+      if (showCurrentArrows) {
         const sign = inducedEMF > 0 ? 1 : -1;
         const arrowColor = sign > 0 ? 0x22c55e : 0xf43f5e;
-        const numArrows = 4;
-
         for (let a = 0; a < numArrows; a++) {
+          const curArrow = inducedIGroup.children[a] as THREE.ArrowHelper;
+          if (!curArrow) continue;
           const ang = (a * 2 * Math.PI) / numArrows + ctx.simTime * sign * 4.0;
-          const arrowX = -3.5;
-          const arrowY = 2.15 * Math.cos(ang);
-          const arrowZ = 2.15 * Math.sin(ang);
-          const dir = new THREE.Vector3(0, -sign * Math.sin(ang), sign * Math.cos(ang));
-
-          const curArrow = new THREE.ArrowHelper(dir, new THREE.Vector3(arrowX, arrowY, arrowZ), 0.9, arrowColor, 0.3, 0.15);
-          inducedIGroup.add(curArrow);
+          curArrow.position.set(-3.5, 2.15 * Math.cos(ang), 2.15 * Math.sin(ang));
+          this.setSafeArrowDirection(curArrow, 0, -sign * Math.sin(ang), sign * Math.cos(ang), 0, 1, 0);
+          curArrow.setColor(arrowColor);
         }
       }
     }
@@ -8023,159 +8580,162 @@ export class SimulationRenderer {
       sMat.opacity = 0.35 + (intensity / 10) * 0.5;
     }
 
-    // 2. Animate Streaming Photons (Quanta E = hν) from Optical Arc Lamp to Cathode
+    // 2. Animate Streaming Photons (Pooled 30 Reusable Spheres — 0 allocations/frame)
     const photonGroup = this.objectsGroup.getObjectByName('photoelectric-photons') as THREE.Group;
     if (photonGroup) {
-      while (photonGroup.children.length > 0) {
-        this.disposeObject(photonGroup.children[0]);
-        photonGroup.remove(photonGroup.children[0]);
+      const maxPhotons = 30;
+      if (!photonGroup.userData.initialized) {
+        const pGeo = new THREE.SphereGeometry(0.11, 8, 8);
+        const pMat = new THREE.MeshBasicMaterial({ color: spectral.hex });
+        photonGroup.userData.sharedGeo = pGeo;
+        photonGroup.userData.sharedMat = pMat;
+        for (let i = 0; i < maxPhotons; i++) {
+          const mesh = new THREE.Mesh(pGeo, pMat);
+          mesh.visible = false;
+          photonGroup.add(mesh);
+        }
+        photonGroup.userData.initialized = true;
       }
 
-      const pCount = Math.min(30, Math.max(8, Math.floor(intensity * 3.0)));
-      const lampPos = new THREE.Vector3(-6.7, 3.0, 0);
-      const targetPos = new THREE.Vector3(-4.45, 0, 0);
-      const beamDir = new THREE.Vector3().subVectors(targetPos, lampPos);
-      const beamLen = beamDir.length();
+      (photonGroup.userData.sharedMat as THREE.MeshBasicMaterial).color.setHex(spectral.hex);
+      const pCount = Math.min(maxPhotons, Math.max(8, Math.floor(intensity * 3.0)));
+      const lampPosX = -6.7, lampPosY = 3.0;
+      const targetPosX = -4.45, targetPosY = 0;
+      const beamLen = Math.hypot(targetPosX - lampPosX, targetPosY - lampPosY);
+      const speed = 5.4;
+      const cyclePeriod = Math.max(0.1, beamLen / speed);
 
-      for (let i = 0; i < pCount; i++) {
-        const speed = 5.4; // Light propagation speed
-        const cyclePeriod = beamLen / speed;
+      for (let i = 0; i < maxPhotons; i++) {
+        const photonMesh = photonGroup.children[i] as THREE.Mesh;
+        if (!photonMesh) continue;
+        if (i >= pCount) {
+          photonMesh.visible = false;
+          continue;
+        }
+        photonMesh.visible = true;
         const phase = (i / pCount) * cyclePeriod;
         const t = ((ctx.simTime + phase) % cyclePeriod) / cyclePeriod;
-        const pPos = new THREE.Vector3().lerpVectors(lampPos, targetPos, t);
-
-        // Sinusoidal wave packet modulation
-        const waveFreq = 16.0;
+        const px = lampPosX + (targetPosX - lampPosX) * t;
         const waveAmp = 0.08 * (1 - t * 0.5);
-        pPos.z += Math.sin(t * waveFreq + i) * waveAmp;
-        pPos.y += Math.cos(t * waveFreq + i) * waveAmp;
-
-        const photonMesh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.11, 8, 8),
-          new THREE.MeshBasicMaterial({ color: spectral.hex })
-        );
-        photonMesh.position.copy(pPos);
-        photonGroup.add(photonMesh);
+        const py = lampPosY + (targetPosY - lampPosY) * t + Math.cos(t * 16.0 + i) * waveAmp;
+        const pz = Math.sin(t * 16.0 + i) * waveAmp;
+        photonMesh.position.set(px, py, pz);
       }
     }
 
-    // 3. Physical Photoelectron Trajectories with Real Lenard Kinematics
+    // 3. Physical Photoelectron Trajectories (Pooled 50 Reusable Spheres — 0 allocations/frame)
     const electronGroup = this.objectsGroup.getObjectByName('photoelectron-group') as THREE.Group;
     if (electronGroup) {
-      while (electronGroup.children.length > 0) {
-        this.disposeObject(electronGroup.children[0]);
-        electronGroup.remove(electronGroup.children[0]);
-      }
-
-      if (isAboveThreshold) {
-        const eCount = Math.min(50, Math.max(12, Math.floor(intensity * 4.8)));
-        const plateDist = 9.0; // Distance from cathode (x = -4.5) to anode (x = +4.5)
-
-        for (let i = 0; i < eCount; i++) {
-          // Photoelectron Energy Distribution: continuous spectrum up to K_max
-          // Fermi-Dirac-like profile with highest emission probability near medium-high energies
-          const normIdx = (i + 0.5) / eCount;
-          const energyFraction = 0.12 + 0.88 * Math.sin((normIdx * Math.PI) / 2);
-          const eK = Math.max(0.01, K_max * energyFraction);
-          const v_init = Math.sqrt(eK) * 3.6; // Emission velocity magnitude
-
-          // Conical angular dispersion of liberated electrons
-          const spreadAngle = ((i * 17) % 31) / 30 * 0.24; // 0 to ~14 degrees
-          const azimuth = i * 2.39996; // Golden angle dispersion
-          const v0x = v_init * Math.cos(spreadAngle);
-          const v0y = v_init * Math.sin(spreadAngle) * Math.cos(azimuth);
-          const v0z = v_init * Math.sin(spreadAngle) * Math.sin(azimuth);
-
-          // Electric field acceleration: a_x = e*E/m = e*(V/d)/m
-          const accelX = (appliedV / plateDist) * 4.2;
-
-          // Kinematic trajectory calculation
-          let flightTime = 0;
-          let doesReachAnode = false;
-          let xTurnaround = 4.5;
-          let tStop = 0;
-
-          const safePlateDist = Math.max(0.1, plateDist || 9.0);
-          const safeV0x = Math.max(1e-4, v0x);
-
-          if (accelX >= 0) {
-            // Accelerating potential (V >= 0): electrons accelerate toward anode
-            doesReachAnode = true;
-            if (accelX < 1e-4) {
-              flightTime = safePlateDist / safeV0x;
-            } else {
-              // 0.5 * accelX * T^2 + v0x * T - plateDist = 0
-              flightTime = (-v0x + Math.sqrt(Math.max(0, v0x * v0x + 2 * accelX * safePlateDist))) / accelX;
-            }
-          } else {
-            // Retarding potential (V < 0, accelX < 0)
-            const absA = Math.max(1e-4, Math.abs(accelX));
-            const discriminant = v0x * v0x - 2 * absA * safePlateDist;
-
-            if (discriminant >= 0) {
-              // Kinetic energy is sufficient to overcome retarding barrier and strike anode
-              doesReachAnode = true;
-              flightTime = (v0x - Math.sqrt(Math.max(0, discriminant))) / absA;
-            } else {
-              // Electron decelerates to rest and turns back toward cathode
-              doesReachAnode = false;
-              tStop = v0x / absA;
-              flightTime = 2 * tStop;
-              xTurnaround = -4.5 + (v0x * v0x) / (2 * absA);
-            }
-          }
-
-          flightTime = Math.max(0.2, flightTime);
-
-          // Stagger electrons across their entire path for continuous stream
-          const phaseOffset = (i / eCount) * flightTime;
-          const simTimeFactor = ctx.simTime * 1.5;
-          const tCycle = ((simTimeFactor + phaseOffset) % flightTime + flightTime) % flightTime;
-
-          let posX = -4.5;
-          let posY = 0;
-          let posZ = 0;
-
-          if (doesReachAnode) {
-            // Direct flight from cathode (x = -4.5) to anode (x = +4.5)
-            posX = -4.5 + v0x * tCycle + 0.5 * accelX * tCycle * tCycle;
-            posY = v0y * tCycle;
-            posZ = v0z * tCycle;
-          } else {
-            // Retarded turnaround flight
-            if (tCycle <= tStop) {
-              // Forward decelerating phase
-              posX = -4.5 + v0x * tCycle - 0.5 * Math.abs(accelX) * tCycle * tCycle;
-              posY = v0y * tCycle;
-              posZ = v0z * tCycle;
-            } else {
-              // Reverse accelerating phase back to cathode
-              const tReturn = tCycle - tStop;
-              posX = xTurnaround - 0.5 * Math.abs(accelX) * tReturn * tReturn;
-              posY = v0y * tStop - v0y * tReturn * 0.7;
-              posZ = v0z * tStop - v0z * tReturn * 0.7;
-            }
-          }
-
-          // Bound coordinates inside vacuum tube geometry
-          posX = Math.max(-4.48, Math.min(4.48, posX));
-          posY = Math.max(-1.7, Math.min(1.7, posY));
-          posZ = Math.max(-1.7, Math.min(1.7, posZ));
-
-          // Create glowing photoelectron sphere
-          const isReturning = !doesReachAnode && tCycle > tStop;
-          const eMesh = new THREE.Mesh(
-            new THREE.SphereGeometry(0.13, 10, 10),
-            new THREE.MeshStandardMaterial({
-              color: isReturning ? 0x60a5fa : 0x06b6d4,
-              emissive: isReturning ? 0x3b82f6 : 0x0891b2,
-              emissiveIntensity: 0.9,
-              roughness: 0.2,
-            })
-          );
-          eMesh.position.set(posX, posY, posZ);
+      const maxElectrons = 50;
+      if (!electronGroup.userData.initialized) {
+        const eGeo = new THREE.SphereGeometry(0.13, 10, 10);
+        const eMatCyan = new THREE.MeshStandardMaterial({
+          color: 0x06b6d4,
+          emissive: 0x0891b2,
+          emissiveIntensity: 0.9,
+          roughness: 0.2,
+        });
+        const eMatReturn = new THREE.MeshStandardMaterial({
+          color: 0x60a5fa,
+          emissive: 0x3b82f6,
+          emissiveIntensity: 0.9,
+          roughness: 0.2,
+        });
+        electronGroup.userData.sharedGeo = eGeo;
+        electronGroup.userData.sharedMatCyan = eMatCyan;
+        electronGroup.userData.sharedMatReturn = eMatReturn;
+        for (let i = 0; i < maxElectrons; i++) {
+          const eMesh = new THREE.Mesh(eGeo, eMatCyan);
+          eMesh.visible = false;
           electronGroup.add(eMesh);
         }
+        electronGroup.userData.initialized = true;
+      }
+
+      const matCyan = electronGroup.userData.sharedMatCyan as THREE.MeshStandardMaterial;
+      const matReturn = electronGroup.userData.sharedMatReturn as THREE.MeshStandardMaterial;
+      const eCount = isAboveThreshold ? Math.min(maxElectrons, Math.max(12, Math.floor(intensity * 4.8))) : 0;
+      const plateDist = 9.0;
+
+      for (let i = 0; i < maxElectrons; i++) {
+        const eMesh = electronGroup.children[i] as THREE.Mesh;
+        if (!eMesh) continue;
+        if (i >= eCount) {
+          eMesh.visible = false;
+          continue;
+        }
+        eMesh.visible = true;
+        const normIdx = (i + 0.5) / eCount;
+        const energyFraction = 0.12 + 0.88 * Math.sin((normIdx * Math.PI) / 2);
+        const eK = Math.max(0.01, K_max * energyFraction);
+        const v_init = Math.sqrt(eK) * 3.6;
+
+        const spreadAngle = (((i * 17) % 31) / 30) * 0.24;
+        const azimuth = i * 2.39996;
+        const v0x = v_init * Math.cos(spreadAngle);
+        const v0y = v_init * Math.sin(spreadAngle) * Math.cos(azimuth);
+        const v0z = v_init * Math.sin(spreadAngle) * Math.sin(azimuth);
+
+        const accelX = (appliedV / plateDist) * 4.2;
+        let flightTime = 0;
+        let doesReachAnode = false;
+        let xTurnaround = 4.5;
+        let tStop = 0;
+
+        const safePlateDist = Math.max(0.1, plateDist);
+        const safeV0x = Math.max(1e-4, v0x);
+
+        if (accelX >= 0) {
+          doesReachAnode = true;
+          if (accelX < 1e-4) {
+            flightTime = safePlateDist / safeV0x;
+          } else {
+            flightTime = (-v0x + Math.sqrt(Math.max(0, v0x * v0x + 2 * accelX * safePlateDist))) / accelX;
+          }
+        } else {
+          const absA = Math.max(1e-4, Math.abs(accelX));
+          const discriminant = v0x * v0x - 2 * absA * safePlateDist;
+          if (discriminant >= 0) {
+            doesReachAnode = true;
+            flightTime = (v0x - Math.sqrt(Math.max(0, discriminant))) / absA;
+          } else {
+            doesReachAnode = false;
+            tStop = v0x / absA;
+            flightTime = 2 * tStop;
+            xTurnaround = -4.5 + (v0x * v0x) / (2 * absA);
+          }
+        }
+
+        flightTime = Math.max(0.2, flightTime);
+        const phaseOffset = (i / eCount) * flightTime;
+        const tCycle = ((ctx.simTime * 1.5 + phaseOffset) % flightTime + flightTime) % flightTime;
+
+        let posX = -4.5;
+        let posY = 0;
+        let posZ = 0;
+
+        if (doesReachAnode) {
+          posX = -4.5 + v0x * tCycle + 0.5 * accelX * tCycle * tCycle;
+          posY = v0y * tCycle;
+          posZ = v0z * tCycle;
+        } else if (tCycle <= tStop) {
+          posX = -4.5 + v0x * tCycle - 0.5 * Math.abs(accelX) * tCycle * tCycle;
+          posY = v0y * tCycle;
+          posZ = v0z * tCycle;
+        } else {
+          const tReturn = tCycle - tStop;
+          posX = xTurnaround - 0.5 * Math.abs(accelX) * tReturn * tReturn;
+          posY = v0y * tStop - v0y * tReturn * 0.7;
+          posZ = v0z * tStop - v0z * tReturn * 0.7;
+        }
+
+        eMesh.position.set(
+          Math.max(-4.48, Math.min(4.48, posX)),
+          Math.max(-1.7, Math.min(1.7, posY)),
+          Math.max(-1.7, Math.min(1.7, posZ))
+        );
+        const isReturning = !doesReachAnode && tCycle > tStop;
+        eMesh.material = isReturning ? matReturn : matCyan;
       }
     }
 
@@ -8200,24 +8760,32 @@ export class SimulationRenderer {
       ammeterNeedle.rotation.z = -targetAngle;
     }
 
-    // 6. Dynamic Electric Field Vectors between Plates
+    // 6. Dynamic Electric Field Vectors between Plates (Pooled 4 ArrowHelpers)
     const eFieldGroup = this.objectsGroup.getObjectByName('photoelectric-efield') as THREE.Group;
     if (eFieldGroup) {
-      while (eFieldGroup.children.length > 0) {
-        this.disposeObject(eFieldGroup.children[0]);
-        eFieldGroup.remove(eFieldGroup.children[0]);
-      }
-
-      if (Math.abs(appliedV) > 0.2) {
-        const dir = appliedV > 0 ? new THREE.Vector3(-1, 0, 0) : new THREE.Vector3(1, 0, 0);
-        const arrowColor = appliedV > 0 ? 0x22c55e : 0xef4444;
-
+      if (!eFieldGroup.userData.initialized) {
         [-1.0, 1.0].forEach((yOff) => {
           [-0.8, 0.8].forEach((zOff) => {
-            const origin = appliedV > 0 ? new THREE.Vector3(3.8, yOff, zOff) : new THREE.Vector3(-3.8, yOff, zOff);
-            const arrow = new THREE.ArrowHelper(dir, origin, 7.6, arrowColor, 0.5, 0.3);
+            const arrow = new THREE.ArrowHelper(new THREE.Vector3(-1, 0, 0), new THREE.Vector3(3.8, yOff, zOff), 7.6, 0x22c55e, 0.5, 0.3);
+            arrow.userData = { yOff, zOff };
             eFieldGroup.add(arrow);
           });
+        });
+        eFieldGroup.userData.initialized = true;
+      }
+
+      const showEField = ctx.showVectors && Math.abs(appliedV) > 0.2;
+      eFieldGroup.visible = showEField;
+      if (showEField) {
+        const arrowColor = appliedV > 0 ? 0x22c55e : 0xef4444;
+        const dirX = appliedV > 0 ? -1 : 1;
+        const origX = appliedV > 0 ? 3.8 : -3.8;
+        eFieldGroup.children.forEach((child) => {
+          const arrow = child as THREE.ArrowHelper;
+          const { yOff, zOff } = arrow.userData as { yOff: number; zOff: number };
+          arrow.position.set(origX, yOff, zOff);
+          this.setSafeArrowDirection(arrow, dirX, 0, 0, -1, 0, 0);
+          arrow.setColor(arrowColor);
         });
       }
     }
@@ -8693,55 +9261,55 @@ export class SimulationRenderer {
 
   private updateBiotSavart(ctx: SimRenderContext) {
     const { current = 10, loopRadius = 8, axialDist = 6, numTurns = 10, geometry = 0 } = ctx.params;
-    const R = loopRadius * 0.4;
+    const R = Math.max(0.4, loopRadius * 0.4);
     const x = axialDist * 0.4;
 
     const coilGroup = this.objectsGroup.getObjectByName('bs-coil-group') as THREE.Group;
     if (coilGroup) {
-      while (coilGroup.children.length > 0) {
-        this.disposeObject(coilGroup.children[0]);
-        coilGroup.remove(coilGroup.children[0]);
+      const cacheKey = `${geometry}_${R.toFixed(2)}`;
+      if (coilGroup.userData.cacheKey !== cacheKey) {
+        coilGroup.userData.cacheKey = cacheKey;
+        while (coilGroup.children.length > 0) {
+          this.disposeObject(coilGroup.children[0]);
+          coilGroup.remove(coilGroup.children[0]);
+        }
+
+        if (geometry === 0) {
+          const torusGeo = new THREE.TorusGeometry(R, 0.15, 16, 64);
+          const torusMat = new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.8, roughness: 0.2 });
+          const torus = new THREE.Mesh(torusGeo, torusMat);
+          torus.rotation.y = Math.PI / 2;
+          coilGroup.add(torus);
+
+          const curArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, R, 0), 1.2, 0xef4444, 0.4, 0.3);
+          curArrow.name = 'bs-current-arrow';
+          coilGroup.add(curArrow);
+        } else if (geometry === 1) {
+          const wireGeo = new THREE.CylinderGeometry(0.12, 0.12, 20, 16);
+          const wireMat = new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.8, roughness: 0.2 });
+          coilGroup.add(new THREE.Mesh(wireGeo, wireMat));
+        } else {
+          const solLen = 10;
+          const solTurns = 16;
+          const torusGeo = new THREE.TorusGeometry(R, 0.08, 12, 32);
+          const torusMat = new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.8 });
+          coilGroup.userData.sharedGeo = torusGeo;
+          coilGroup.userData.sharedMat = torusMat;
+          for (let i = 0; i < solTurns; i++) {
+            const torus = new THREE.Mesh(torusGeo, torusMat);
+            torus.rotation.y = Math.PI / 2;
+            torus.position.x = -solLen / 2 + (i * solLen) / (solTurns - 1);
+            coilGroup.add(torus);
+          }
+        }
       }
 
       if (geometry === 0) {
-        // Circular Loop Coil
-        const torusGeo = new THREE.TorusGeometry(R, 0.15, 16, 64);
-        const torusMat = new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.8, roughness: 0.2 });
-        const torus = new THREE.Mesh(torusGeo, torusMat);
-        torus.rotation.y = Math.PI / 2;
-        coilGroup.add(torus);
-
-        // Circulating Current Arrow Indicator
-        const arrowAngle = (ctx.simTime * (current / 5)) % (Math.PI * 2);
-        const arrowX = 0;
-        const arrowY = R * Math.cos(arrowAngle);
-        const arrowZ = R * Math.sin(arrowAngle);
-        const curArrow = new THREE.ArrowHelper(
-          new THREE.Vector3(0, -Math.sin(arrowAngle), Math.cos(arrowAngle)),
-          new THREE.Vector3(arrowX, arrowY, arrowZ),
-          1.2,
-          0xef4444,
-          0.4,
-          0.3
-        );
-        coilGroup.add(curArrow);
-      } else if (geometry === 1) {
-        // Straight Wire
-        const wireGeo = new THREE.CylinderGeometry(0.12, 0.12, 20, 16);
-        const wireMat = new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.8, roughness: 0.2 });
-        const wire = new THREE.Mesh(wireGeo, wireMat);
-        coilGroup.add(wire);
-      } else {
-        // Solenoid
-        const solLen = 10;
-        const solTurns = 16;
-        for (let i = 0; i < solTurns; i++) {
-          const torusGeo = new THREE.TorusGeometry(R, 0.08, 12, 32);
-          const torusMat = new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.8 });
-          const torus = new THREE.Mesh(torusGeo, torusMat);
-          torus.rotation.y = Math.PI / 2;
-          torus.position.x = -solLen / 2 + (i * solLen) / (solTurns - 1);
-          coilGroup.add(torus);
+        const curArrow = coilGroup.getObjectByName('bs-current-arrow') as THREE.ArrowHelper;
+        if (curArrow) {
+          const arrowAngle = (ctx.simTime * (current / 5)) % (Math.PI * 2);
+          curArrow.position.set(0, R * Math.cos(arrowAngle), R * Math.sin(arrowAngle));
+          this.setSafeArrowDirection(curArrow, 0, -Math.sin(arrowAngle), Math.cos(arrowAngle), 0, 0, 1);
         }
       }
     }
@@ -8752,41 +9320,42 @@ export class SimulationRenderer {
       probe.position.set(x, 0, 0);
     }
 
-    // Vector Visuals
-    while (this.vectorGroup.children.length > 0) {
-      const obj = this.vectorGroup.children[0];
-      this.disposeObject(obj);
-      this.vectorGroup.remove(obj);
+    const fieldGroup = this.objectsGroup.getObjectByName('bs-field-group') as THREE.Group;
+    if (fieldGroup) {
+      const fieldCacheKey = `${R.toFixed(2)}`;
+      if (fieldGroup.userData.cacheKey !== fieldCacheKey) {
+        fieldGroup.userData.cacheKey = fieldCacheKey;
+        while (fieldGroup.children.length > 0) {
+          this.disposeObject(fieldGroup.children[0]);
+          fieldGroup.remove(fieldGroup.children[0]);
+        }
+        const curveMat = new THREE.LineBasicMaterial({ color: 0x0284c7, transparent: true, opacity: 0.4 });
+        fieldGroup.userData.sharedLineMat = curveMat;
+        const numLines = 6;
+        for (let i = 0; i < numLines; i++) {
+          const phi = (i * Math.PI * 2) / numLines;
+          const curvePoints: THREE.Vector3[] = [];
+          for (let t = -Math.PI; t <= Math.PI; t += 0.1) {
+            const lx = 4 * Math.sin(t);
+            const lr = R * 1.2 + 2.5 * Math.pow(Math.cos(t / 2), 2);
+            curvePoints.push(new THREE.Vector3(lx, lr * Math.cos(phi), lr * Math.sin(phi)));
+          }
+          fieldGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curvePoints), curveMat));
+        }
+      }
+      fieldGroup.visible = ctx.showVectors;
     }
 
-    if (ctx.showVectors) {
-      // Calculate B field magnitude proportional scaling
-      const bFieldMag = (numTurns * current * R * R) / Math.pow(R * R + x * x, 1.5);
+    let bArrow = this.vectorGroup.getObjectByName('bs-b-arrow') as THREE.ArrowHelper;
+    if (!bArrow) {
+      bArrow = this.createArrow('bs-b-arrow', 0x38bdf8, new THREE.Vector3(x, 0, 0), new THREE.Vector3(1, 0, 0), 2.0);
+    }
+    if (bArrow) {
+      const bFieldMag = (numTurns * current * R * R) / Math.pow(Math.max(0.1, R * R + x * x), 1.5);
       const arrowLength = Math.min(8, Math.max(0.8, bFieldMag * 1.5));
-      const bArrow = new THREE.ArrowHelper(
-        new THREE.Vector3(1, 0, 0),
-        new THREE.Vector3(x, 0, 0),
-        arrowLength,
-        0x38bdf8,
-        0.6,
-        0.4
-      );
-      this.vectorGroup.add(bArrow);
-
-      // Loop field lines curving in 3D
-      const numLines = 6;
-      for (let i = 0; i < numLines; i++) {
-        const phi = (i * Math.PI * 2) / numLines;
-        const curvePoints: THREE.Vector3[] = [];
-        for (let t = -Math.PI; t <= Math.PI; t += 0.1) {
-          const lx = 4 * Math.sin(t);
-          const lr = R * 1.2 + 2.5 * Math.pow(Math.cos(t / 2), 2);
-          curvePoints.push(new THREE.Vector3(lx, lr * Math.cos(phi), lr * Math.sin(phi)));
-        }
-        const curveGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
-        const curveMat = new THREE.LineBasicMaterial({ color: 0x0284c7, transparent: true, opacity: 0.4 });
-        this.vectorGroup.add(new THREE.Line(curveGeo, curveMat));
-      }
+      bArrow.position.set(x, 0, 0);
+      this.setSafeArrowDirection(bArrow, current >= 0 ? 1 : -1, 0, 0, 1, 0, 0);
+      bArrow.setLength(arrowLength, 0.6, 0.4);
     }
   }
 
@@ -8798,7 +9367,6 @@ export class SimulationRenderer {
     glGroup.name = 'gauss-law-apparatus-group';
 
     // 1. High-Voltage Laboratory Insulated Stand
-    const standMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.25 });
     const baseMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
 
     const basePlatform = new THREE.Mesh(new THREE.CylinderGeometry(4.0, 4.4, 0.6, 36), baseMat);
@@ -8839,10 +9407,18 @@ export class SimulationRenderer {
     chargeMesh.position.y = 1.6;
     glGroup.add(chargeMesh);
 
-    // Microscopic Surface Charge Distribution Dots Group
+    // Microscopic Surface Charge Distribution Dots Group (pre-allocated pool of 32 dots)
     const dotsGroup = new THREE.Group();
     dotsGroup.name = 'gl-surface-charges';
     dotsGroup.position.y = 1.6;
+    const dotGeo = new THREE.SphereGeometry(0.08, 8, 8);
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0xfecaca });
+    dotsGroup.userData = { sharedGeo: dotGeo, sharedMat: dotMat };
+    for (let i = 0; i < 32; i++) {
+      const dot = new THREE.Mesh(dotGeo, dotMat);
+      dot.visible = false;
+      dotsGroup.add(dot);
+    }
     glGroup.add(dotsGroup);
 
     // 3. Mathematical Gaussian Closed Surface (High-Refraction Borosilicate Glass Sphere)
@@ -8867,10 +9443,11 @@ export class SimulationRenderer {
     wireframe.position.y = 1.6;
     glGroup.add(wireframe);
 
-    // 4. Area Normal dA Vector Arrows Group on Gaussian Surface
-    const daGroup = new THREE.Group();
-    daGroup.name = 'gl-da-vectors';
-    glGroup.add(daGroup);
+    // 4. Pooled Area Normal dA & Electric Field E Arrows
+    for (let i = 0; i < 20; i++) {
+      this.createArrow(`gl-da-${i}`, 0xf59e0b, new THREE.Vector3(), new THREE.Vector3(1, 0, 0), 0.7);
+      this.createArrow(`gl-e-${i}`, 0x22c55e, new THREE.Vector3(), new THREE.Vector3(1, 0, 0), 1.0);
+    }
 
     this.objectsGroup.add(glGroup);
   }
@@ -8893,99 +9470,80 @@ export class SimulationRenderer {
       mat.emissive.setHex(isPositive ? 0x991b1b : 0x0e7490);
     }
 
-    // 2. Microscopic Discrete Charge Grid on Sphere
+    // 2. Microscopic Discrete Charge Grid on Sphere (Pooled)
     const dotsGroup = this.objectsGroup.getObjectByName('gl-surface-charges') as THREE.Group;
     if (dotsGroup) {
-      while (dotsGroup.children.length > 0) {
-        this.disposeObject(dotsGroup.children[0]);
-        dotsGroup.remove(dotsGroup.children[0]);
-      }
-
+      const dotMat = dotsGroup.userData.sharedMat as THREE.MeshBasicMaterial | undefined;
+      if (dotMat) dotMat.color.setHex(isPositive ? 0xfecaca : 0xa5f3fc);
       const numDots = Math.min(32, Math.max(8, Math.round(qAbs * 1.2)));
-      const dotMat = new THREE.MeshBasicMaterial({ color: isPositive ? 0xfecaca : 0xa5f3fc });
-      const dotGeo = new THREE.SphereGeometry(0.08, 8, 8);
-
-      for (let i = 0; i < numDots; i++) {
-        const phi = Math.acos(-1 + (2 * i) / numDots);
+      for (let i = 0; i < 32; i++) {
+        const dot = dotsGroup.children[i] as THREE.Mesh;
+        if (!dot) continue;
+        if (i >= numDots) {
+          dot.visible = false;
+          continue;
+        }
+        dot.visible = true;
+        const phi = Math.acos(THREE.MathUtils.clamp(-1 + (2 * i) / numDots, -1, 1));
         const theta = Math.sqrt(numDots * Math.PI) * phi;
-        // For conductor (chargeType=0): charges reside on surface r=R
-        // For non-conductor (chargeType=1): charges distributed uniformly throughout volume
         const radFrac = chargeType === 0 ? 1.02 : Math.cbrt((i + 1) / numDots) * 0.98;
         const dotRadius = R * radFrac;
-
-        const dot = new THREE.Mesh(dotGeo, dotMat);
         dot.position.set(
           dotRadius * Math.sin(phi) * Math.cos(theta),
           dotRadius * Math.cos(phi),
           dotRadius * Math.sin(phi) * Math.sin(theta)
         );
-        dotsGroup.add(dot);
       }
     }
 
     // 3. Gaussian Surface Scaling (Radius r)
     const gaussSurface = this.objectsGroup.getObjectByName('gl-gaussian-surface') as THREE.Mesh;
-    if (gaussSurface) {
-      gaussSurface.scale.set(r / 3.5, r / 3.5, r / 3.5);
-    }
+    if (gaussSurface) gaussSurface.scale.set(r / 3.5, r / 3.5, r / 3.5);
     const gaussWire = this.objectsGroup.getObjectByName('gl-gaussian-wireframe') as THREE.LineSegments;
-    if (gaussWire) {
-      gaussWire.scale.set(r / 3.5, r / 3.5, r / 3.5);
-    }
+    if (gaussWire) gaussWire.scale.set(r / 3.5, r / 3.5, r / 3.5);
 
-    // 4. Physical Gauss's Law Computations: Enclosed Charge & Electric Field
+    // 4. Physical Gauss's Law Computations
     let q_enclosed = 0;
     let E_mag = 0;
-
     if (r >= R) {
-      // Outside sphere: all charge is enclosed
       q_enclosed = chargeQ;
       E_mag = (8.99 * qAbs) / (r * r);
+    } else if (chargeType === 0) {
+      q_enclosed = 0;
+      E_mag = 0;
     } else {
-      // Inside sphere
-      if (chargeType === 0) {
-        // Conducting shell: zero enclosed charge inside
-        q_enclosed = 0;
-        E_mag = 0;
-      } else {
-        // Non-conducting solid uniform sphere: q_enc = Q * (r/R)^3
-        const volFraction = Math.pow(r / R, 3);
-        q_enclosed = chargeQ * volFraction;
-        E_mag = (8.99 * qAbs * r) / Math.pow(R, 3);
+      const volFraction = Math.pow(r / R, 3);
+      q_enclosed = chargeQ * volFraction;
+      E_mag = (8.99 * qAbs * r) / Math.pow(R, 3);
+    }
+
+    // 5. Electric Field Vector Arrows (E) & Surface Normal Vectors (dA) — Pooled Update
+    const numArrows = 20;
+    for (let i = 0; i < numArrows; i++) {
+      const phi = Math.acos(THREE.MathUtils.clamp(-1 + (2 * i) / numArrows, -1, 1));
+      const theta = Math.sqrt(numArrows * Math.PI) * phi;
+      const nx = Math.sin(phi) * Math.cos(theta);
+      const ny = Math.cos(phi);
+      const nz = Math.sin(phi) * Math.sin(theta);
+
+      const daArrow = this.vectorGroup.getObjectByName(`gl-da-${i}`) as THREE.ArrowHelper;
+      if (daArrow) {
+        daArrow.visible = ctx.showVectors;
+        daArrow.position.set(centerPos.x + nx * r, centerPos.y + ny * r, centerPos.z + nz * r);
+        this.setSafeArrowDirection(daArrow, nx, ny, nz, 0, 1, 0);
+        daArrow.setLength(0.7, 0.2, 0.1);
       }
-    }
 
-    // 5. Electric Field Vector Arrows (E) & Surface Normal Vectors (dA)
-    while (this.vectorGroup.children.length > 0) {
-      const obj = this.vectorGroup.children[0];
-      this.disposeObject(obj);
-      this.vectorGroup.remove(obj);
-    }
-
-    if (ctx.showVectors) {
-      const numArrows = 20;
-      for (let i = 0; i < numArrows; i++) {
-        const phi = Math.acos(-1 + (2 * i) / numArrows);
-        const theta = Math.sqrt(numArrows * Math.PI) * phi;
-
-        const normalDir = new THREE.Vector3(
-          Math.sin(phi) * Math.cos(theta),
-          Math.cos(phi),
-          Math.sin(phi) * Math.sin(theta)
-        ).normalize();
-
-        const origin = centerPos.clone().add(normalDir.clone().multiplyScalar(r));
-        const fieldDir = isPositive ? normalDir.clone() : normalDir.clone().negate();
-
-        // (a) Surface Area Vector dA (Amber/Cyan Arrow outward)
-        const daArrow = new THREE.ArrowHelper(normalDir, origin, 0.7, 0xf59e0b, 0.2, 0.1);
-        this.vectorGroup.add(daArrow);
-
-        // (b) Electric Field Vector E (Green Arrow)
-        if (E_mag > 0.05) {
+      const eArrow = this.vectorGroup.getObjectByName(`gl-e-${i}`) as THREE.ArrowHelper;
+      if (eArrow) {
+        const showE = ctx.showVectors && E_mag > 0.05;
+        eArrow.visible = showE;
+        if (showE) {
+          const sign = isPositive ? 1 : -1;
+          eArrow.position.set(centerPos.x + nx * r, centerPos.y + ny * r, centerPos.z + nz * r);
+          this.setSafeArrowDirection(eArrow, nx * sign, ny * sign, nz * sign, 0, 1, 0);
           const arrowLen = Math.min(2.5, Math.max(0.4, E_mag * 0.15));
-          const eArrow = new THREE.ArrowHelper(fieldDir, origin, arrowLen, 0x22c55e, 0.25, 0.12);
-          this.vectorGroup.add(eArrow);
+          eArrow.setLength(arrowLen, 0.25, 0.12);
         }
       }
     }
@@ -10119,11 +10677,19 @@ export class SimulationRenderer {
       cabin.add(col);
     });
 
-    // Floor Weighing Scale Platform
+    // Floor Weighing Scale Platform + Analog Dial Bezel & Needle
     const scaleMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.6, roughness: 0.3 });
     const scaleMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.3, 0.18, 24), scaleMat);
-    scaleMesh.position.set(2.4, -cabinHeight / 2 + 0.18, 0);
+    scaleMesh.position.set(2.4, -cabinHeight / 2 + 0.29, 0);
     cabin.add(scaleMesh);
+
+    const scaleFace = new THREE.Mesh(new THREE.CircleGeometry(0.45, 20), new THREE.MeshBasicMaterial({ color: 0xf8fafc }));
+    scaleFace.position.set(2.4, -cabinHeight / 2 + 0.31, 1.25);
+    cabin.add(scaleFace);
+    const scaleNeedle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.34, 0.02), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+    scaleNeedle.name = 'scale-dial-needle';
+    scaleNeedle.position.set(2.4, -cabinHeight / 2 + 0.42, 1.27);
+    cabin.add(scaleNeedle);
 
     // External Elevator Shaft Stripes (Move vertically to simulate cabin acceleration!)
     const shaftMarkers = new THREE.Group();
@@ -10138,27 +10704,56 @@ export class SimulationRenderer {
     }
     root.add(shaftMarkers);
 
-    // 2. Atwood Machine Pulley Suspension
+    // 2. Atwood Machine Pulley Suspension (Centered at Y = 3.2; ceiling top underside is at Y = 5.3 -> bridge exact 2.1 span!)
     const atwood = new THREE.Group();
     atwood.name = 'atwood-assembly';
     atwood.position.set(-0.8, 3.2, 0);
 
-    // Ceiling Bracket
-    const bracketMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.2 });
-    const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.2, 0.6), bracketMat);
-    bracket.position.y = 0.8;
+    // Flush Ceiling Mounting Flange Plate + Bolted Clevis Yoke (atwood Y = +2.1 touches ceiling underside at 5.3!)
+    const bracketMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.85, roughness: 0.2 });
+    const ceilingFlange = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.14, 1.2), bracketMat);
+    ceilingFlange.position.set(0, 2.04, 0);
+    atwood.add(ceilingFlange);
+    [-0.45, 0.45].forEach((bx) => {
+      const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.1, 10), colMat);
+      bolt.position.set(bx, 1.95, 0.35);
+      atwood.add(bolt);
+    });
+    const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.38, 2.1, 0.48), bracketMat);
+    bracket.position.y = 1.05;
     atwood.add(bracket);
 
-    // Pulley Wheel
-    const pulleyWheel = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.2, 1.2, 0.35, 32),
+    // Grooved Spoked Pulley Sheave Group (so rotation is visually crisp!)
+    const pulleyGroup = new THREE.Group();
+    pulleyGroup.name = 'pulley-wheel';
+    const wheelDisc = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.18, 1.18, 0.26, 32),
       new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9, roughness: 0.2 })
     );
-    pulleyWheel.name = 'pulley-wheel';
-    pulleyWheel.rotation.x = Math.PI / 2;
-    atwood.add(pulleyWheel);
+    wheelDisc.rotation.x = Math.PI / 2;
+    pulleyGroup.add(wheelDisc);
+    const sheaveRim = new THREE.Mesh(
+      new THREE.TorusGeometry(1.2, 0.08, 12, 36),
+      new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.95, roughness: 0.15 })
+    );
+    pulleyGroup.add(sheaveRim);
+    const spokeMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85, roughness: 0.25 });
+    for (let s = 0; s < 3; s++) {
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.1, 0.3), spokeMat);
+      spoke.rotation.z = (s * Math.PI) / 3;
+      pulleyGroup.add(spoke);
+    }
+    const axleCap = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.22, 0.22, 0.6, 16),
+      new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.9, roughness: 0.2 })
+    );
+    axleCap.rotation.x = Math.PI / 2;
+    pulleyGroup.add(axleCap);
+    atwood.add(pulleyGroup);
 
-    // Left Mass (m1, Cyan)
+    const hookMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.9, roughness: 0.2 });
+
+    // Left Mass (m1, Cyan) + Top Eyelet Hook
     const m1Group = new THREE.Group();
     m1Group.name = 'm1-group';
     const m1Mesh = new THREE.Mesh(
@@ -10166,10 +10761,13 @@ export class SimulationRenderer {
       new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.6, roughness: 0.3 })
     );
     m1Group.add(m1Mesh);
+    const m1Hook = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.035, 8, 16), hookMat);
+    m1Hook.position.set(0, 0.66, 0);
+    m1Group.add(m1Hook);
     m1Group.position.set(-1.2, -2.5, 0);
     atwood.add(m1Group);
 
-    // Right Mass (m2, Amber)
+    // Right Mass (m2, Amber) + Top Eyelet Hook
     const m2Group = new THREE.Group();
     m2Group.name = 'm2-group';
     const m2Mesh = new THREE.Mesh(
@@ -10177,14 +10775,17 @@ export class SimulationRenderer {
       new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.6, roughness: 0.3 })
     );
     m2Group.add(m2Mesh);
+    const m2Hook = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.04, 8, 16), hookMat);
+    m2Hook.position.set(0, 0.86, 0);
+    m2Group.add(m2Hook);
     m2Group.position.set(1.2, -3.8, 0);
     atwood.add(m2Group);
 
-    // Cable cords
-    const cordMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const cordLeft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.5), cordMat);
+    // Unit-Height Braided Steel Cables (exact length scaling so cords terminate cleanly at pulley tangent & mass hooks!)
+    const cordMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.6, roughness: 0.35 });
+    const cordLeft = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 1.0, 12), cordMat);
     cordLeft.name = 'cord-left';
-    const cordRight = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.8), cordMat);
+    const cordRight = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 1.0, 12), cordMat);
     cordRight.name = 'cord-right';
     atwood.add(cordLeft, cordRight);
 
@@ -10205,8 +10806,8 @@ export class SimulationRenderer {
     if (!root) return;
 
     const geff = Math.max(0.01, 9.8 + aFrame);
-    const arel = (Math.abs(m2 - m1) * geff) / (m1 + m2);
-    const T = (2 * m1 * m2 * geff) / (m1 + m2);
+    const arel = (Math.abs(m2 - m1) * geff) / Math.max(0.1, m1 + m2);
+    const T = (2 * m1 * m2 * geff) / Math.max(0.1, m1 + m2);
 
     // Shaft marker vertical animation to show elevator upward/downward movement
     const shaft = root.getObjectByName('shaft-markers') as THREE.Group;
@@ -10214,20 +10815,27 @@ export class SimulationRenderer {
       shaft.position.y = (-(ctx.simTime * aFrame * 1.2) % 3.5);
     }
 
+    // Scale Dial Needle Deflection proportional to apparent weight
+    const scaleNeedle = root.getObjectByName('scale-dial-needle');
+    if (scaleNeedle) {
+      const appNorm = Math.min(1, Math.max(-0.5, (m2 * geff) / 90 - 0.5));
+      scaleNeedle.rotation.z = -appNorm * 1.2;
+    }
+
     // Oscillating Atwood mass motion (simulating periodic turnaround inside cabin)
     const atwood = root.getObjectByName('atwood-assembly') as THREE.Group;
     const m1Group = atwood?.getObjectByName('m1-group') as THREE.Group;
     const m2Group = atwood?.getObjectByName('m2-group') as THREE.Group;
-    const pulleyWheel = atwood?.getObjectByName('pulley-wheel') as THREE.Mesh;
+    const pulleyWheel = atwood?.getObjectByName('pulley-wheel');
     const cordLeft = atwood?.getObjectByName('cord-left') as THREE.Mesh;
     const cordRight = atwood?.getObjectByName('cord-right') as THREE.Mesh;
 
     if (m1Group && m2Group && atwood) {
-      // Scale mass meshes based on mass parameter
-      m1Group.scale.set(1, Math.max(0.6, Math.min(2.0, m1 / 3)), 1);
-      m2Group.scale.set(1, Math.max(0.6, Math.min(2.0, m2 / 5)), 1);
+      const m1ScaleY = Math.max(0.6, Math.min(2.0, m1 / 3));
+      const m2ScaleY = Math.max(0.6, Math.min(2.0, m2 / 5));
+      m1Group.scale.set(1, m1ScaleY, 1);
+      m2Group.scale.set(1, m2ScaleY, 1);
 
-      // Travel amplitude limited inside cabin
       const travelAmp = 2.2;
       const motionFreq = Math.min(2.5, Math.max(0.5, Math.sqrt(arel / 2.0)));
       const relDisp = Math.sin(ctx.simTime * motionFreq) * travelAmp * (m2 >= m1 ? 1 : -1);
@@ -10243,13 +10851,15 @@ export class SimulationRenderer {
       }
 
       if (cordLeft && cordRight) {
-        const lenL = Math.max(0.1, -yM1);
+        const m1HookY = yM1 + 0.62 * m1ScaleY;
+        const lenL = Math.max(0.05, -m1HookY);
         cordLeft.scale.set(1, lenL, 1);
-        cordLeft.position.set(-1.2, yM1 / 2, 0);
+        cordLeft.position.set(-1.2, m1HookY / 2, 0);
 
-        const lenR = Math.max(0.1, -yM2);
+        const m2HookY = yM2 + 0.82 * m2ScaleY;
+        const lenR = Math.max(0.05, -m2HookY);
         cordRight.scale.set(1, lenR, 1);
-        cordRight.position.set(1.2, yM2 / 2, 0);
+        cordRight.position.set(1.2, m2HookY / 2, 0);
       }
 
       // World positions for arrows
@@ -10542,9 +11152,8 @@ export class SimulationRenderer {
       const arrRain = this.vectorGroup.getObjectByName('v-rain-relative') as THREE.ArrowHelper;
       if (arrRain) {
         const rLen = Math.min(3.2, Math.max(0.5, (vrelMag / 10) * 2.0));
-        const rDir = new THREE.Vector3(vrelX, -vRainY, 0).normalize();
         arrRain.position.set(walkerX, 3.2, riverW / 2 + 1.1);
-        arrRain.setDirection(rDir);
+        this.setSafeArrowDirection(arrRain, vrelX, -vRainY, 0, 0, -1, 0);
         arrRain.setLength(rLen, 0.35, 0.18);
         this.updateArrowLabel('v-rain-relative', `v_{r/m} = ${vrelMag.toFixed(1)} m/s (Tilt: ${(umbrellaTilt * 180 / Math.PI).toFixed(1)}°)`, '#a855f7', new THREE.Vector3(walkerX, 4.0, riverW / 2 + 1.1));
       }
@@ -10568,9 +11177,8 @@ export class SimulationRenderer {
     const arrVb = this.vectorGroup.getObjectByName('v-boat-water') as THREE.ArrowHelper;
     if (arrVb) {
       const len = Math.min(3.5, Math.max(0.5, (vBoat / 12) * 2.2));
-      const dir = new THREE.Vector3(vbxWater, 0, vbzWater).normalize();
       arrVb.position.set(boatX, 1.2, boatZ);
-      arrVb.setDirection(dir);
+      this.setSafeArrowDirection(arrVb, vbxWater, 0, vbzWater, 0, 0, -1);
       arrVb.setLength(len, 0.35, 0.18);
       this.updateArrowLabel('v-boat-water', `v_{b/r} = ${vBoat.toFixed(1)} m/s (θ=${theta.toFixed(0)}°)`, '#3b82f6', new THREE.Vector3(boatX, 2.0, boatZ - 0.8));
     }
@@ -10579,7 +11187,7 @@ export class SimulationRenderer {
     if (arrVr) {
       const len = Math.min(3.2, Math.max(0.5, (vRiver / 8) * 2.0));
       arrVr.position.set(boatX, 0.6, boatZ);
-      arrVr.setDirection(new THREE.Vector3(1, 0, 0));
+      this.setSafeArrowDirection(arrVr, 1, 0, 0, 1, 0, 0);
       arrVr.setLength(len, 0.35, 0.18);
       this.updateArrowLabel('v-river-flow', `v_{river} = ${vRiver.toFixed(1)} m/s`, '#06b6d4', new THREE.Vector3(boatX + 1.6, 0.4, boatZ));
     }
@@ -10587,9 +11195,8 @@ export class SimulationRenderer {
     const arrVg = this.vectorGroup.getObjectByName('v-boat-ground') as THREE.ArrowHelper;
     if (arrVg) {
       const len = Math.min(3.8, Math.max(0.5, (vGroundMag / 12) * 2.4));
-      const dir = new THREE.Vector3(vxGround, 0, vzGround).normalize();
       arrVg.position.set(boatX, 1.6, boatZ);
-      arrVg.setDirection(dir);
+      this.setSafeArrowDirection(arrVg, vxGround, 0, vzGround, 1, 0, -1);
       arrVg.setLength(len, 0.35, 0.18);
       this.updateArrowLabel('v-boat-ground', `v_{ground} = ${vGroundMag.toFixed(1)} m/s`, '#10b981', new THREE.Vector3(boatX, 2.6, boatZ + 0.8));
     }
@@ -11699,6 +12306,23 @@ export class SimulationRenderer {
 
     mbGroup.add(jockeyGroup);
 
+    // Insulated Copper Connecting Leads (Center terminal -> Galvanometer -> Sliding Jockey)
+    const bridgeToGalvLeadGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, -1.7, -1.8),
+      new THREE.Vector3(-0.35, -0.5, -1.8),
+      new THREE.Vector3(-0.35, 0.1, -1.8),
+    ]);
+    mbGroup.add(new THREE.Line(bridgeToGalvLeadGeo, new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 2 })));
+
+    const galvToJockeyLeadGeo = new THREE.BufferGeometry();
+    galvToJockeyLeadGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+    const galvToJockeyLead = new THREE.Line(
+      galvToJockeyLeadGeo,
+      new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 })
+    );
+    galvToJockeyLead.name = 'mb-jockey-lead';
+    mbGroup.add(galvToJockeyLead);
+
     this.objectsGroup.add(mbGroup);
 
     // Arrow Helpers for Galvanometer Deflection
@@ -11706,7 +12330,7 @@ export class SimulationRenderer {
   }
 
   private updateMeterBridge(ctx: SimRenderContext) {
-    const { standardR = 10, unknownS = 15, jockeyPos = 40, cellEmf = 2.0 } = ctx.params;
+    const { standardR = 10, unknownS = 15, jockeyPos = 40 } = ctx.params;
     const R = Math.max(1, standardR || 10);
     const S = Math.max(1, unknownS || 15);
     const l1 = Math.max(5, Math.min(95, jockeyPos || 40));
@@ -11724,6 +12348,21 @@ export class SimulationRenderer {
     const jockey = this.objectsGroup.getObjectByName('meter-bridge-jockey');
     if (jockey) {
       jockey.position.x = jockey3DX;
+    }
+
+    // Update flexible jumper lead between Galvanometer terminal and Sliding Jockey top
+    const jockeyLead = this.objectsGroup.getObjectByName('mb-jockey-lead') as THREE.Line;
+    if (jockeyLead) {
+      const posAttr = jockeyLead.geometry.getAttribute('position') as THREE.BufferAttribute;
+      if (posAttr && posAttr.array) {
+        const arr = posAttr.array as Float32Array;
+        arr[0] = 0.4; arr[1] = 0.1; arr[2] = -1.6;
+        arr[3] = jockey3DX * 0.35; arr[4] = -0.35; arr[5] = -0.4;
+        arr[6] = jockey3DX * 0.75; arr[7] = -0.25; arr[8] = 0.65;
+        arr[9] = jockey3DX; arr[10] = 0.65; arr[11] = 1.2;
+        posAttr.needsUpdate = true;
+        jockeyLead.geometry.computeBoundingSphere();
+      }
     }
 
     // Galvanometer needle deflection proportional to bridge imbalance

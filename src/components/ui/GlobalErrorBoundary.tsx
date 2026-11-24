@@ -11,6 +11,8 @@ import {
 export interface ErrorBoundaryProps {
   children: ReactNode;
   onReset?: () => void;
+  variant?: 'fullscreen' | 'panel';
+  label?: string;
 }
 
 export interface ErrorBoundaryState {
@@ -26,6 +28,8 @@ export class GlobalErrorBoundary extends React.Component<
   ErrorBoundaryProps,
   ErrorBoundaryState
 > {
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = {
@@ -43,8 +47,15 @@ export class GlobalErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Three.js / Physics Studio Caught Runtime Exception:', error, errorInfo);
+    console.error(`[${this.props.label || 'Physics Studio'}] Caught Runtime Exception:`, error, errorInfo);
     this.setState({ errorInfo });
+  }
+
+  componentWillUnmount() {
+    if (this.recoveryTimer) {
+      clearTimeout(this.recoveryTimer);
+      this.recoveryTimer = null;
+    }
   }
 
   handleRecoverAndReset = () => {
@@ -80,7 +91,11 @@ export class GlobalErrorBoundary extends React.Component<
     }
 
     // 3. Reset internal error boundary state with incremented key to discard old fiber
-    setTimeout(() => {
+    if (this.recoveryTimer) {
+      clearTimeout(this.recoveryTimer);
+    }
+    this.recoveryTimer = setTimeout(() => {
+      this.recoveryTimer = null;
       this.setState((prev) => ({
         hasError: false,
         error: null,
@@ -131,6 +146,58 @@ export class GlobalErrorBoundary extends React.Component<
 
   render() {
     if (this.state.hasError) {
+      if (this.props.variant === 'panel') {
+        const panelName = this.props.label || 'Studio Panel';
+        return (
+          <div className="w-full rounded-2xl border border-rose-500/35 bg-[#11121C] text-zinc-100 p-4 sm:p-5 shadow-xl space-y-3 select-none">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/15 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-300">
+                    Isolated Panel Recovery
+                  </span>
+                  <h3 className="text-sm font-bold text-white truncate">
+                    {panelName} Interrupted
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5 leading-relaxed">
+                    A localized rendering glitch was isolated so the rest of your physics studio remains unaffected.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={this.handleRecoverAndReset}
+                disabled={this.state.isRecovering}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md active:scale-95 transition disabled:opacity-50"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${this.state.isRecovering ? 'animate-spin' : ''}`} />
+                <span>{this.state.isRecovering ? 'Recovering...' : `Recover ${panelName}`}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => this.setState((prev) => ({ showDetails: !prev.showDetails }))}
+                className="px-3 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 text-xs font-semibold border border-white/[0.08] flex items-center gap-1 transition"
+              >
+                <span>{this.state.showDetails ? 'Hide Error' : 'Details'}</span>
+                {this.state.showDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            {this.state.showDetails && (
+              <div className="p-2.5 bg-[#090A0F] border border-white/[0.06] rounded-xl text-[11px] font-mono text-rose-300/90 max-h-28 overflow-y-auto select-text">
+                {this.state.error?.message || this.state.error?.toString() || 'Unexpected rendering error'}
+              </div>
+            )}
+          </div>
+        );
+      }
+
       return (
         <div className="min-h-screen bg-[#07070A] text-white flex items-center justify-center p-4 sm:p-6 select-none font-sans">
           <div className="max-w-xl w-full bg-[#11121C] border border-rose-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-rose-950/40 relative overflow-hidden backdrop-blur-xl animate-fadeIn">

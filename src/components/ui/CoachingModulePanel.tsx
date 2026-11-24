@@ -68,7 +68,7 @@ const CoachingModulePanelComponent: React.FC<CoachingModulePanelProps> = ({
   };
 
   return (
-    <div className="bg-[#111114]/95 backdrop-blur-md rounded-2xl p-5 border border-white/[0.08] shadow-2xl flex flex-col gap-6">
+    <div className="min-w-0 overflow-x-clip bg-[#111114]/95 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-white/[0.08] shadow-2xl flex flex-col gap-6">
       {/* Module Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/[0.08]">
         <div className="flex items-center gap-3">
@@ -200,7 +200,7 @@ const CoachingModulePanelComponent: React.FC<CoachingModulePanelProps> = ({
           </div>
 
           {/* Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full min-w-0 no-scrollbar pb-1 sm:pb-0">
             <button
               onClick={() => setFilterTag('all')}
               className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
@@ -241,9 +241,9 @@ const CoachingModulePanelComponent: React.FC<CoachingModulePanelProps> = ({
                 {/* Case Header Card */}
                 <div
                   onClick={() => setExpandedCaseId(isExpanded ? null : caseItem.id)}
-                  className="p-3.5 cursor-pointer flex items-start sm:items-center justify-between gap-3 select-none"
+                  className="p-3.5 cursor-pointer flex items-start sm:items-center justify-between gap-3 select-none min-w-0"
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 min-w-0">
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider self-start sm:self-auto ${
                         caseItem.categoryTag === 'Special Case'
@@ -280,8 +280,8 @@ const CoachingModulePanelComponent: React.FC<CoachingModulePanelProps> = ({
                 {isExpanded && (
                   <div className="px-4 pb-4 pt-1 border-t border-white/[0.06] flex flex-col gap-3.5 bg-black/20">
                     {/* Condition & Equation */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-1">
-                      <div className="bg-zinc-900/80 p-3 rounded-lg border border-white/[0.04]">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-1 min-w-0">
+                      <div className="min-w-0 overflow-x-auto bg-zinc-900/80 p-3 rounded-lg border border-white/[0.04]">
                         <div className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider mb-1">
                           Trigger Condition
                         </div>
@@ -290,7 +290,7 @@ const CoachingModulePanelComponent: React.FC<CoachingModulePanelProps> = ({
                         </div>
                       </div>
 
-                      <div className="bg-blue-950/20 p-3 rounded-lg border border-blue-800/30">
+                      <div className="min-w-0 overflow-x-auto bg-blue-950/20 p-3 rounded-lg border border-blue-800/30">
                         <div className="text-[10px] uppercase font-bold text-blue-300 tracking-wider mb-1">
                           Direct Formula Result
                         </div>

@@ -211,8 +211,9 @@ export async function decodePcmBase64(base64Data: string, sampleRate = 24000): P
     // Fall through to raw 16-bit PCM decode
   }
 
-  // 2. Direct 16-bit PCM Float32 mapping
-  const int16Array = new Int16Array(bytes.buffer);
+  // 2. Direct 16-bit PCM Float32 mapping (safely handling odd byte lengths)
+  const evenByteLen = bytes.byteLength - (bytes.byteLength % 2);
+  const int16Array = new Int16Array(bytes.buffer, 0, evenByteLen / 2);
   const float32Array = new Float32Array(int16Array.length);
   for (let i = 0; i < int16Array.length; i++) {
     float32Array[i] = int16Array[i] / 32768.0;
@@ -756,6 +757,31 @@ export function cleanTextForSpeech(input: string): string {
   cleaned = cleaned.replace(/>\s*\*\*JEE Insight:\*\*/gi, 'Key concept:');
   cleaned = cleaned.replace(/>\s*/g, '');
 
+  // Strip internal LLM control/navigation directive tags so they are never spoken aloud
+  cleaned = cleaned.replace(/\[\[(NAVIGATE|CONTROL|CONCEPT):\s*[^\]]+\]\]/gi, '');
+
+  // Angles & degrees
+  cleaned = cleaned.replace(/\^\\circ\b|\^\\circ/g, ' degrees ');
+  cleaned = cleaned.replace(/\\degree\b/g, ' degrees ');
+
+  // Powers and exponents
+  cleaned = cleaned.replace(/([a-zA-Z0-9]+)\^2\b/g, '$1 squared');
+  cleaned = cleaned.replace(/([a-zA-Z0-9]+)\^3\b/g, '$1 cubed');
+  cleaned = cleaned.replace(/([a-zA-Z0-9]+)\^\{([0-9]+)\}/g, '$1 to the power of $2');
+
+  // Trigonometric & mathematical functions
+  cleaned = cleaned.replace(/\\sin\^2/g, ' sine squared ');
+  cleaned = cleaned.replace(/\\cos\^2/g, ' cosine squared ');
+  cleaned = cleaned.replace(/\\tan\^2/g, ' tangent squared ');
+  cleaned = cleaned.replace(/\\sin\b/g, ' sine ');
+  cleaned = cleaned.replace(/\\cos\b/g, ' cosine ');
+  cleaned = cleaned.replace(/\\tan\b/g, ' tangent ');
+  cleaned = cleaned.replace(/\\arcsin\b/g, ' arc sine ');
+  cleaned = cleaned.replace(/\\arccos\b/g, ' arc cosine ');
+  cleaned = cleaned.replace(/\\arctan\b/g, ' arc tangent ');
+  cleaned = cleaned.replace(/\\ln\b/g, ' natural log of ');
+  cleaned = cleaned.replace(/\\log\b/g, ' log of ');
+
   // Common physics expressions and kinetic/potential energy forms
   cleaned = cleaned.replace(/\\frac\{1\}\{2\}\s*m\s*v\^2/g, ' half m v squared ');
   cleaned = cleaned.replace(/\\frac\{1\}\{2\}\s*k\s*x\^2/g, ' half k x squared ');
@@ -771,9 +797,14 @@ export function cleanTextForSpeech(input: string): string {
 
   // Greek physics symbols
   cleaned = cleaned.replace(/\\theta/g, ' theta ');
+  cleaned = cleaned.replace(/\\phi/g, ' phi ');
   cleaned = cleaned.replace(/\\omega/g, ' omega ');
   cleaned = cleaned.replace(/\\alpha/g, ' alpha ');
   cleaned = cleaned.replace(/\\beta/g, ' beta ');
+  cleaned = cleaned.replace(/\\gamma/g, ' gamma ');
+  cleaned = cleaned.replace(/\\sigma/g, ' sigma ');
+  cleaned = cleaned.replace(/\\eta/g, ' eta ');
+  cleaned = cleaned.replace(/\\nu/g, ' nu ');
   cleaned = cleaned.replace(/\\lambda/g, ' lambda ');
   cleaned = cleaned.replace(/\\mu_s/g, ' coefficient of static friction mu s ');
   cleaned = cleaned.replace(/\\mu_k/g, ' coefficient of kinetic friction mu k ');
@@ -784,6 +815,8 @@ export function cleanTextForSpeech(input: string): string {
   cleaned = cleaned.replace(/\\rho/g, ' density rho ');
   cleaned = cleaned.replace(/\\epsilon_0/g, ' epsilon naught ');
   cleaned = cleaned.replace(/\\mu_0/g, ' mu naught ');
+  cleaned = cleaned.replace(/\\infty/g, ' infinity ');
+  cleaned = cleaned.replace(/\\pm/g, ' plus or minus ');
   cleaned = cleaned.replace(/\\vec\{([^}]+)\}/g, ' vector $1 ');
   cleaned = cleaned.replace(/\\hat\{([^}]+)\}/g, ' unit vector $1 ');
 
@@ -842,9 +875,9 @@ export function stopAllAudio() {
 
   if (activeStreamPlayerInstance) {
     try {
-      activeStreamPlayerInstance.isStopped = true;
-      activeStreamPlayerInstance.queue = [];
-      activeStreamPlayerInstance.buffer = '';
+      const player = activeStreamPlayerInstance;
+      activeStreamPlayerInstance = null;
+      player.stop();
     } catch (e) {}
   }
 

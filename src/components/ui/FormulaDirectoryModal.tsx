@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ALL_CONCEPTS, isClass11Chapter, isClass12Chapter } from '../../data/allConcepts';
 import { PhysicsConcept, CategoryId, SpecialCase } from '../../types';
 import { Latex } from './Latex';
+import { copyToClipboard } from '../../utils/clipboard';
 import { generateChapterPdf, generateMasterCompendiumPdf } from '../../utils/pdfGenerator';
 import {
   Search,
@@ -272,10 +273,12 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
     return groups;
   }, [filteredCases]);
 
-  const handleCopy = (latex: string, id: string) => {
-    navigator.clipboard.writeText(latex);
-    setCopiedIndex(id);
-    setTimeout(() => setCopiedIndex(null), 2000);
+  const handleCopy = async (latex: string, id: string) => {
+    const ok = await copyToClipboard(latex);
+    if (ok) {
+      setCopiedIndex(id);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    }
   };
 
   const selectedCategoryObj = categories.find((c) => c.id === selectedCategory) || categories[0];
@@ -605,62 +608,63 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                                   className="p-4 rounded-2xl bg-[#0E121B] border border-white/[0.08] hover:border-cyan-500/45 hover:bg-[#111724] transition-all flex flex-col justify-between shadow-md group"
                                 >
                                   <div className="space-y-2.5">
-                                    {/* Card Header */}
-                                    <div className="flex items-center justify-between gap-2">
-                                      <h4 className="text-sm font-bold text-white group-hover:text-cyan-300 transition-colors">
-                                        {item.formula.name}
-                                      </h4>
+                                      {/* Card Header */}
+                                      <div className="flex items-center justify-between gap-2">
+                                        <h4 className="text-sm font-bold text-white group-hover:text-cyan-300 transition-colors">
+                                          <Latex>{item.formula.name}</Latex>
+                                        </h4>
 
-                                      <button
-                                        onClick={() => handleCopy(item.formula.latex, copyKey)}
-                                        title="Copy LaTeX formula"
-                                        className="p-1.5 rounded-lg bg-[#141A28] text-zinc-400 hover:text-white hover:bg-cyan-500/20 border border-white/[0.06] transition flex items-center gap-1 shrink-0"
-                                      >
-                                        {isCopied ? (
-                                          <>
-                                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                                            <span className="text-[10px] text-emerald-400 font-medium">Copied</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Copy className="w-3.5 h-3.5" />
-                                            <span className="text-[10px] font-medium hidden sm:inline">Copy LaTeX</span>
-                                          </>
-                                        )}
-                                      </button>
-                                    </div>
+                                        <button
+                                          onClick={() => handleCopy(item.formula.latex, copyKey)}
+                                          title="Copy LaTeX formula"
+                                          className="p-1.5 rounded-lg bg-[#141A28] text-zinc-400 hover:text-white hover:bg-cyan-500/20 border border-white/[0.06] transition flex items-center gap-1 shrink-0"
+                                        >
+                                          {isCopied ? (
+                                            <>
+                                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                              <span className="text-[10px] text-emerald-400 font-medium">Copied</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Copy className="w-3.5 h-3.5" />
+                                              <span className="text-[10px] font-medium hidden sm:inline">Copy LaTeX</span>
+                                            </>
+                                          )}
+                                        </button>
+                                      </div>
 
-                                    {/* Pristine LaTeX Math Stage */}
-                                    <div className="p-3 rounded-xl bg-[#06080E] border border-cyan-500/20 flex items-center justify-center overflow-x-auto text-cyan-200 font-mono shadow-inner">
-                                      <Latex math={item.formula.latex} displayMode className="text-sm sm:text-base text-cyan-200" />
-                                    </div>
+                                      {/* Pristine LaTeX Math Stage */}
+                                      <div className="p-3 rounded-xl bg-[#06080E] border border-cyan-500/20 flex items-center justify-center overflow-x-auto text-cyan-200 shadow-inner">
+                                        <Latex math={item.formula.latex} displayMode className="text-sm sm:text-base text-cyan-200" />
+                                      </div>
 
-                                    {/* Explanation */}
-                                    <p className="text-xs text-zinc-300 leading-relaxed">
-                                      {item.formula.explanation}
-                                    </p>
+                                      {/* Explanation */}
+                                      <div className="text-xs text-zinc-300 leading-relaxed">
+                                        <Latex>{item.formula.explanation}</Latex>
+                                      </div>
 
-                                    {/* Variables Breakdown */}
-                                    {item.formula.keyVariables && item.formula.keyVariables.length > 0 && (
-                                      <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-zinc-400 pt-1">
-                                        <span className="font-semibold text-zinc-500">Variables:</span>
-                                        {item.formula.keyVariables.map((v, i) => (
-                                          <span key={i} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-cyan-300 font-mono text-[10px]">
-                                            {v}
+                                      {/* Variables Breakdown */}
+                                      {item.formula.keyVariables && item.formula.keyVariables.length > 0 && (
+                                        <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-zinc-400 pt-1">
+                                          <span className="font-semibold text-zinc-500">Variables:</span>
+                                          {item.formula.keyVariables.map((v, i) => (
+                                            <span key={i} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-cyan-300 text-[10px]">
+                                              <Latex>{v}</Latex>
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+
+                                      {/* JEE Trap Warning */}
+                                      {item.concept.jeeMain?.trapAlerts?.[0] && (
+                                        <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-200/90 flex items-start gap-2">
+                                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                                          <span className="leading-relaxed">
+                                            <strong className="text-amber-300 font-bold">JEE Trap:</strong>{' '}
+                                            <Latex>{item.concept.jeeMain.trapAlerts[0]}</Latex>
                                           </span>
-                                        ))}
-                                      </div>
-                                    )}
-
-                                    {/* JEE Trap Warning */}
-                                    {item.concept.jeeMain?.trapAlerts?.[0] && (
-                                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-200/90 flex items-start gap-2">
-                                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                                        <span className="leading-relaxed">
-                                          <strong className="text-amber-300 font-bold">JEE Trap:</strong> {item.concept.jeeMain.trapAlerts[0]}
-                                        </span>
-                                      </div>
-                                    )}
+                                        </div>
+                                      )}
                                   </div>
 
                                   {/* Bottom Action Footer */}
@@ -749,7 +753,7 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                                   </div>
 
                                   <h4 className="text-sm font-bold text-white">
-                                    {item.caseItem.title}
+                                    <Latex>{item.caseItem.title}</Latex>
                                   </h4>
 
                                   {/* Trigger Condition & Result Box */}
@@ -764,15 +768,16 @@ export const FormulaDirectoryModal: React.FC<FormulaDirectoryModalProps> = ({
                                     </div>
                                   </div>
 
-                                  <p className="text-xs text-zinc-300 leading-relaxed">
-                                    {item.caseItem.description}
-                                  </p>
+                                  <div className="text-xs text-zinc-300 leading-relaxed">
+                                    <Latex>{item.caseItem.description}</Latex>
+                                  </div>
 
                                   {item.caseItem.jeeTrapAlert && (
                                     <div className="p-2.5 rounded-xl bg-rose-950/20 border border-rose-500/30 text-[11px] text-rose-200/90 flex items-start gap-2">
                                       <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
                                       <span className="leading-relaxed">
-                                        <strong className="text-rose-300 font-bold">Negative Marking Trap:</strong> {item.caseItem.jeeTrapAlert}
+                                        <strong className="text-rose-300 font-bold">Negative Marking Trap:</strong>{' '}
+                                        <Latex>{item.caseItem.jeeTrapAlert}</Latex>
                                       </span>
                                     </div>
                                   )}

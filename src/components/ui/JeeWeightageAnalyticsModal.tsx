@@ -359,7 +359,7 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
         exit={{ opacity: 0 }}
         transition={{ duration: 0.28, ease: 'easeOut' }}
         onClick={onClose}
-        className="fixed inset-0 z-50 flex flex-col items-center justify-center p-2 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md cursor-pointer overscroll-contain select-none"
+        className="fixed inset-0 z-[75] flex flex-col items-center justify-center p-2 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md cursor-pointer overscroll-contain select-none"
         aria-modal="true"
         role="dialog"
       >
@@ -369,7 +369,7 @@ export const JeeWeightageAnalyticsModal: React.FC<JeeWeightageAnalyticsModalProp
           exit={{ y: -40, scale: 0.98, opacity: 0 }}
           transition={{ type: 'spring', damping: 28, stiffness: 340, mass: 0.9 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-6xl h-[94vh] max-h-[900px] bg-[#060812] border border-cyan-500/30 rounded-2xl sm:rounded-3xl shadow-[0_0_70px_rgba(0,240,255,0.16)] overflow-hidden flex flex-col relative cursor-default select-text"
+          className="w-full max-w-6xl h-[94dvh] max-h-[900px] bg-[#060812] border border-cyan-500/30 rounded-2xl sm:rounded-3xl shadow-[0_0_70px_rgba(0,240,255,0.16)] overflow-hidden flex flex-col relative cursor-default select-text"
         >
           {/* Subtle Cyber scanline background texture */}
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#00f0ff05_1px,transparent_1px),linear-gradient(to_bottom,#00f0ff05_1px,transparent_1px)] bg-[size:28px_28px] pointer-events-none opacity-50" />

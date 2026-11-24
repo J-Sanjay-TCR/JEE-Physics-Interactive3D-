@@ -79,6 +79,23 @@ export default function App() {
   const [savedSessionParams, setSavedSessionParams] = useState<Record<string, number> | null>(null);
   const [recoveryKey, setRecoveryKey] = useState(0);
 
+  const sanitizeParamsForConcept = useCallback(
+    (concept: PhysicsConcept, raw?: Record<string, number> | null): Record<string, number> => {
+      const clean: Record<string, number> = {};
+      concept.parameters.forEach((p) => {
+        const candidate = raw && p.id in raw ? raw[p.id] : p.defaultVal;
+        const num = typeof candidate === 'number' ? candidate : Number(candidate);
+        if (Number.isFinite(num)) {
+          clean[p.id] = Math.min(p.max, Math.max(p.min, num));
+        } else {
+          clean[p.id] = p.defaultVal;
+        }
+      });
+      return clean;
+    },
+    []
+  );
+
   // Parameters map for active simulation
   const [paramValues, setParamValues] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {};
@@ -835,10 +852,10 @@ export default function App() {
     }
   });
 
-  // Animation Loop for Physics Simulation (Only runs when actively viewing lab simulation)
+  // Animation Loop for Physics Simulation (Only runs when actively viewing visible lab simulation)
   const lastTimeRef = useRef<number>(performance.now());
   useEffect(() => {
-    if (currentView !== 'lab') return;
+    if (currentView !== 'lab' || isAiTutorOpen || isProfileModalOpen) return;
 
     lastTimeRef.current = performance.now();
     let animId: number;
@@ -846,40 +863,37 @@ export default function App() {
       const delta = (now - lastTimeRef.current) / 1000;
       lastTimeRef.current = now;
 
-      if (isPlaying && currentView === 'lab') {
-        // Clamp delta to 50ms to prevent numerical instability or runaway physics when switching tabs
-        const safeDelta = Math.min(delta, 0.05);
-        setSimTime((t) => t + safeDelta * speed);
+      const isTabHidden = typeof document !== 'undefined' && document.hidden;
+      if (isPlaying && currentView === 'lab' && !isTabHidden) {
+        const safeDelta = Math.min(Math.max(0, delta), 0.05);
+        setSimTime((t) => {
+          const next = t + safeDelta * speed;
+          return Number.isFinite(next) ? next : 0;
+        });
       }
       animId = requestAnimationFrame(loop);
     };
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [isPlaying, speed, currentView]);
+  }, [isPlaying, speed, currentView, isAiTutorOpen, isProfileModalOpen]);
 
-  
   // Concept Change Handler
   const handleSelectConcept = (concept: PhysicsConcept, preset?: Record<string, number>) => {
     setCurrentConcept(concept);
-    const newParams: Record<string, number> = {};
-    concept.parameters.forEach((p) => {
-      newParams[p.id] = p.defaultVal;
-    });
-    
+    const defaultParams = sanitizeParamsForConcept(concept, null);
+
     if (preset) {
-      Object.assign(newParams, preset);
-      setParamValues(newParams);
+      const merged = sanitizeParamsForConcept(concept, { ...defaultParams, ...preset });
+      setParamValues(merged);
       setShowRestorePrompt(false);
     } else {
-      // Check for saved session
       try {
         const saved = localStorage.getItem(`jee_physics_params_${concept.id}`);
         if (saved) {
-          const parsed = JSON.parse(saved);
+          const parsed = sanitizeParamsForConcept(concept, JSON.parse(saved));
           let isDifferent = false;
-          // Check if saved is actually different from defaults
           for (const key in parsed) {
-            if (parsed[key] !== newParams[key]) {
+            if (parsed[key] !== defaultParams[key]) {
               isDifferent = true;
               break;
             }
@@ -893,21 +907,21 @@ export default function App() {
         } else {
           setShowRestorePrompt(false);
         }
-      } catch (e) {
+      } catch {
         setShowRestorePrompt(false);
       }
-      setParamValues(newParams);
+      setParamValues(defaultParams);
     }
 
     // Initialize Setup B parameters
-    const newParamsB: Record<string, number> = { ...newParams };
+    const rawParamsB: Record<string, number> = { ...defaultParams };
     const presets = getComparisonPresets(concept.simulationType);
     if (presets.length > 0 && presets[0].presetB) {
-      Object.assign(newParamsB, presets[0].presetB);
+      Object.assign(rawParamsB, presets[0].presetB);
     }
-    setParamValuesB(newParamsB);
+    setParamValuesB(sanitizeParamsForConcept(concept, rawParamsB));
     setActiveCompareTarget('A');
-    
+
     setSimTime(0);
     setCurrentView('lab');
     window.history.pushState({ view: 'lab', conceptId: concept.id }, '', `#lab-${concept.id}`);
@@ -915,7 +929,6 @@ export default function App() {
       setIsSidebarOpen(false);
     }
 
-    // Mark as visited/explored
     if (!completedConcepts.includes(concept.id)) {
       const updated = [...completedConcepts, concept.id];
       setCompletedConcepts(updated);
@@ -931,9 +944,7 @@ export default function App() {
     window.history.pushState({ view, conceptId: currentConcept.id }, '', `#${view}`);
   }, [currentConcept.id]);
 
-  
   const handleParamChange = (id: string, val: number | boolean) => {
-    // Local storage sync for showVectors, showLabels, and showTrajectory
     if (id === 'showVectors') {
       const boolVal = typeof val === 'boolean' ? val : Boolean(val);
       setShowVectors(boolVal);
@@ -973,10 +984,13 @@ export default function App() {
       return;
     }
 
-    const numVal = typeof val === 'boolean' ? (val ? 1 : 0) : val;
+    const rawNum = typeof val === 'boolean' ? (val ? 1 : 0) : Number(val);
+    if (!Number.isFinite(rawNum)) return;
+    const paramMeta = currentConcept.parameters.find((p) => p.id === id);
+    const numVal = paramMeta ? Math.min(paramMeta.max, Math.max(paramMeta.min, rawNum)) : rawNum;
+
     setParamValues((prev) => {
       const newParams = { ...prev, [id]: numVal };
-      // Auto-save to localStorage
       try {
         localStorage.setItem(`jee_physics_params_${currentConcept.id}`, JSON.stringify(newParams));
       } catch (e) {
@@ -990,9 +1004,15 @@ export default function App() {
     setIsSplitScreen((prev) => !prev);
   }, []);
 
-  const handleParamChangeB = useCallback((id: string, val: number) => {
-    setParamValuesB((prev) => ({ ...prev, [id]: val }));
-  }, []);
+  const handleParamChangeB = useCallback(
+    (id: string, val: number) => {
+      if (!Number.isFinite(val)) return;
+      const paramMeta = currentConcept.parameters.find((p) => p.id === id);
+      const clamped = paramMeta ? Math.min(paramMeta.max, Math.max(paramMeta.min, val)) : val;
+      setParamValuesB((prev) => ({ ...prev, [id]: clamped }));
+    },
+    [currentConcept]
+  );
 
   const handleCopyAtoB = useCallback(() => {
     setParamValuesB({ ...paramValues });
@@ -1005,15 +1025,18 @@ export default function App() {
     });
   }, [paramValuesB]);
 
-  const handleApplyComparePreset = useCallback((preset: ComparePreset) => {
-    if (preset.presetA) {
-      setParamValues((prev) => ({ ...prev, ...preset.presetA }));
-    }
-    if (preset.presetB) {
-      setParamValuesB((prev) => ({ ...prev, ...preset.presetB }));
-    }
-    setSimTime(0);
-  }, []);
+  const handleApplyComparePreset = useCallback(
+    (preset: ComparePreset) => {
+      if (preset.presetA) {
+        setParamValues((prev) => sanitizeParamsForConcept(currentConcept, { ...prev, ...preset.presetA }));
+      }
+      if (preset.presetB) {
+        setParamValuesB((prev) => sanitizeParamsForConcept(currentConcept, { ...prev, ...preset.presetB }));
+      }
+      setSimTime(0);
+    },
+    [currentConcept, sanitizeParamsForConcept]
+  );
 
   const handleToggleVectors = useCallback((forceVal?: boolean) => {
     setShowVectors((prev) => {
@@ -1166,8 +1189,22 @@ export default function App() {
   const [tutorInitialQuestion, setTutorInitialQuestion] = useState('');
   const [tutorInitialScreenImage, setTutorInitialScreenImage] = useState<string | null>(null);
 
-  // Compute Real-time Quantities
-  const liveQuantities = currentConcept.computeLiveQuantities(paramValues, simTime);
+  // Compute Real-time Quantities with aggressive exception & non-finite guard
+  const liveQuantities = React.useMemo(() => {
+    try {
+      const raw = currentConcept.computeLiveQuantities(paramValues, simTime);
+      if (!Array.isArray(raw)) return [];
+      return raw.map((q) => {
+        if (typeof q.value === 'number' && !Number.isFinite(q.value)) {
+          return { ...q, value: 0, formatted: '—' };
+        }
+        return q;
+      });
+    } catch (err) {
+      console.warn('[App] computeLiveQuantities fallback:', err);
+      return [];
+    }
+  }, [currentConcept, paramValues, simTime]);
 
 
   return (
@@ -1239,7 +1276,7 @@ export default function App() {
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onOpenLoadingScreen={handleOpenLoadingScreen}
-        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        onToggleSidebar={() => setIsSidebarOpen((p) => !p)}
         isSidebarOpen={isSidebarOpen}
         currentView={currentView}
         onSetView={handleSetView}
@@ -1251,52 +1288,62 @@ export default function App() {
       {/* Unified Main Application Body Container */}
       <div className="flex-1 min-h-0 flex overflow-hidden relative">
         {/* Unified Responsive Sidebar (Desktop docked + Mobile off-canvas drawer) */}
-        <Sidebar
-          currentConcept={currentConcept}
-          onSelectConcept={handleSelectConcept}
-          favorites={favorites}
-          completedConcepts={completedConcepts}
-          isOpen={isSidebarOpen}
-          onToggleOpen={() => setIsSidebarOpen(!isSidebarOpen)}
-          onOpenAnalytics={() => setIsAnalyticsOpen(true)}
-          currentView={currentView}
-          onSetView={handleSetView}
-          activeTab={activeTab}
-          onSetActiveTab={handleTabSelect}
-          activeSectionId={activeSectionId}
-        />
+        <GlobalErrorBoundary variant="panel" label="Syllabus Sidebar">
+          <Sidebar
+            currentConcept={currentConcept}
+            onSelectConcept={handleSelectConcept}
+            favorites={favorites}
+            completedConcepts={completedConcepts}
+            isOpen={isSidebarOpen}
+            onToggleOpen={() => setIsSidebarOpen((p) => !p)}
+            onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+            currentView={currentView}
+            onSetView={handleSetView}
+            activeTab={activeTab}
+            onSetActiveTab={handleTabSelect}
+            activeSectionId={activeSectionId}
+          />
+        </GlobalErrorBoundary>
 
         {/* Unified Global Scroll Container: native momentum scrollable on mobile */}
         <main
           id="main-scroll-container"
           ref={mainScrollRef}
           className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden ${
-            isAiTutorOpen ? 'pointer-events-none select-none filter blur-xs opacity-30' : ''
+            isAiTutorOpen && !isFocusMode
+              ? 'pointer-events-none select-none filter blur-xs opacity-30'
+              : isAiTutorOpen
+                ? 'pointer-events-none select-none'
+                : ''
           }`}
           aria-hidden={isAiTutorOpen}
         >
           {currentView === 'home' ? (
-            <HomePage
-              onSelectConcept={handleSelectConcept}
-              onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
-              onOpenPdfModal={handleOpenPdfModal}
-              onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
-              onOpenAiTutor={handleOpenAiTutor}
-              onOpenTutorial={handleStartSpotlightTour}
-              onOpenAnalytics={() => setIsAnalyticsOpen(true)}
-              onOpenArena={() => handleSetView('arena')}
-              completedConcepts={completedConcepts}
-              favorites={favorites}
-              onToggleFavorite={handleToggleFavorite}
-            />
+            <GlobalErrorBoundary variant="panel" label="Home Dashboard">
+              <HomePage
+                onSelectConcept={handleSelectConcept}
+                onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
+                onOpenPdfModal={handleOpenPdfModal}
+                onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
+                onOpenAiTutor={handleOpenAiTutor}
+                onOpenTutorial={handleStartSpotlightTour}
+                onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+                onOpenArena={() => handleSetView('arena')}
+                completedConcepts={completedConcepts}
+                favorites={favorites}
+                onToggleFavorite={handleToggleFavorite}
+              />
+            </GlobalErrorBoundary>
           ) : currentView === 'arena' ? (
-            <JeeQuestionsArena
-              onAskAiTutor={(questionText) => {
-                setTutorInitialQuestion(questionText);
-                handleOpenAiTutor();
-              }}
-              onSwitchToLab={() => handleSetView('lab')}
-            />
+            <GlobalErrorBoundary variant="panel" label="JEE Questions Arena">
+              <JeeQuestionsArena
+                onAskAiTutor={(questionText) => {
+                  setTutorInitialQuestion(questionText);
+                  handleOpenAiTutor();
+                }}
+                onSwitchToLab={() => handleSetView('lab')}
+              />
+            </GlobalErrorBoundary>
           ) : (
             <div className="p-3 sm:p-5 pb-24 lg:pb-10 flex flex-col gap-5 max-w-[1600px] mx-auto w-full">
 
@@ -1321,7 +1368,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => {
-                    setParamValues(savedSessionParams);
+                    setParamValues(sanitizeParamsForConcept(currentConcept, savedSessionParams));
                     setShowRestorePrompt(false);
                   }}
                   className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors shadow-sm ${
@@ -1449,7 +1496,7 @@ export default function App() {
             </div>
 
             {/* Quick Action Navigation Tabs for Secondary Panels */}
-            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full lg:w-auto">
+            <div className="flex flex-col sm:flex-row sm:items-center lg:flex-wrap xl:flex-nowrap gap-2 w-full lg:w-auto min-w-0">
               {/* Desktop AR View Trigger Button */}
               <button
                 onClick={() => setIsARMode(!isARMode)}
@@ -1515,7 +1562,7 @@ export default function App() {
 
               <div
                 id="lab-tab-switcher"
-                className={`flex items-center gap-1 p-1 rounded-xl border overflow-x-auto whitespace-nowrap scrollbar-none w-full lg:w-auto ${
+                className={`flex items-center gap-1 p-1 rounded-xl border overflow-x-auto whitespace-nowrap scrollbar-none w-full lg:w-auto max-w-full min-w-0 ${
                 isCyberpunk ? 'bg-[#060B18] border-cyan-500/25' : isDark ? 'bg-[#0A0A0E] border-white/[0.08]' : 'bg-slate-100 border-slate-200'
               }`}>
                 <button
@@ -1593,20 +1640,28 @@ export default function App() {
             </div>
           </div>
 
-          {/* Primary 3D Stage & Core Controls Grid (Auto-adjusts for Split-Screen, 4:3 Projectors, Tablets, and Monitors) */}
+          {/* Primary 3D Stage & Core Controls Grid (Auto-adjusts for Split-Screen, Sidebar width, 4:3 Projectors, Tablets, and Monitors) */}
           <div className={`grid grid-cols-1 ${
             isSplitScreen
               ? 'grid-cols-1'
-              : isProjectorMode || screenMetrics.width >= 1024 ? 'lg:grid-cols-12' : 'xl:grid-cols-12'
+              : isSidebarOpen
+              ? 'xl:grid-cols-12'
+              : isProjectorMode || screenMetrics.width >= 1024
+              ? 'lg:grid-cols-12'
+              : 'xl:grid-cols-12'
           } gap-4 sm:gap-5 items-start`}>
-            {/* Left 3D Viewport (Full width in split-screen mode, or 7 cols on LG/XL in standard mode) */}
+            {/* Left 3D Viewport (Full width in split-screen mode, stacks at 1024px when Sidebar is docked to avoid cramping, 7 cols otherwise) */}
             <div
               id="section-3d"
               className={`${
                 isSplitScreen
                   ? 'w-full'
-                  : isProjectorMode || screenMetrics.width >= 1024 ? 'lg:col-span-7 xl:col-span-7' : 'xl:col-span-7'
-              } w-full scroll-mt-20 ${
+                  : isSidebarOpen
+                  ? 'xl:col-span-7'
+                  : isProjectorMode || screenMetrics.width >= 1024
+                  ? 'lg:col-span-7 xl:col-span-7'
+                  : 'xl:col-span-7'
+              } w-full min-w-0 scroll-mt-20 ${
                 isSplitScreen
                   ? 'h-[clamp(380px,54vh,580px)]'
                   : isProjectorMode || screenMetrics.isProjector43
@@ -1614,65 +1669,112 @@ export default function App() {
                   : screenMetrics.isCompactHeight
                   ? 'h-[clamp(320px,48vh,480px)]'
                   : screenMetrics.isMobile
-                  ? 'h-[clamp(280px,42vh,360px)]'
+                  ? 'h-[clamp(300px,44vh,390px)]'
                   : 'h-[360px] sm:h-[460px] lg:h-[clamp(420px,58vh,560px)]'
               }`}
             >
               <GlobalErrorBoundary key={`canvas-boundary-${recoveryKey}`} onReset={handleFullSimulationRecovery}>
-                <ThreePhysicsCanvas
-                  key={`three-canvas-${recoveryKey}-${currentConcept.id}`}
-                  simulationType={currentConcept.simulationType}
-                  conceptTitle={currentConcept.title}
-                  params={paramValues}
-                  simTime={simTime}
-                  showVectors={showVectors}
-                  showLabels={showLabels}
-                  showTrajectory={showTrajectory}
-                  showGrid={showGrid}
-                  showAxes={showAxes}
-                  onToggleVectors={handleToggleVectors}
-                  onToggleLabels={handleToggleLabels}
-                  onToggleTrajectory={handleToggleTrajectory}
-                  onToggleGrid={() => setShowGrid(!showGrid)}
-                  onToggleAxes={() => setShowAxes(!showAxes)}
-                  cameraPreset={currentConcept.cameraPreset}
-                  isDark={isDark}
-                  isFocusMode={isFocusMode}
-                  onToggleFocusMode={() => setIsFocusMode(true)}
-                  isARMode={isARMode}
-                  onToggleAR={() => setIsARMode(!isARMode)}
-                  bloomIntensity={bloomIntensity}
-                  onChangeBloom={handleBloomChange}
-                  onDisableTrajectory={() => handleToggleTrajectory(false)}
-                  onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
-                  isPlaying={isPlaying}
-                  onTogglePlay={() => setIsPlaying(!isPlaying)}
-                  onReset={handleResetSimulation}
-                  speed={speed}
-                  onChangeSpeed={setSpeed}
-                  isProjectorMode={isProjectorMode}
-                  onToggleProjectorMode={handleToggleProjectorMode}
-                  isSplitScreen={isSplitScreen}
-                  paramsB={paramValuesB}
-                  onToggleSplitScreen={handleToggleSplitScreen}
-                  activeCompareTarget={activeCompareTarget}
-                  onSelectCompareTarget={setActiveCompareTarget}
-                  onCopyAtoB={handleCopyAtoB}
-                  onSwapAB={handleSwapAB}
-                  onApplyComparePreset={handleApplyComparePreset}
-                />
+                <div
+                  className={
+                    isFocusMode && currentView === 'lab'
+                      ? 'fixed inset-0 z-50 w-full h-[100dvh] bg-[#070709] flex flex-col overflow-hidden select-none'
+                      : 'relative w-full h-full'
+                  }
+                >
+                  <ThreePhysicsCanvas
+                    key={`three-canvas-${recoveryKey}-${currentConcept.id}`}
+                    simulationType={currentConcept.simulationType}
+                    conceptTitle={currentConcept.title}
+                    params={paramValues}
+                    simTime={simTime}
+                    showVectors={showVectors}
+                    showLabels={showLabels}
+                    showTrajectory={showTrajectory}
+                    showGrid={showGrid}
+                    showAxes={showAxes}
+                    onToggleVectors={handleToggleVectors}
+                    onToggleLabels={handleToggleLabels}
+                    onToggleTrajectory={handleToggleTrajectory}
+                    onToggleGrid={() => setShowGrid((p) => !p)}
+                    onToggleAxes={() => setShowAxes((p) => !p)}
+                    cameraPreset={currentConcept.cameraPreset}
+                    isDark={isDark}
+                    isFocusMode={isFocusMode && currentView === 'lab'}
+                    onToggleFocusMode={() => setIsFocusMode((prev) => !prev)}
+                    isARMode={isARMode}
+                    onToggleAR={() => setIsARMode((p) => !p)}
+                    bloomIntensity={bloomIntensity}
+                    onChangeBloom={handleBloomChange}
+                    onDisableTrajectory={() => handleToggleTrajectory(false)}
+                    onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
+                    isPlaying={isPlaying}
+                    onTogglePlay={() => setIsPlaying((p) => !p)}
+                    onReset={handleResetSimulation}
+                    speed={speed}
+                    onChangeSpeed={setSpeed}
+                    isProjectorMode={isProjectorMode}
+                    onToggleProjectorMode={handleToggleProjectorMode}
+                    isSplitScreen={isSplitScreen && !(isFocusMode && currentView === 'lab')}
+                    paramsB={paramValuesB}
+                    onToggleSplitScreen={handleToggleSplitScreen}
+                    activeCompareTarget={activeCompareTarget}
+                    onSelectCompareTarget={setActiveCompareTarget}
+                    onCopyAtoB={handleCopyAtoB}
+                    onSwapAB={handleSwapAB}
+                    onApplyComparePreset={handleApplyComparePreset}
+                  />
+
+                  {isFocusMode && currentView === 'lab' && (
+                    <FocusModeOverlay
+                      concept={currentConcept}
+                      params={paramValues}
+                      onChangeParam={handleParamChange}
+                      liveQuantities={liveQuantities}
+                      isPlaying={isPlaying}
+                      onTogglePlay={() => setIsPlaying((p) => !p)}
+                      onReset={handleResetSimulation}
+                      speed={speed}
+                      onChangeSpeed={setSpeed}
+                      simTime={simTime}
+                      onExitFocusMode={() => setIsFocusMode(false)}
+                      showVectors={showVectors}
+                      showLabels={showLabels}
+                      showTrajectory={showTrajectory}
+                      showGrid={showGrid}
+                      showAxes={showAxes}
+                      onToggleVectors={handleToggleVectors}
+                      onToggleLabels={handleToggleLabels}
+                      onToggleTrajectory={handleToggleTrajectory}
+                      onToggleGrid={() => setShowGrid((p) => !p)}
+                      onToggleAxes={() => setShowAxes((p) => !p)}
+                      isARMode={isARMode}
+                      onToggleAR={() => setIsARMode((p) => !p)}
+                      onApplyPreset={(preset) => {
+                        setParamValues((prev) => sanitizeParamsForConcept(currentConcept, { ...prev, ...preset }));
+                        setSimTime(0);
+                      }}
+                      onOpenShortcuts={() => setIsShortcutsOpen(true)}
+                      isDark={isDark}
+                    />
+                  )}
+                </div>
               </GlobalErrorBoundary>
             </div>
 
-            {/* Right Active Functional Panel (Full width in split-screen mode, or 5 cols on LG/XL) */}
+            {/* Right Active Functional Panel (Full width in split-screen mode or when stacked beside docked Sidebar) */}
             <div
               id="section-controls"
               className={`${
                 isSplitScreen
                   ? 'w-full'
-                  : isProjectorMode || screenMetrics.width >= 1024 ? 'lg:col-span-5 xl:col-span-5' : 'xl:col-span-5'
-              } flex flex-col gap-4 scroll-mt-20 overflow-hidden`}
+                  : isSidebarOpen
+                  ? 'xl:col-span-5'
+                  : isProjectorMode || screenMetrics.width >= 1024
+                  ? 'lg:col-span-5 xl:col-span-5'
+                  : 'xl:col-span-5'
+              } w-full min-w-0 flex flex-col gap-4 scroll-mt-20 overflow-x-clip`}
             >
+              <GlobalErrorBoundary key={`lab-panel-${currentConcept.id}-${activeTab}`} variant="panel" label="Physics Analysis Panel">
               <AnimatePresence mode="wait" custom={tabSlideDirection} initial={false}>
                 {activeTab === 'controls' && (
                   <motion.div
@@ -1706,9 +1808,9 @@ export default function App() {
                       onToggleSplitScreen={handleToggleSplitScreen}
                       onApplySpecialCase={(preset) => {
                         if (isSplitScreen && activeCompareTarget === 'B') {
-                          setParamValuesB((prev) => ({ ...prev, ...preset }));
+                          setParamValuesB((prev) => sanitizeParamsForConcept(currentConcept, { ...prev, ...preset }));
                         } else {
-                          setParamValues((prev) => ({ ...prev, ...preset }));
+                          setParamValues((prev) => sanitizeParamsForConcept(currentConcept, { ...prev, ...preset }));
                         }
                         setSimTime(0);
                       }}
@@ -1729,7 +1831,7 @@ export default function App() {
                     <CoachingModulePanel
                       concept={currentConcept}
                       onApplyPreset={(preset) => {
-                        setParamValues((prev) => ({ ...prev, ...preset }));
+                        setParamValues((prev) => sanitizeParamsForConcept(currentConcept, { ...prev, ...preset }));
                         setSimTime(0);
                       }}
                       onSwitchToSimulation={() => handleTabSelect('controls')}
@@ -1818,6 +1920,7 @@ export default function App() {
                   </motion.div>
                 )}
               </AnimatePresence>
+              </GlobalErrorBoundary>
             </div>
           </div>
 
@@ -1900,162 +2003,102 @@ export default function App() {
     </main>
   </div>
 
-      {/* Focus Mode Full-Screen 3D Laboratory Overlay */}
-      {isFocusMode && currentView === 'lab' && (
-        <div className="fixed inset-0 z-50 w-screen h-screen bg-[#070709] flex flex-col overflow-hidden select-none">
-          <div className="relative w-full h-full">
-            <ThreePhysicsCanvas
-              simulationType={currentConcept.simulationType}
-              conceptTitle={currentConcept.title}
-              params={paramValues}
-              simTime={simTime}
-              showVectors={showVectors}
-              showLabels={showLabels}
-              showTrajectory={showTrajectory}
-              showGrid={showGrid}
-              showAxes={showAxes}
-              onToggleVectors={handleToggleVectors}
-              onToggleLabels={handleToggleLabels}
-              onToggleTrajectory={handleToggleTrajectory}
-              onToggleGrid={() => setShowGrid(!showGrid)}
-              onToggleAxes={() => setShowAxes(!showAxes)}
-              cameraPreset={currentConcept.cameraPreset}
-              isDark={isDark}
-              isFocusMode={true}
-              onToggleFocusMode={() => setIsFocusMode(false)}
-              isARMode={isARMode}
-              onToggleAR={() => setIsARMode(!isARMode)}
-              bloomIntensity={bloomIntensity}
-              onChangeBloom={handleBloomChange}
-              onDisableTrajectory={() => handleToggleTrajectory(false)}
-              onOpenLoadingScreen={() => setIsLoadingScreenOpen(true)}
-              isPlaying={isPlaying}
-              onTogglePlay={() => setIsPlaying(!isPlaying)}
-              onReset={handleResetSimulation}
-              speed={speed}
-              onChangeSpeed={setSpeed}
-            />
-
-            <FocusModeOverlay
-              concept={currentConcept}
-              params={paramValues}
-              onChangeParam={handleParamChange}
-              liveQuantities={liveQuantities}
-              isPlaying={isPlaying}
-              onTogglePlay={() => setIsPlaying(!isPlaying)}
-              onReset={handleResetSimulation}
-              speed={speed}
-              onChangeSpeed={setSpeed}
-              simTime={simTime}
-              onExitFocusMode={() => setIsFocusMode(false)}
-              showVectors={showVectors}
-              showLabels={showLabels}
-              showTrajectory={showTrajectory}
-              showGrid={showGrid}
-              showAxes={showAxes}
-              onToggleVectors={handleToggleVectors}
-              onToggleLabels={handleToggleLabels}
-              onToggleTrajectory={handleToggleTrajectory}
-              onToggleGrid={() => setShowGrid(!showGrid)}
-              onToggleAxes={() => setShowAxes(!showAxes)}
-              isARMode={isARMode}
-              onToggleAR={() => setIsARMode(!isARMode)}
-              onApplyPreset={(preset) => {
-                setParamValues((prev) => ({ ...prev, ...preset }));
-                setSimTime(0);
-              }}
-              onOpenShortcuts={() => setIsShortcutsOpen(true)}
-              isDark={isDark}
-            />
-          </div>
-        </div>
-      )}
+      {/* Single WebGL Context Focus Mode runs seamlessly inside section-3d container above */}
 
       {/* Draggable Floating AI Physics Tutor Button - Always available on the app interface */}
       {!isInitialLoading && !isLoadingScreenOpen && !isAiTutorOpen && (
         <DraggableAiTutorFab
           onOpenAiTutor={handleOpenAiTutor}
           isOpen={isAiTutorOpen}
+          isFocusMode={isFocusMode && currentView === 'lab'}
         />
       )}
 
       {/* Global Formula & Law Hub Directory Modal */}
-      <FormulaDirectoryModal
-        isOpen={isFormulaHubOpen}
-        onClose={() => setIsFormulaHubOpen(false)}
-        onSelectConcept={handleSelectConcept}
-      />
+      <GlobalErrorBoundary variant="panel" label="Formula Hub" onReset={() => setIsFormulaHubOpen(false)}>
+        <FormulaDirectoryModal
+          isOpen={isFormulaHubOpen}
+          onClose={() => setIsFormulaHubOpen(false)}
+          onSelectConcept={handleSelectConcept}
+        />
+      </GlobalErrorBoundary>
 
       {/* Downloadable PDF Formula Sheets Modal */}
-      <ChapterFormulaPdfModal
-        isOpen={isPdfModalOpen}
-        onClose={() => setIsPdfModalOpen(false)}
-        initialChapterId={pdfChapterId}
-        onSelectConcept={handleSelectConcept}
-      />
+      <GlobalErrorBoundary variant="panel" label="PDF Formula Viewer" onReset={() => setIsPdfModalOpen(false)}>
+        <ChapterFormulaPdfModal
+          isOpen={isPdfModalOpen}
+          onClose={() => setIsPdfModalOpen(false)}
+          initialChapterId={pdfChapterId}
+          onSelectConcept={handleSelectConcept}
+        />
+      </GlobalErrorBoundary>
 
       {/* Complete JEE Syllabus & 3D Interactive Specs Directory Modal */}
-      <JeeSyllabusDirectoryModal
-        isOpen={isSyllabusDirectoryOpen}
-        onClose={() => setIsSyllabusDirectoryOpen(false)}
-        onSelectConcept={handleSelectConcept}
-      />
+      <GlobalErrorBoundary variant="panel" label="JEE Syllabus Directory" onReset={() => setIsSyllabusDirectoryOpen(false)}>
+        <JeeSyllabusDirectoryModal
+          isOpen={isSyllabusDirectoryOpen}
+          onClose={() => setIsSyllabusDirectoryOpen(false)}
+          onSelectConcept={handleSelectConcept}
+        />
+      </GlobalErrorBoundary>
 
       {/* Global AI Physics Tutor & Instant Doubt Solver Modal */}
-      <AiPhysicsTutorModal
-        isOpen={isAiTutorOpen && Boolean(userName)}
-        onClose={() => setIsAiTutorOpen(false)}
-        currentConcept={currentConcept}
-        currentParams={paramValues}
-        userName={userName}
-        allConcepts={ALL_CONCEPTS}
-        initialQuestion={tutorInitialQuestion}
-        initialScreenImage={tutorInitialScreenImage}
-        onClearInitialQuestion={() => {
-          setTutorInitialQuestion('');
-          setTutorInitialScreenImage(null);
-        }}
-        onSelectConcept={handleSelectConcept}
-        currentView={currentView}
-        onNavigateTab={(tab) => {
-          setCurrentView('lab');
-          setActiveTab(tab);
-          setTimeout(() => {
-            document.getElementById(`section-${tab}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 60);
-        }}
-        onSetView={setCurrentView}
-        onScrollToSection={(sectionId) => {
-          setCurrentView('lab');
-          setTimeout(() => {
-            document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 60);
-        }}
-        onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
-        onOpenPdfModal={(chId) => handleOpenPdfModal(chId)}
-        onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
-        onOpenAnalytics={() => setIsAnalyticsOpen(true)}
-        onOpenTutorial={() => {
-          setIsTutorialOpen(true);
-          handleStartSpotlightTour();
-        }}
-        onOpenShortcuts={() => setIsShortcutsOpen(true)}
-        onTogglePlay={() => setIsPlaying(!isPlaying)}
-        onResetSimulation={handleResetSimulation}
-        onToggleVectors={handleToggleVectors}
-        onToggleGrid={() => setShowGrid(!showGrid)}
-        onToggleTrajectory={handleToggleTrajectory}
-        onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
-        onChangeSpeed={setSpeed}
-        onChangeParam={handleParamChange}
-        isPlaying={isPlaying}
-        showVectors={showVectors}
-        showGrid={showGrid}
-        showTrajectory={showTrajectory}
-        isFocusMode={isFocusMode}
-        speed={speed}
-        activeLabTab={activeTab}
-      />
+      <GlobalErrorBoundary variant="panel" label="Nemo AI Tutor" onReset={() => setIsAiTutorOpen(false)}>
+        <AiPhysicsTutorModal
+          isOpen={isAiTutorOpen && Boolean(userName)}
+          onClose={() => setIsAiTutorOpen(false)}
+          currentConcept={currentConcept}
+          currentParams={paramValues}
+          userName={userName}
+          allConcepts={ALL_CONCEPTS}
+          initialQuestion={tutorInitialQuestion}
+          initialScreenImage={tutorInitialScreenImage}
+          onClearInitialQuestion={() => {
+            setTutorInitialQuestion('');
+            setTutorInitialScreenImage(null);
+          }}
+          onSelectConcept={handleSelectConcept}
+          currentView={currentView}
+          onNavigateTab={(tab) => {
+            setCurrentView('lab');
+            setActiveTab(tab);
+            setTimeout(() => {
+              document.getElementById(`section-${tab}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 60);
+          }}
+          onSetView={setCurrentView}
+          onScrollToSection={(sectionId) => {
+            setCurrentView('lab');
+            setTimeout(() => {
+              document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 60);
+          }}
+          onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
+          onOpenPdfModal={(chId) => handleOpenPdfModal(chId)}
+          onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}
+          onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+          onOpenTutorial={() => {
+            setIsTutorialOpen(true);
+            handleStartSpotlightTour();
+          }}
+          onOpenShortcuts={() => setIsShortcutsOpen(true)}
+          onTogglePlay={() => setIsPlaying((p) => !p)}
+          onResetSimulation={handleResetSimulation}
+          onToggleVectors={handleToggleVectors}
+          onToggleGrid={() => setShowGrid((p) => !p)}
+          onToggleTrajectory={handleToggleTrajectory}
+          onToggleFocusMode={() => setIsFocusMode((p) => !p)}
+          onChangeSpeed={setSpeed}
+          onChangeParam={handleParamChange}
+          isPlaying={isPlaying}
+          showVectors={showVectors}
+          showGrid={showGrid}
+          showTrajectory={showTrajectory}
+          isFocusMode={isFocusMode}
+          speed={speed}
+          activeLabTab={activeTab}
+        />
+      </GlobalErrorBoundary>
 
       {/* JEE Weightage Analytics Modal */}
       <JeeWeightageAnalyticsModal isOpen={isAnalyticsOpen} onClose={() => setIsAnalyticsOpen(false)} />
@@ -2079,7 +2122,7 @@ export default function App() {
         onOpenSpotlightTour={handleStartSpotlightTour}
         onOpenQuestionArena={() => {
           setIsTutorialOpen(false);
-          setCurrentView('home');
+          setCurrentView('lab');
           setActiveTab('questions');
         }}
       />
@@ -2088,7 +2131,7 @@ export default function App() {
       {!isInitialLoading && !isLoadingScreenOpen && <SpotlightTutorialOverlay />}
 
       {/* Touch-Friendly Context-Aware Mobile Bottom-Sheet Menu & Navigation Bar */}
-      {!isInitialLoading && !isLoadingScreenOpen && (
+      {!isInitialLoading && !isLoadingScreenOpen && !(isFocusMode && currentView === 'lab') && (
         <MobileNavBottomSheet
           currentView={currentView}
           onSetView={setCurrentView}
@@ -2101,7 +2144,7 @@ export default function App() {
           onChangeParam={handleParamChange}
           liveQuantities={liveQuantities}
           isPlaying={isPlaying}
-          onTogglePlay={() => setIsPlaying(!isPlaying)}
+          onTogglePlay={() => setIsPlaying((p) => !p)}
           onResetSimulation={handleResetSimulation}
           speed={speed}
           onChangeSpeed={setSpeed}
@@ -2114,8 +2157,8 @@ export default function App() {
           onToggleVectors={handleToggleVectors}
           onToggleLabels={handleToggleLabels}
           onToggleTrajectory={handleToggleTrajectory}
-          onToggleGrid={() => setShowGrid(!showGrid)}
-          onToggleAxes={() => setShowAxes(!showAxes)}
+          onToggleGrid={() => setShowGrid((p) => !p)}
+          onToggleAxes={() => setShowAxes((p) => !p)}
           onOpenFormulaHub={() => setIsFormulaHubOpen(true)}
           onOpenPdfModal={handleOpenPdfModal}
           onOpenSyllabusDirectory={() => setIsSyllabusDirectoryOpen(true)}

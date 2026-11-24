@@ -16,11 +16,27 @@ try {
   console.warn('Preloader cleanup error:', e);
 }
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const msg = String(event.reason?.message || event.reason || '');
+    // Ignore benign abort/HMR/autoplay promise rejections in embedded environments
+    if (
+      event.reason?.name === 'AbortError' ||
+      /aborted|NotAllowedError|ResizeObserver|WebSocket/i.test(msg)
+    ) {
+      event.preventDefault();
+    } else {
+      console.warn('[Physics Studio] Caught unhandled promise rejection:', event.reason);
+      event.preventDefault();
+    }
+  });
+}
+
 const rootElement = document.getElementById('root');
 if (rootElement) {
   createRoot(rootElement).render(
     <StrictMode>
-      <GlobalErrorBoundary>
+      <GlobalErrorBoundary variant="fullscreen" label="JEE 3D Physics Studio">
         <ThemeProvider>
           <App />
         </ThemeProvider>

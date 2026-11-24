@@ -10,7 +10,7 @@
   
   body {
     -webkit-overflow-scrolling: touch; /* Momentum scrolling on iOS */
-    overflow-y: overlay; /* Allows scrollbars to overlay content gracefully on supported browsers */
+    overflow-y: auto;
   }
 
   button, a, input, select, textarea, .theme-transition {
@@ -779,7 +779,7 @@ canvas {
 
 @keyframes laser-beam-scan {
   0% {
-    left: -30%;
+    transform: translate3d(-130%, 0, 0);
     opacity: 0;
   }
   20% {
@@ -789,7 +789,7 @@ canvas {
     opacity: 0.8;
   }
   100% {
-    left: 130%;
+    transform: translate3d(420%, 0, 0);
     opacity: 0;
   }
 }
@@ -853,8 +853,9 @@ canvas {
 }
 
 .anim-laser-beam {
+  left: 0;
   animation: laser-beam-scan 4.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  will-change: left, opacity;
+  will-change: transform, opacity;
 }
 
 .anim-harmonic-float {
@@ -897,7 +898,7 @@ html.light .physics-glass-card:hover {
   content: '';
   position: absolute;
   top: 0;
-  left: -120%;
+  left: 0;
   width: 80%;
   height: 100%;
   background: linear-gradient(
@@ -908,21 +909,22 @@ html.light .physics-glass-card:hover {
     rgba(255, 255, 255, 0.04) 60%,
     transparent 100%
   );
-  transform: skewX(-22deg);
+  transform: translate3d(-160%, 0, 0) skewX(-22deg);
   transition: none;
   pointer-events: none;
+  will-change: transform;
 }
 
 .physics-glass-card:hover::before {
-  animation: card-specular-shimmer 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: card-specular-shimmer 1.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes card-specular-shimmer {
   0% {
-    left: -120%;
+    transform: translate3d(-160%, 0, 0) skewX(-22deg);
   }
   100% {
-    left: 180%;
+    transform: translate3d(260%, 0, 0) skewX(-22deg);
   }
 }
 
@@ -1010,6 +1012,22 @@ html.light .physics-glass-card:hover {
   .anim-cursor-pulse,
   .anim-photon-shockwave,
   .anim-reticle-subtle,
+  .anim-ai-orb-float,
+  .anim-ai-orb-shadow,
+  .anim-ai-ring-spin,
+  .anim-ai-eye-twinkle,
+  .anim-ai-sparkle-spin,
+  .anim-nemo-glimmer,
+  .anim-nemo-sparkle,
+  .anim-nemo-cute-float,
+  .anim-nemo-neon-eye,
+  .anim-nemo-holo-ring,
+  .anim-nemo-star-gleam,
+  .anim-nemo-neon-twinkle,
+  .anim-nemo-fleck-orbit,
+  .anim-nemo-smile-arc,
+  .anim-nemo-blink-spring,
+  .anim-nemo-neon-blink,
   .live-pulse-pip::after,
   .physics-glass-card:hover::before {
     animation: none !important;
@@ -1018,17 +1036,19 @@ html.light .physics-glass-card:hover {
 
 /* Custom KaTeX Equations & Typography Enhancements */
 .katex {
-  font-size: 1.05em !important;
+  font-size: 1.04em !important;
+  line-height: 1.35 !important;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 .katex-display {
-  margin: 0.75em 0 !important;
+  margin: 0.65em 0 !important;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 0;
+  padding: 4px 2px;
+  max-width: 100%;
 }
 
 /* Eliminate harsh bright red #cc0000 font from KaTeX errors completely */
@@ -1045,6 +1065,12 @@ html.light .physics-glass-card:hover {
 .latex-container {
   display: inline;
   line-height: inherit;
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+
+.latex-container.block {
+  display: block;
 }
 
 /* AI Tutor Floating Glimmer Sphere Animations */

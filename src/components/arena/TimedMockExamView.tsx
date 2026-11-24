@@ -509,7 +509,7 @@ export const TimedMockExamView: React.FC<TimedMockExamViewProps> = ({
       {/* Submission Confirmation Modal */}
       <AnimatePresence>
         {showConfirmSubmit && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { CHAPTERS, CATEGORIES, ALL_CONCEPTS, isClass11Chapter, isClass12Chapter, CLASS_11_CHAPTER_IDS, CLASS_12_CHAPTER_IDS } from '../../data/allConcepts';
 import { Chapter, CategoryId, PhysicsConcept } from '../../types';
 import { generateChapterPdf, generateMasterCompendiumPdf } from '../../utils/pdfGenerator';
@@ -24,6 +24,8 @@ import {
   ShieldCheck,
   GraduationCap,
   RotateCcw,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 
 interface ChapterPdfSectionProps {
@@ -40,10 +42,25 @@ export const ChapterPdfSection: React.FC<ChapterPdfSectionProps> = ({
   const [selectedClass, setSelectedClass] = useState<'all' | 'class-11' | 'class-12'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadToast, setDownloadToast] = useState<{
     fileName: string;
     chapterName: string;
   } | null>(null);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach((t) => clearTimeout(t));
+      timersRef.current = [];
+    };
+  }, []);
+
+  const scheduleTimeout = (fn: () => void, ms: number) => {
+    const id = setTimeout(fn, ms);
+    timersRef.current.push(id);
+    return id;
+  };
 
   const totalBranchCounts = useMemo(() => {
     const counts: Record<string, number> = { all: CHAPTERS.length };
@@ -128,35 +145,59 @@ export const ChapterPdfSection: React.FC<ChapterPdfSectionProps> = ({
 
   const handleDownload = (chapterId: string) => {
     setDownloadingId(chapterId);
+    setDownloadError(null);
     try {
       const result = generateChapterPdf(chapterId);
       setDownloadToast(result);
-      setTimeout(() => setDownloadToast(null), 4500);
-    } catch (err) {
+      scheduleTimeout(() => setDownloadToast(null), 4500);
+    } catch (err: any) {
       console.error('Download error:', err);
+      setDownloadError(err?.message || 'Could not generate chapter PDF formula sheet. Please retry or use Full-Screen Viewer.');
+      scheduleTimeout(() => setDownloadError(null), 5500);
     } finally {
-      setTimeout(() => setDownloadingId(null), 500);
+      scheduleTimeout(() => setDownloadingId(null), 500);
     }
   };
 
   const handleDownloadMaster = () => {
     setDownloadingId('master');
+    setDownloadError(null);
     try {
       const result = generateMasterCompendiumPdf();
       setDownloadToast({
         fileName: result.fileName,
         chapterName: 'Complete Master Syllabus Compendium',
       });
-      setTimeout(() => setDownloadToast(null), 5000);
-    } catch (err) {
+      scheduleTimeout(() => setDownloadToast(null), 5000);
+    } catch (err: any) {
       console.error('Master compendium download error:', err);
+      setDownloadError(err?.message || 'Could not compile the Master Compendium PDF. Please retry.');
+      scheduleTimeout(() => setDownloadError(null), 5500);
     } finally {
-      setTimeout(() => setDownloadingId(null), 700);
+      scheduleTimeout(() => setDownloadingId(null), 700);
     }
   };
 
   return (
     <section id="home-pdf-section" className="space-y-6 scroll-mt-20">
+      {/* Download Error Banner */}
+      {downloadError && (
+        <div className="p-3.5 rounded-2xl bg-rose-950/90 border border-rose-500/40 text-rose-200 text-xs flex items-center justify-between gap-3 shadow-xl animate-fade-in">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span className="truncate">{downloadError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDownloadError(null)}
+            className="p-1 rounded-lg hover:bg-rose-500/20 text-rose-300 shrink-0"
+            aria-label="Dismiss error"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Download Confirmation Toast */}
       {downloadToast && (
         <div className="p-3.5 rounded-2xl bg-emerald-950/90 border border-emerald-500/40 text-emerald-200 text-xs flex items-center justify-between gap-3 shadow-xl animate-fade-in">
@@ -463,7 +504,7 @@ export const ChapterPdfSection: React.FC<ChapterPdfSectionProps> = ({
                       isDark ? 'text-zinc-400' : 'text-slate-500'
                     }`}
                   >
-                    {ch.description}
+                    <Latex>{ch.description}</Latex>
                   </p>
 
                   {/* Key Equation Sample */}
@@ -476,7 +517,7 @@ export const ChapterPdfSection: React.FC<ChapterPdfSectionProps> = ({
                       }`}
                     >
                       <span className="text-[10px] font-bold text-zinc-400 block mb-0.5 truncate">
-                        {topFormula.name}
+                        <Latex>{topFormula.name}</Latex>
                       </span>
                       <Latex
                         math={topFormula.latex}

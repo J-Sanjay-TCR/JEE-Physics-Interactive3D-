@@ -5,6 +5,7 @@ import { InteractiveLatexBlock } from './InteractiveLatexBlock';
 import { Latex } from './Latex';
 import { HighlightedPhysicsText, TerminologyTooltip } from './TerminologyTooltip';
 import { getConceptDerivation } from '../../data/conceptDerivations';
+import { copyToClipboard } from '../../utils/clipboard';
 import { generateChapterPdf } from '../../utils/pdfGenerator';
 import { JeeUnitConverter } from './JeeUnitConverter';
 import {
@@ -92,22 +93,24 @@ const EquationPanelComponent: React.FC<EquationPanelProps> = ({
     }));
   }, [parameters, currentParams]);
 
-  const handleCopyAllFormulas = () => {
+  const handleCopyAllFormulas = async () => {
     const text = formulas.map((f) => `### ${f.name}\n$$${f.latex}$$\n${f.explanation}`).join('\n\n');
-    navigator.clipboard.writeText(text);
-    setCopiedAll(true);
-    setTimeout(() => setCopiedAll(false), 2000);
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 2000);
+    }
   };
 
   return (
-    <div className="bg-[#111114]/90 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-white/[0.08] shadow-xl flex flex-col gap-4">
+    <div className="min-w-0 overflow-x-clip bg-[#111114]/90 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-white/[0.08] shadow-xl flex flex-col gap-4">
       {/* Top Header & Global Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/[0.08]">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/25 flex items-center justify-center text-cyan-400">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/[0.08] min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/25 flex items-center justify-center text-cyan-400 shrink-0">
             <BookOpen className="w-4 h-4" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-200">
               Interactive Mathematical Laws & Equations
             </h3>
@@ -118,10 +121,10 @@ const EquationPanelComponent: React.FC<EquationPanelProps> = ({
         </div>
 
         {/* View Mode Navigation Tabs */}
-        <div className="flex items-center gap-1 bg-[#0A0A0E] p-1 rounded-xl border border-white/[0.08] self-start sm:self-auto overflow-x-auto">
+        <div className="flex items-center gap-1 bg-[#0A0A0E] p-1 rounded-xl border border-white/[0.08] self-start sm:self-auto w-full sm:w-auto max-w-full min-w-0 overflow-x-auto no-scrollbar">
           <button
             onClick={() => setActiveTab('formulas')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
               activeTab === 'formulas'
                 ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm'
                 : 'text-zinc-400 hover:text-zinc-200'
@@ -133,7 +136,7 @@ const EquationPanelComponent: React.FC<EquationPanelProps> = ({
 
           <button
             onClick={() => setActiveTab('derivation')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
               activeTab === 'derivation'
                 ? 'bg-gradient-to-r from-indigo-500 to-cyan-500 text-white font-bold shadow-sm'
                 : 'text-zinc-400 hover:text-zinc-200'
@@ -145,7 +148,7 @@ const EquationPanelComponent: React.FC<EquationPanelProps> = ({
 
           <button
             onClick={() => setActiveTab('assumptions')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
               activeTab === 'assumptions'
                 ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm'
                 : 'text-zinc-400 hover:text-zinc-200'
@@ -157,7 +160,7 @@ const EquationPanelComponent: React.FC<EquationPanelProps> = ({
 
           <button
             onClick={() => setActiveTab('converter')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
               activeTab === 'converter'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold shadow-sm'
                 : 'text-zinc-400 hover:text-zinc-200'
@@ -170,7 +173,7 @@ const EquationPanelComponent: React.FC<EquationPanelProps> = ({
           <button
             onClick={handleDownloadPdf}
             disabled={isDownloading}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 active:scale-95 disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 active:scale-95 disabled:opacity-50 shrink-0 whitespace-nowrap"
             title="Download this Chapter's PDF Formula Sheet to your Downloads folder"
           >
             <Download className="w-3.5 h-3.5" />
@@ -204,7 +207,7 @@ const EquationPanelComponent: React.FC<EquationPanelProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.995 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="space-y-4"
+            className="space-y-4 min-w-0"
           >
             {/* Dynamic Variable Filter / Highlighter Bar */}
             {availableVariables.length > 0 && (
@@ -271,7 +274,7 @@ const EquationPanelComponent: React.FC<EquationPanelProps> = ({
             )}
 
             {/* Interactive Formula Blocks */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 min-w-0">
               {formulas.map((formula, idx) => (
                 <InteractiveLatexBlock
                   key={idx}

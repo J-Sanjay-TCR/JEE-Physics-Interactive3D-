@@ -212,10 +212,10 @@ export const QuestionArena: React.FC<QuestionArenaProps> = ({
   }
 
   return (
-    <div className="bg-[#111114]/90 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-white/[0.08] shadow-xl flex flex-col gap-4">
+    <div className="min-w-0 overflow-x-clip bg-[#111114]/90 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-white/[0.08] shadow-xl flex flex-col gap-4">
       {/* Header & Meta */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-white/[0.08]">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-white/[0.08] min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <HelpCircle className="w-4 h-4 text-pink-400 shrink-0" />
           <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
             JEE Practice Arena & Concept Solver
@@ -260,29 +260,29 @@ export const QuestionArena: React.FC<QuestionArenaProps> = ({
       </div>
 
       {/* AI Custom Practice Question Generator Bar */}
-      <div className="bg-[#15151F]/90 p-3 rounded-xl border border-cyan-500/20 flex flex-col gap-2.5 relative overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2">
+      <div className="bg-[#15151F]/90 p-3 rounded-xl border border-cyan-500/20 flex flex-col gap-2.5 relative overflow-hidden min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             <div className="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center shrink-0">
               <Bot className="w-4 h-4 text-cyan-400" />
             </div>
-            <div>
-              <div className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-bold text-zinc-200 flex items-center gap-1.5 flex-wrap">
                 <span>Nemo Custom Problem Generator</span>
                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-white/[0.06] text-zinc-400 font-normal">
                   Live Parameters
                 </span>
               </div>
               {paramSummary && (
-                <div className="text-[11px] text-zinc-400 flex items-center gap-1 font-mono mt-0.5">
+                <div className="text-[11px] text-zinc-400 flex items-center gap-1 font-mono mt-0.5 min-w-0">
                   <SlidersHorizontal className="w-3 h-3 text-cyan-400 shrink-0" />
-                  <span className="truncate max-w-[280px] sm:max-w-md">{paramSummary}</span>
+                  <span className="truncate max-w-full">{paramSummary}</span>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end sm:self-center">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end shrink-0">
             {/* Difficulty Toggle */}
             <div className="flex items-center bg-[#1D1D28] rounded-lg p-0.5 border border-white/[0.08] text-[11px]">
               <button
@@ -428,12 +428,14 @@ export const QuestionArena: React.FC<QuestionArenaProps> = ({
               AI Conceptual Hint (Gemini 3.7 Flash)
             </span>
           </div>
-          <p className="text-xs text-zinc-300 leading-relaxed font-sans">{aiHint}</p>
+          <div className="text-xs text-zinc-300 leading-relaxed font-sans">
+            <Latex>{aiHint}</Latex>
+          </div>
         </div>
       )}
 
       {/* Action Submit & Next Buttons */}
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
           <button
             onClick={handleResetQuiz}

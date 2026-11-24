@@ -463,7 +463,7 @@ export const LiveGraphPanel: React.FC<LiveGraphPanelProps> = ({
 
   return (
     <div
-      className={`relative backdrop-blur-md rounded-2xl p-4 sm:p-5 border shadow-xl flex flex-col gap-3.5 transition-all overflow-hidden anim-graph-glow ${
+      className={`relative min-w-0 overflow-x-clip backdrop-blur-md rounded-2xl p-4 sm:p-5 border shadow-xl flex flex-col gap-3.5 transition-all overflow-hidden anim-graph-glow ${
         isDark
           ? 'bg-[#0B0D15]/95 border-cyan-500/30 shadow-cyan-950/20'
           : 'bg-white/95 border-slate-200 shadow-slate-200'
@@ -490,7 +490,7 @@ export const LiveGraphPanel: React.FC<LiveGraphPanelProps> = ({
 
         {graphConfigs.length > 1 && (
           <div
-            className={`flex items-center gap-1 p-1 rounded-xl border overflow-x-auto no-scrollbar ${
+            className={`flex items-center gap-1 p-1 rounded-xl border overflow-x-auto max-w-full min-w-0 no-scrollbar ${
               isDark
                 ? 'bg-[#07080E] border-white/[0.08]'
                 : 'bg-slate-100 border-slate-300'

@@ -1178,7 +1178,7 @@ export const UserTutorialModal: React.FC<UserTutorialModalProps> = ({
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.96, opacity: 0 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
-            className="w-full max-w-6xl h-full max-h-[92vh] bg-[#070913] text-zinc-100 rounded-3xl border border-cyan-500/25 shadow-[0_25px_80px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden relative"
+            className="w-full max-w-6xl h-full max-h-[92dvh] bg-[#070913] text-zinc-100 rounded-3xl border border-cyan-500/25 shadow-[0_25px_80px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden relative"
           >
             {/* Top Sleek Workbench Header */}
             <header className="px-5 sm:px-8 py-3.5 border-b border-white/[0.08] flex items-center justify-between bg-[#0B0E1B]/95 backdrop-blur-xl shrink-0">

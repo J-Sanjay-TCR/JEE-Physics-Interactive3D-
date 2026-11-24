@@ -143,46 +143,61 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
     if (!isOpen) return;
 
     let isMounted = true;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 6500);
     setIsGeneratingDoc(true);
+
+    const chapterObj = CHAPTERS.find((c) => c.id === activePreviewChapterId) || CHAPTERS[0];
 
     const loadPdfPreview = async () => {
       // 1. Primary path: Fetch server-side rendered LaTeX PDF with \begin{equation} precision
       try {
-        const response = await fetch(`/api/pdf/chapter-formula?chapterId=${encodeURIComponent(activePreviewChapterId)}`);
-        if (response.ok && isMounted) {
+        const response = await fetch(
+          `/api/pdf/chapter-formula?chapterId=${encodeURIComponent(activePreviewChapterId)}`,
+          { signal: controller.signal }
+        );
+        const contentType = response.headers.get('content-type') || '';
+        if (response.ok && contentType.includes('pdf') && isMounted) {
           const blob = await response.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          const pageCountHeader = response.headers.get('X-Page-Count');
-          const pageCount = pageCountHeader ? parseInt(pageCountHeader, 10) : 2;
-          const chapterNameHeader = response.headers.get('X-Chapter-Name');
-          const chapterName = chapterNameHeader ? decodeURIComponent(chapterNameHeader) : activeChapter.name;
-          const fileName = `${activePreviewChapterId}-JEE-Formula-Sheet.pdf`;
+          if (blob.size > 0 && isMounted) {
+            const blobUrl = URL.createObjectURL(blob);
+            const pageCountHeader = response.headers.get('X-Page-Count');
+            const parsedCount = pageCountHeader ? parseInt(pageCountHeader, 10) : 2;
+            const pageCount = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 2;
+            const chapterNameHeader = response.headers.get('X-Chapter-Name');
+            const chapterName = chapterNameHeader ? decodeURIComponent(chapterNameHeader) : chapterObj.name;
+            const fileName = `${activePreviewChapterId}-JEE-Formula-Sheet.pdf`;
 
-          if (prevBlobUrlRef.current && prevBlobUrlRef.current !== blobUrl) {
-            try {
-              URL.revokeObjectURL(prevBlobUrlRef.current);
-            } catch {
-              // ignore
+            if (prevBlobUrlRef.current && prevBlobUrlRef.current !== blobUrl) {
+              try {
+                URL.revokeObjectURL(prevBlobUrlRef.current);
+              } catch {
+                // ignore
+              }
             }
+            prevBlobUrlRef.current = blobUrl;
+            setPdfDocResult({
+              doc: null as any,
+              blobUrl,
+              fileName,
+              chapterName,
+              categoryName: chapterObj.category,
+              pageCount,
+            });
+            setActivePage(1);
+            setIsGeneratingDoc(false);
+            return;
           }
-          prevBlobUrlRef.current = blobUrl;
-          setPdfDocResult({
-            doc: null as any,
-            blobUrl,
-            fileName,
-            chapterName,
-            categoryName: activeChapter.category,
-            pageCount,
-          });
-          setActivePage(1);
-          setIsGeneratingDoc(false);
-          return;
         }
       } catch (err) {
-        console.warn('Notice: Server PDF preview fetch notice, switching to client renderer:', err);
+        if ((err as Error)?.name !== 'AbortError') {
+          console.warn('Server PDF preview notice, switching to client renderer:', err);
+        }
+      } finally {
+        window.clearTimeout(timeoutId);
       }
 
-      // 2. Client-side fallback if server endpoint is unreachable or offline
+      // 2. Client-side fallback if server endpoint is unreachable, timed out, or offline
       if (isMounted) {
         try {
           const result = buildChapterPdfDoc(activePreviewChapterId);
@@ -198,8 +213,9 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
           setActivePage(1);
         } catch (err) {
           console.error('Failed to build PDF preview doc:', err);
+          setValidationNotice('Could not build PDF preview for this chapter. Try Interactive KaTeX Guide view.');
         } finally {
-          setIsGeneratingDoc(false);
+          if (isMounted) setIsGeneratingDoc(false);
         }
       }
     };
@@ -208,6 +224,8 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
 
     return () => {
       isMounted = false;
+      window.clearTimeout(timeoutId);
+      controller.abort();
     };
   }, [activePreviewChapterId, isOpen]);
 
@@ -357,28 +375,34 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
     return Math.max(2, pdfDocResult?.pageCount || 2);
   }, [pdfDocResult]);
 
-  // Handle Individual Chapter Download via Server-Side LaTeX-to-PDF Engine
+  // Handle Individual Chapter Download via Server-Side LaTeX-to-PDF Engine with timeout + client fallback
   const handleDownloadChapter = async (chapterId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setDownloadingChapterId(chapterId);
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+
     try {
-      // 1. Primary: Server-Side LaTeX-to-PDF Rendering Engine with \begin{equation} precision
       const response = await fetch('/api/pdf/chapter-formula', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chapterId }),
+        signal: controller.signal,
       });
 
-      if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      if (response.ok && contentType.includes('pdf')) {
         const blob = await response.blob();
+        if (blob.size === 0) throw new Error('Empty PDF payload received');
+
         const contentDisposition = response.headers.get('Content-Disposition') || '';
         const match = contentDisposition.match(/filename="?([^"]+)"?/);
         const fileName = match ? match[1] : `${chapterId}-JEE-Formula-Sheet.pdf`;
         const chapterNameHeader = response.headers.get('X-Chapter-Name');
-        const chapterName = chapterNameHeader ? decodeURIComponent(chapterNameHeader) : activeChapter.name;
+        const chapterObj = CHAPTERS.find((c) => c.id === chapterId) || activeChapter;
+        const chapterName = chapterNameHeader ? decodeURIComponent(chapterNameHeader) : chapterObj.name;
 
-        // Native browser download
         const downloadUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = downloadUrl;
@@ -386,43 +410,58 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 10000);
+        window.setTimeout(() => {
+          try {
+            URL.revokeObjectURL(downloadUrl);
+          } catch {
+            // ignore
+          }
+        }, 10000);
 
         setDownloadSuccessToast({
           fileName,
           chapterName,
         });
       } else {
-        // Fallback to client generator if server endpoint returns non-OK
-        console.warn('Server PDF renderer non-200, using client generator fallback');
+        console.warn('Server PDF renderer non-PDF or non-200 response, using client generator fallback');
         const result = generateChapterPdf(chapterId);
         setDownloadSuccessToast(result);
       }
-      setTimeout(() => setDownloadSuccessToast(null), 4500);
+      window.setTimeout(() => setDownloadSuccessToast(null), 4500);
     } catch (err) {
       console.warn('Server PDF call notice, using client generator fallback:', err);
       try {
         const result = generateChapterPdf(chapterId);
         setDownloadSuccessToast(result);
-        setTimeout(() => setDownloadSuccessToast(null), 4500);
+        window.setTimeout(() => setDownloadSuccessToast(null), 4500);
       } catch (clientErr) {
         console.error('Failed to generate PDF:', clientErr);
+        setValidationNotice('Unable to generate PDF on this device. Please try again.');
+        window.setTimeout(() => setValidationNotice(null), 4000);
       }
     } finally {
-      setTimeout(() => setDownloadingChapterId(null), 500);
+      window.clearTimeout(timeoutId);
+      window.setTimeout(() => setDownloadingChapterId(null), 500);
     }
   };
 
   // Handle Master Compendium Download via Server-Side LaTeX-to-PDF Engine
   const handleDownloadMaster = async () => {
     setDownloadingChapterId('master');
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 18000);
+
     try {
       const response = await fetch('/api/pdf/master-compendium', {
         method: 'POST',
+        signal: controller.signal,
       });
 
-      if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      if (response.ok && contentType.includes('pdf')) {
         const blob = await response.blob();
+        if (blob.size === 0) throw new Error('Empty master PDF payload received');
+
         const contentDisposition = response.headers.get('Content-Disposition') || '';
         const match = contentDisposition.match(/filename="?([^"]+)"?/);
         const fileName = match ? match[1] : 'JEE-Physics-Master-18-Chapters-Formula-Sheet.pdf';
@@ -434,7 +473,13 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 10000);
+        window.setTimeout(() => {
+          try {
+            URL.revokeObjectURL(downloadUrl);
+          } catch {
+            // ignore
+          }
+        }, 10000);
 
         setDownloadSuccessToast({
           fileName,
@@ -447,7 +492,7 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
           chapterName: 'Master 18-Chapter Compendium',
         });
       }
-      setTimeout(() => setDownloadSuccessToast(null), 5000);
+      window.setTimeout(() => setDownloadSuccessToast(null), 5000);
     } catch (err) {
       console.warn('Server master compendium notice, using client fallback:', err);
       try {
@@ -456,22 +501,23 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
           fileName: result.fileName,
           chapterName: 'Master 18-Chapter Compendium',
         });
-        setTimeout(() => setDownloadSuccessToast(null), 5000);
+        window.setTimeout(() => setDownloadSuccessToast(null), 5000);
       } catch (clientErr) {
         console.error('Failed to generate master compendium:', clientErr);
+        setValidationNotice('Unable to export Master Compendium PDF.');
+        window.setTimeout(() => setValidationNotice(null), 4000);
       }
     } finally {
-      setTimeout(() => setDownloadingChapterId(null), 700);
+      window.clearTimeout(timeoutId);
+      window.setTimeout(() => setDownloadingChapterId(null), 700);
     }
   };
 
-  // Handle Open in New Tab / Print
+  // Safe Preview Print Action (never uses blocked window.open popups)
   const handleOpenPrintTab = () => {
-    if (pdfDocResult?.blobUrl) {
-      window.open(pdfDocResult.blobUrl, '_blank');
-    } else {
-      window.open(`/api/pdf/chapter-formula?chapterId=${encodeURIComponent(activeChapter.id)}`, '_blank');
-    }
+    setPreviewRenderType('native');
+    setValidationNotice('Opened full native Vector PDF reader below — use the toolbar print or download button inside.');
+    window.setTimeout(() => setValidationNotice(null), 4000);
   };
 
   return (
@@ -1105,7 +1151,7 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                                 </p>
                               </div>
 
-                              {/* Content on Sheet */}
+                              {/* Content on Sheet (Dynamically paginated across all pages 1..N) */}
                               {activeJeeSheet ? (
                                 <div className="space-y-3">
                                   {/* Definitions on Page 1 */}
@@ -1117,12 +1163,12 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                                       <div className="space-y-1">
                                         {activeJeeSheet.basicDefinitions.map((d, dIdx) => (
                                           <div key={dIdx} className="p-2 bg-slate-50 rounded border border-slate-200 text-[8.5px]">
-                                            <div className="font-bold text-indigo-900">• {d.term}:</div>
-                                            <div className="text-slate-700">{d.definition}</div>
-                                            <div className="text-slate-500 font-mono text-[7.5px] mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                            <div className="font-bold text-indigo-900">• <Latex>{d.term}</Latex>:</div>
+                                            <div className="text-slate-700 leading-relaxed"><Latex>{d.definition}</Latex></div>
+                                            <div className="text-slate-600 text-[7.5px] mt-0.5 flex items-center gap-1.5 flex-wrap">
                                               <span>Symbol: <Latex>{d.symbol}</Latex></span>
                                               <span>|</span>
-                                              <span>SI Unit: {d.siUnit}</span>
+                                              <span>SI Unit: <Latex>{d.siUnit}</Latex></span>
                                             </div>
                                           </div>
                                         ))}
@@ -1130,48 +1176,59 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                                     </div>
                                   )}
 
-                                  {/* Core Formulas */}
-                                  <div className="space-y-2">
-                                    <div className="text-[9px] font-bold text-slate-900 uppercase border-b border-slate-200 pb-0.5">
-                                      2. Governing Formulas & Conditions
-                                    </div>
-                                    {(activePage === 1
-                                      ? (activeJeeSheet.coreFormulas || []).slice(0, 2)
-                                      : (activeJeeSheet.coreFormulas || []).slice(2)
-                                    ).map((sec, sIdx) => (
-                                      <div key={sIdx} className="space-y-1.5">
-                                        <div className="text-[8.5px] font-bold text-indigo-950">
-                                          § {sec.sectionTitle}
-                                        </div>
-                                        <div className="space-y-1.5">
-                                          {(sec.items || []).map((item, iIdx) => {
-                                            const wrappedFormula = preprocessAndWrapFormula(item.formula, 'equation');
-                                            return (
-                                              <div key={iIdx} className="p-2 bg-slate-50 rounded border border-slate-200 space-y-1">
-                                                <div className="flex items-center justify-between gap-1">
-                                                  <div className="text-[8.5px] font-bold text-slate-900">
-                                                    • {item.name}:
-                                                  </div>
-                                                  <span className="text-[7.5px] font-mono font-semibold text-indigo-700 bg-indigo-50 px-1 py-0.2 rounded border border-indigo-200">
-                                                    (Eq. {sIdx + 1}.{iIdx + 1})
-                                                  </span>
-                                                </div>
-                                                <div className="p-1.5 bg-white rounded border border-slate-300 text-[10px] text-slate-900 overflow-x-auto flex items-center justify-center min-h-[30px]">
-                                                  <Latex math={wrappedFormula} displayMode />
-                                                </div>
-                                                <div className="text-[7.5px] text-slate-500 italic">
-                                                  Condition: {item.conditionOrMeaning} {item.siUnit ? `[${item.siUnit}]` : ''}
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
+                                  {/* Core Formulas distributed cleanly across pages */}
+                                  {(() => {
+                                    const allSecs = activeJeeSheet.coreFormulas || [];
+                                    const pageSecs =
+                                      activePage === 1
+                                        ? allSecs.slice(0, 2)
+                                        : activePage === totalPages
+                                        ? allSecs.slice(2 + (activePage - 2) * 2)
+                                        : allSecs.slice(2 + (activePage - 2) * 2, 2 + (activePage - 1) * 2);
 
-                                  {/* Page 2: Special Cases, Shortcuts & Traps */}
-                                  {activePage === 2 && (
+                                    if (pageSecs.length === 0) return null;
+                                    return (
+                                      <div className="space-y-2">
+                                        <div className="text-[9px] font-bold text-slate-900 uppercase border-b border-slate-200 pb-0.5">
+                                          2. Governing Formulas & Conditions
+                                        </div>
+                                        {pageSecs.map((sec, sIdx) => (
+                                          <div key={sIdx} className="space-y-1.5">
+                                            <div className="text-[8.5px] font-bold text-indigo-950">
+                                              § <Latex>{sec.sectionTitle}</Latex>
+                                            </div>
+                                            <div className="space-y-1.5">
+                                              {(sec.items || []).map((item, iIdx) => {
+                                                const wrappedFormula = preprocessAndWrapFormula(item.formula, 'equation');
+                                                return (
+                                                  <div key={iIdx} className="p-2 bg-slate-50 rounded border border-slate-200 space-y-1">
+                                                    <div className="flex items-center justify-between gap-1">
+                                                      <div className="text-[8.5px] font-bold text-slate-900">
+                                                        • <Latex>{item.name}</Latex>:
+                                                      </div>
+                                                      <span className="text-[7.5px] font-mono font-semibold text-indigo-700 bg-indigo-50 px-1 py-0.2 rounded border border-indigo-200">
+                                                        (Eq. {sIdx + 1}.{iIdx + 1})
+                                                      </span>
+                                                    </div>
+                                                    <div className="p-1.5 bg-white rounded border border-slate-300 text-[10px] text-slate-900 overflow-x-auto flex items-center justify-center min-h-[30px]">
+                                                      <Latex math={wrappedFormula} displayMode />
+                                                    </div>
+                                                    <div className="text-[7.5px] text-slate-600 italic">
+                                                      Condition: <Latex>{item.conditionOrMeaning}</Latex>{' '}
+                                                      {item.siUnit ? <span>[<Latex>{item.siUnit}</Latex>]</span> : null}
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
+
+                                  {/* Final Page (or Page >= 2 when 2 pages): Special Cases, Shortcuts, Traps & Constants */}
+                                  {activePage === totalPages && (
                                     <div className="space-y-2.5 pt-2">
                                       {/* Special Cases */}
                                       {activeJeeSheet.specialCases && activeJeeSheet.specialCases.length > 0 && (
@@ -1183,16 +1240,20 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                                             const wrappedSc = preprocessAndWrapFormula(sc.resultFormula, 'equation');
                                             return (
                                               <div key={scIdx} className="p-2 bg-amber-50 rounded border border-amber-200 text-[8px] space-y-0.5">
-                                                <div className="flex items-center justify-between">
-                                                  <div className="font-bold text-amber-950">Case {scIdx + 1}: {sc.title}</div>
-                                                  <span className="text-[7px] font-mono font-semibold text-amber-800 bg-amber-100 px-1 py-0.2 rounded border border-amber-300">
-                                                    \begin&#123;equation&#125;
+                                                <div className="flex items-center justify-between gap-1">
+                                                  <div className="font-bold text-amber-950">
+                                                    Case {scIdx + 1}: <Latex>{sc.title}</Latex>
+                                                  </div>
+                                                  <span className="text-[7px] font-mono font-semibold text-amber-800 bg-amber-100 px-1 py-0.2 rounded border border-amber-300 shrink-0">
+                                                    Special Case
                                                   </span>
                                                 </div>
                                                 <div className="p-1 bg-amber-100/70 rounded border border-amber-200 text-[9.5px] text-amber-950 overflow-x-auto flex items-center justify-center min-h-[26px]">
                                                   <Latex math={wrappedSc} displayMode />
                                                 </div>
-                                                <div className="text-amber-800 italic">Condition: {sc.condition} — {sc.notes}</div>
+                                                <div className="text-amber-800 italic">
+                                                  Condition: <Latex>{sc.condition}</Latex> — <Latex>{sc.notes}</Latex>
+                                                </div>
                                               </div>
                                             );
                                           })}
@@ -1222,12 +1283,15 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                                   )}
                                 </div>
                               ) : (
-                                /* Fallback concepts view */
+                                /* Fallback concepts view (paginated cleanly across pages) */
                                 <div className="space-y-3">
-                                  {activeConcepts.map((concept, cIdx) => (
+                                  {(activeConcepts.slice(
+                                    (activePage - 1) * Math.max(1, Math.ceil(activeConcepts.length / totalPages)),
+                                    activePage * Math.max(1, Math.ceil(activeConcepts.length / totalPages))
+                                  )).map((concept, cIdx) => (
                                     <div key={concept.id} className="p-3 bg-slate-50 rounded-md border border-slate-200 space-y-2">
                                       <div className="text-xs font-bold text-indigo-950">
-                                        {cIdx + 1}. {concept.title}
+                                        {cIdx + 1}. <Latex>{concept.title}</Latex>
                                       </div>
                                       <div className="space-y-1.5">
                                         {concept.formulas.map((f, fIdx) => {
@@ -1235,7 +1299,7 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                                           return (
                                             <div key={fIdx} className="p-2 bg-white rounded border border-slate-200 space-y-1">
                                               <div className="flex items-center justify-between">
-                                                <div className="text-[9px] font-bold text-slate-800">• {f.name}:</div>
+                                                <div className="text-[9px] font-bold text-slate-800">• <Latex>{f.name}</Latex>:</div>
                                                 <span className="text-[7.5px] font-mono font-semibold text-indigo-700 bg-indigo-50 px-1 py-0.2 rounded border border-indigo-200">
                                                   (Eq. {cIdx + 1}.{fIdx + 1})
                                                 </span>
@@ -1243,7 +1307,7 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                                               <div className="p-1.5 bg-white rounded border border-slate-300 text-[10px] text-slate-900 overflow-x-auto flex items-center justify-center min-h-[30px]">
                                                 <Latex math={wrappedConceptFormula} displayMode />
                                               </div>
-                                              <div className="text-[8px] text-slate-500 italic">{f.explanation}</div>
+                                              <div className="text-[8px] text-slate-600 italic"><Latex>{f.explanation}</Latex></div>
                                             </div>
                                           );
                                         })}
@@ -1326,20 +1390,20 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                               <div className="space-y-2">
                                 {(sec.items || []).map((item, iIdx) => (
                                   <div key={iIdx} className="p-3 rounded-xl bg-[#161828] border border-white/[0.06] space-y-2">
-                                    <div className="flex items-center justify-between text-xs font-semibold text-zinc-200">
-                                      <span>{item.name}</span>
+                                    <div className="flex items-center justify-between text-xs font-semibold text-zinc-200 gap-2">
+                                      <span><Latex>{item.name}</Latex></span>
                                       {item.siUnit && (
-                                        <span className="text-[10px] text-zinc-400 font-mono">
-                                          SI: {item.siUnit}
+                                        <span className="text-[10px] text-zinc-400 shrink-0">
+                                          SI: <Latex>{item.siUnit}</Latex>
                                         </span>
                                       )}
                                     </div>
                                     <div className="py-2 px-3 rounded-lg bg-[#0E0F1A] border border-white/[0.04] text-center overflow-x-auto flex items-center justify-center min-h-[38px]">
                                       <Latex math={preprocessAndWrapFormula(item.formula, 'equation')} displayMode />
                                     </div>
-                                    <p className="text-xs text-zinc-400">
-                                      <strong>Condition:</strong> {item.conditionOrMeaning}
-                                    </p>
+                                    <div className="text-xs text-zinc-400">
+                                      <strong>Condition:</strong> <Latex>{item.conditionOrMeaning}</Latex>
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -1387,7 +1451,7 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                                   {cIdx + 1}
                                 </span>
                                 <h4 className="text-xs sm:text-sm font-bold text-white">
-                                  {concept.title}
+                                  <Latex>{concept.title}</Latex>
                                 </h4>
                               </div>
 
@@ -1412,7 +1476,7 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                                   className="p-2.5 sm:p-3 rounded-xl bg-[#161828] border border-white/[0.06] space-y-1.5"
                                 >
                                   <div className="flex items-center justify-between text-xs font-semibold text-zinc-200">
-                                    <span>{f.name}</span>
+                                    <span><Latex>{f.name}</Latex></span>
                                     <span className="text-[10px] text-zinc-500 font-mono">
                                       Formula #{fIdx + 1}
                                     </span>
@@ -1421,12 +1485,12 @@ export const ChapterFormulaPdfModal: React.FC<ChapterFormulaPdfModalProps> = ({
                                     <Latex
                                       math={f.latex}
                                       displayMode
-                                      className="text-cyan-300 font-mono text-xs sm:text-sm"
+                                      className="text-cyan-300 text-xs sm:text-sm"
                                     />
                                   </div>
-                                  <p className="text-[11px] text-zinc-400 leading-relaxed">
-                                    {f.explanation}
-                                  </p>
+                                  <div className="text-[11px] text-zinc-400 leading-relaxed">
+                                    <Latex>{f.explanation}</Latex>
+                                  </div>
                                 </div>
                               ))}
                             </div>

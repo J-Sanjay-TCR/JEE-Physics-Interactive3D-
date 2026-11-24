@@ -216,7 +216,7 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
   return (
     <div
       id="jee-syllabus-directory-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md animate-fadeIn"
+      className="fixed inset-0 z-[75] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md animate-fadeIn"
       onClick={(e) => {
         if ((e.target as HTMLElement).id === 'jee-syllabus-directory-modal-backdrop') {
           onClose();
@@ -224,7 +224,7 @@ export const JeeSyllabusDirectoryModal: React.FC<JeeSyllabusDirectoryModalProps>
       }}
     >
       <div
-        className={`relative w-full max-w-6xl max-h-[92vh] flex flex-col rounded-3xl border shadow-2xl overflow-hidden transition-all ${
+        className={`relative w-full max-w-6xl max-h-[92dvh] flex flex-col rounded-3xl border shadow-2xl overflow-hidden transition-all ${
           isCyberpunk
             ? 'bg-[#040914] border-cyan-500/30 text-zinc-100 shadow-[0_0_50px_rgba(0,240,255,0.15)]'
             : isDark

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PhysicsConcept, CategoryId } from '../../types';
 import { CHAPTERS, CATEGORIES, ALL_CONCEPTS, isClass11Chapter, isClass12Chapter } from '../../data/allConcepts';
@@ -130,6 +130,21 @@ const SidebarComponent: React.FC<SidebarProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<CategoryId | 'all'>('all');
   const [selectedClass, setSelectedClass] = useState<'all' | 'class-11' | 'class-12'>('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'saved' | 'completed'>('all');
+  const [pdfNotice, setPdfNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach((t) => clearTimeout(t));
+      timersRef.current = [];
+    };
+  }, []);
+
+  const scheduleTimeout = (fn: () => void, ms: number) => {
+    const id = setTimeout(fn, ms);
+    timersRef.current.push(id);
+    return id;
+  };
 
   const totalCategoryCounts = useMemo(() => {
     const counts: Record<string, number> = { all: CHAPTERS.length };
@@ -319,7 +334,7 @@ const SidebarComponent: React.FC<SidebarProps> = ({
       onSetActiveTab(tabKey as any);
     }
 
-    setTimeout(() => {
+    scheduleTimeout(() => {
       const el = document.getElementById(sectionId);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -411,6 +426,27 @@ const SidebarComponent: React.FC<SidebarProps> = ({
           {isMobile ? <X className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
         </button>
       </div>
+
+      {/* Inline PDF Download Feedback Banner */}
+      {pdfNotice && (
+        <div
+          className={`mx-2.5 mt-2 px-3 py-2 rounded-xl border text-[11px] font-semibold flex items-center justify-between gap-2 shrink-0 ${
+            pdfNotice.type === 'success'
+              ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200'
+              : 'bg-rose-950/90 border-rose-500/40 text-rose-200'
+          }`}
+        >
+          <span className="truncate">{pdfNotice.text}</span>
+          <button
+            type="button"
+            onClick={() => setPdfNotice(null)}
+            className="text-current opacity-70 hover:opacity-100 shrink-0"
+            aria-label="Dismiss PDF notice"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* 2. Mode Switcher: Page Sections vs Full Syllabus Tree */}
       <div
@@ -929,9 +965,16 @@ const SidebarComponent: React.FC<SidebarProps> = ({
                           onClick={(e) => {
                             e.stopPropagation();
                             try {
-                              generateChapterPdf(chapter.id);
-                            } catch (err) {
+                              const res = generateChapterPdf(chapter.id);
+                              setPdfNotice({ type: 'success', text: `Downloaded ${res.fileName}` });
+                              scheduleTimeout(() => setPdfNotice(null), 3500);
+                            } catch (err: any) {
                               console.error(err);
+                              setPdfNotice({
+                                type: 'error',
+                                text: err?.message || `Failed to export ${chapter.name} PDF`,
+                              });
+                              scheduleTimeout(() => setPdfNotice(null), 4500);
                             }
                           }}
                           className={`p-1.5 rounded-lg border transition ${
@@ -1208,7 +1251,7 @@ const SidebarComponent: React.FC<SidebarProps> = ({
       {/* Mobile Drawer (Visible on screens < lg when isOpen) */}
       <AnimatePresence>
         {isOpen && (
-          <div className="lg:hidden fixed inset-0 z-50 flex">
+          <div className="lg:hidden fixed inset-0 z-[70] flex">
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}

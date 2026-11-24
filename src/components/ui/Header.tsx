@@ -293,7 +293,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
         {onOpenPdfModal && (
           <button
             onClick={() => onOpenPdfModal()}
-            className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 ${
+            className={`hidden 2xl:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 ${
               isCyberpunk
                 ? 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border-cyan-400/40 shadow-[0_0_10px_rgba(0,240,255,0.2)]'
                 : isDark
@@ -303,7 +303,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             title="Download JEE Chapter-Wise PDF Formula Sheets"
           >
             <Download className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden md:inline">PDF Sheets</span>
+            <span>PDF Sheets</span>
           </button>
         )}
 
@@ -311,7 +311,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
           <button
             id="header-formula-btn"
             onClick={onOpenFormulaHub}
-            className={`hidden md:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 ${
+            className={`hidden lg:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 ${
               isCyberpunk
                 ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-400/40 shadow-[0_0_10px_rgba(0,255,157,0.2)]'
                 : isDark
@@ -321,14 +321,14 @@ const HeaderComponent: React.FC<HeaderProps> = ({
             title="Open Complete JEE Physics Formula & Law Hub"
           >
             <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden lg:inline">Formulas</span>
+            <span className="hidden xl:inline">Formulas</span>
           </button>
         )}
 
         {onOpenAnalytics && (
           <button
             onClick={onOpenAnalytics}
-            className={`hidden xl:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 ${
+            className={`hidden 2xl:flex px-2.5 sm:px-3 py-1.5 rounded-xl border transition items-center gap-1.5 text-xs font-semibold shadow-xs shrink-0 ${
               isCyberpunk
                 ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-400/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
                 : isDark
@@ -428,7 +428,7 @@ const HeaderComponent: React.FC<HeaderProps> = ({
 
           {/* More Tools Dropdown */}
           {isMoreToolsOpen && (
-            <div className={`absolute right-0 top-full mt-2 w-64 rounded-2xl border shadow-2xl backdrop-blur-2xl p-1.5 z-50 flex flex-col gap-1 max-h-[85vh] overflow-y-auto animate-in fade-in zoom-in-95 ${
+            <div className={`absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-1rem)] rounded-2xl border shadow-2xl backdrop-blur-2xl p-1.5 z-50 flex flex-col gap-1 max-h-[85dvh] overflow-y-auto animate-in fade-in zoom-in-95 ${
               isCyberpunk
                 ? 'bg-[#040816]/98 border-cyan-500/40 text-zinc-100 shadow-[0_10px_40px_rgba(0,0,0,0.85)] divide-y divide-cyan-950/40'
                 : isDark
@@ -658,8 +658,8 @@ const HeaderComponent: React.FC<HeaderProps> = ({
 
       {/* Mobile Search & Quick Tools Modal Overlay */}
       {isMobileSearchModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col p-3 sm:p-4 animate-fadeIn lg:hidden">
-          <div className={`rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[90vh] ${
+        <div className="fixed inset-0 z-[75] bg-black/80 backdrop-blur-md flex flex-col p-3 sm:p-4 animate-fadeIn lg:hidden">
+          <div className={`rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[90dvh] ${
             isCyberpunk
               ? 'bg-[#030712] border-cyan-500/30'
               : isDark ? 'bg-[#121218] border-white/[0.12]' : 'bg-white border-slate-200'

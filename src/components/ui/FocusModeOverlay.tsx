@@ -283,11 +283,11 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
   ]);
 
   return (
-    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-3 sm:p-5 overflow-hidden z-20 select-none">
+    <div className="absolute inset-0 pointer-events-none flex flex-col p-2.5 sm:p-4 overflow-hidden z-[25] select-none">
       {/* 1. TOP FLOATING ISLAND BAR */}
-      <div className="flex items-center justify-between gap-2 sm:gap-4 flex-wrap pointer-events-auto">
+      <div className="flex items-center justify-between gap-2 sm:gap-3 flex-wrap pointer-events-auto shrink-0 min-w-0">
         {/* Left: Concept Title & Focus Mode Badge */}
-        <div className="flex items-center gap-2 sm:gap-3 bg-[#0C0D14]/90 backdrop-blur-xl p-2 sm:px-4 sm:py-2.5 rounded-2xl border border-white/[0.12] shadow-2xl">
+        <div className="flex items-center gap-2 sm:gap-3 bg-[#0C0D14]/96 p-2 sm:px-3.5 sm:py-2 rounded-2xl border border-white/[0.14] shadow-2xl max-w-full sm:max-w-[44%] min-w-0">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 font-bold shadow-lg shadow-cyan-500/20 shrink-0">
             <Sparkles className="w-4 h-4" />
           </div>
@@ -297,7 +297,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
               <h2 className="text-xs sm:text-sm font-extrabold text-white truncate tracking-tight">
                 {concept.title}
               </h2>
-              <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+              <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                 Focus Mode (F)
               </span>
@@ -309,7 +309,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
         </div>
 
         {/* Center/Right: Visual Layer Toggles, Camera Presets, and Lab Controls */}
-        <div className="flex items-center gap-1.5 bg-[#0C0D14]/90 backdrop-blur-xl p-1.5 rounded-2xl border border-white/[0.12] shadow-2xl flex-wrap">
+        <div className="flex items-center gap-1 sm:gap-1.5 bg-[#0C0D14]/96 p-1.5 rounded-2xl border border-white/[0.14] shadow-2xl flex-wrap max-w-full min-w-0">
           {/* Camera View Angle Presets */}
           <div className="flex items-center gap-0.5 bg-[#14141E] p-1 rounded-xl border border-white/[0.08]">
             {(['3d', 'front', 'top', 'side'] as const).map((view) => (
@@ -489,15 +489,16 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
         </div>
       </div>
 
-      {/* 2. RIGHT-SIDE COLLAPSIBLE FLOATING DRAWER (Controls, Telemetry, Graphs, Formulas) */}
-      <div
-        className={`absolute top-20 right-3 sm:right-5 bottom-28 w-80 sm:w-96 max-w-[90vw] pointer-events-auto transition-all duration-300 ease-in-out flex flex-col z-30 ${
-          isDrawerOpen
-            ? 'translate-x-0 opacity-100'
-            : 'translate-x-[110%] opacity-0 pointer-events-none'
-        }`}
-      >
-        <div className="h-full bg-[#0C0D14]/95 backdrop-blur-2xl rounded-3xl border border-white/[0.12] shadow-2xl flex flex-col overflow-hidden text-zinc-100">
+      {/* 2. MIDDLE FLEX STAGE & COLLAPSIBLE RIGHT DRAWER (Never overlaps Top Bar or Bottom Telemetry) */}
+      <div className="flex-1 min-h-0 relative my-2 flex justify-end items-stretch pointer-events-none">
+        <div
+          className={`w-80 sm:w-96 max-w-full min-w-0 h-full max-h-full pointer-events-auto transition-all duration-300 ease-in-out flex flex-col z-30 ${
+            isDrawerOpen
+              ? 'translate-x-0 opacity-100'
+              : 'translate-x-[110%] opacity-0 pointer-events-none'
+          }`}
+        >
+          <div className="h-full bg-[#0C0D14]/97 rounded-3xl border border-white/[0.14] shadow-2xl flex flex-col overflow-hidden text-zinc-100">
           {/* Drawer Header & Tabs */}
           <div className="p-3 border-b border-white/[0.08] flex items-center justify-between gap-2 shrink-0 bg-[#12131C]">
             <div className="flex items-center gap-1 bg-[#08080C] p-1 rounded-xl border border-white/[0.08] overflow-x-auto no-scrollbar">
@@ -812,30 +813,32 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
           </AnimatePresence>
         </div>
         </div>
+        </div>
       </div>
 
-      {/* 3. BOTTOM FLOATING TELEMETRY & DRAWER STATUS */}
-      <div className="flex items-end justify-between gap-3 pointer-events-auto flex-wrap">
+      {/* 3. BOTTOM FLOATING TELEMETRY & DRAWER STATUS (Elevated cleanly above Playback Dock) */}
+      <div className="flex items-end justify-between gap-2 sm:gap-3 pointer-events-auto flex-nowrap shrink-0 pb-14 sm:pb-16 min-w-0 max-w-full">
         {/* Quick Drawer & Time Status */}
-        <div className="flex items-center gap-2 bg-[#0C0D14]/90 backdrop-blur-xl p-2 rounded-2xl border border-white/[0.12] shadow-2xl">
-          <div className="px-3 py-1.5 rounded-xl bg-[#161622] border border-white/[0.08] font-mono text-xs text-cyan-300 font-bold flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 sm:gap-2 bg-[#0C0D14]/96 p-1.5 sm:p-2 rounded-2xl border border-white/[0.14] shadow-2xl shrink-0">
+          <div className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-[#161622] border border-white/[0.08] font-mono text-xs text-cyan-300 font-bold flex items-center gap-1.5">
             <span className="text-zinc-500 font-sans text-[10px]">TIME</span>
             <span>{simTime.toFixed(2)}s</span>
           </div>
           <button
             type="button"
             onClick={() => setIsDrawerOpen((prev) => !prev)}
-            className="px-3 py-1.5 rounded-xl bg-[#161622] hover:bg-[#202030] text-zinc-300 hover:text-white border border-white/[0.08] transition text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+            className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-[#161622] hover:bg-[#202030] text-zinc-300 hover:text-white border border-white/[0.08] transition text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
             title="Toggle Control Drawer (D)"
           >
-            <Sliders className="w-3.5 h-3.5 text-cyan-400" />
-            <span>{isDrawerOpen ? 'Close Drawer' : 'Parameters (D)'}</span>
+            <Sliders className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="hidden xs:inline">{isDrawerOpen ? 'Close Drawer' : 'Parameters (D)'}</span>
+            <span className="xs:hidden">{isDrawerOpen ? 'Close' : 'Params'}</span>
           </button>
         </div>
 
         {/* Live Telemetry Quantities HUD Pills */}
         {liveQuantities.length > 0 && (
-          <div className="flex items-center gap-2 bg-[#0C0D14]/90 backdrop-blur-xl p-2 rounded-2xl border border-white/[0.12] shadow-2xl max-w-full overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2 bg-[#0C0D14]/96 p-1.5 sm:p-2 rounded-2xl border border-white/[0.14] shadow-2xl min-w-0 max-w-full overflow-x-auto no-scrollbar">
             <div className="flex items-center gap-1.5 px-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider shrink-0 hidden sm:flex">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>Live Telemetry:</span>
@@ -844,7 +847,7 @@ export const FocusModeOverlay: React.FC<FocusModeOverlayProps> = ({
             {liveQuantities.map((q, idx) => (
               <div
                 key={idx}
-                className="px-2.5 py-1.5 rounded-xl bg-[#161622] border border-white/[0.08] flex items-center gap-1.5 text-xs shrink-0"
+                className="px-2.5 py-1 sm:py-1.5 rounded-xl bg-[#161622] border border-white/[0.08] flex items-center gap-1.5 text-xs shrink-0"
               >
                 <span className="text-zinc-400 text-[11px] font-medium">{q.label}:</span>
                 <span className="font-mono font-bold text-cyan-300 text-xs">

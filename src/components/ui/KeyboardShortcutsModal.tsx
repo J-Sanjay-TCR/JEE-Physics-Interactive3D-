@@ -354,7 +354,7 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+      <div className="fixed inset-0 z-[85] flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
         {/* Backdrop */}
         <motion.div
           initial={{ opacity: 0 }}
@@ -370,7 +370,7 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 15 }}
           transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-          className={`relative w-full max-w-4xl max-h-[92vh] rounded-3xl border shadow-2xl flex flex-col overflow-hidden z-10 ${
+          className={`relative w-full max-w-4xl max-h-[92dvh] rounded-3xl border shadow-2xl flex flex-col overflow-hidden z-10 ${
             isCyberpunk
               ? 'bg-[#030712]/98 border-cyan-500/40 text-cyan-100 shadow-[0_0_50px_rgba(0,240,255,0.25)]'
               : isDark

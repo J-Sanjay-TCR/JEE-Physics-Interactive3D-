@@ -23,21 +23,21 @@ const JeeInsightsPanelComponent: React.FC<JeeInsightsPanelProps> = ({
   const [activeTab, setActiveTab] = useState<'main' | 'advanced' | 'trend'>('main');
 
   return (
-    <div className="bg-[#111114]/90 backdrop-blur-md rounded-2xl p-5 border border-white/[0.08] shadow-xl flex flex-col gap-4">
+    <div className="min-w-0 overflow-x-clip bg-[#111114]/90 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-white/[0.08] shadow-xl flex flex-col gap-4">
       {/* Header Tabs */}
-      <div className="flex items-center justify-between pb-3 border-b border-white/[0.08] flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Award className="w-4 h-4 text-amber-400" />
+      <div className="flex items-center justify-between pb-3 border-b border-white/[0.08] flex-wrap gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Award className="w-4 h-4 text-amber-400 shrink-0" />
           <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
             JEE Exam Strategy &amp; Trap Alerts
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center bg-[#0A0A0E] p-1 rounded-xl border border-white/[0.08]">
+        <div className="flex items-center gap-2 flex-wrap max-w-full min-w-0">
+          <div className="flex items-center bg-[#0A0A0E] p-1 rounded-xl border border-white/[0.08] max-w-full overflow-x-auto no-scrollbar">
             <button
               onClick={() => setActiveTab('main')}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                 activeTab === 'main'
                   ? 'bg-blue-600 text-white shadow-md'
                   : 'text-zinc-400 hover:text-zinc-200'
@@ -48,7 +48,7 @@ const JeeInsightsPanelComponent: React.FC<JeeInsightsPanelProps> = ({
             </button>
             <button
               onClick={() => setActiveTab('advanced')}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                 activeTab === 'advanced'
                   ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md'
                   : 'text-zinc-400 hover:text-zinc-200'
@@ -59,7 +59,7 @@ const JeeInsightsPanelComponent: React.FC<JeeInsightsPanelProps> = ({
             </button>
             <button
               onClick={() => setActiveTab('trend')}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                 activeTab === 'trend'
                   ? 'bg-emerald-600 text-white shadow-md'
                   : 'text-zinc-400 hover:text-zinc-200'
@@ -230,7 +230,7 @@ const JeeInsightsPanelComponent: React.FC<JeeInsightsPanelProps> = ({
                   {jeeAdvanced.calculusFormulations.map((calc, idx) => (
                     <div
                       key={idx}
-                      className="bg-cyan-950/20 border border-cyan-800/30 p-3 rounded-xl text-xs text-cyan-200/90"
+                      className="min-w-0 overflow-x-auto bg-cyan-950/20 border border-cyan-800/30 p-3 rounded-xl text-xs text-cyan-200/90"
                     >
                       <Latex math={calc} displayMode />
                     </div>
@@ -275,14 +275,14 @@ const JeeInsightsPanelComponent: React.FC<JeeInsightsPanelProps> = ({
       </AnimatePresence>
 
       {onClose && (
-        <div className="pt-3 border-t border-white/[0.08] flex items-center justify-between">
-          <span className="text-xs text-zinc-400">
+        <div className="pt-3 border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-zinc-400 min-w-0">
             Reviewing concept insights for <strong className="text-zinc-200">{conceptTitle}</strong>
           </span>
           <button
             id="jee-insights-bottom-exit-btn"
             onClick={onClose}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.05] hover:bg-red-500/20 text-zinc-300 hover:text-white border border-white/[0.1] hover:border-red-500/40 text-xs font-semibold transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.05] hover:bg-red-500/20 text-zinc-300 hover:text-white border border-white/[0.1] hover:border-red-500/40 text-xs font-semibold transition-all active:scale-95 shrink-0"
           >
             <X className="w-3.5 h-3.5 text-zinc-400" />
             <span>Return to Interactive Simulation</span>

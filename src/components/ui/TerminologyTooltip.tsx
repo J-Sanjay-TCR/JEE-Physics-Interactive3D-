@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { PhysicsTermDefinition, PHYSICS_TERMINOLOGY, getPhysicsTerm } from '../../data/physicsTerminology';
 import { Latex } from './Latex';
-import { Sparkles, Info, BookOpen, Atom, Zap, X } from 'lucide-react';
+import { Info, Atom, Zap, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface TerminologyTooltipProps {
@@ -10,40 +10,48 @@ interface TerminologyTooltipProps {
   inline?: boolean;
 }
 
+const MATH_SPAN_REGEX = /(\$\$[\s\S]*?\$\$|\$[^\$]+?\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g;
+
 export const TerminologyTooltip: React.FC<TerminologyTooltipProps> = ({
   term,
   children,
   inline = true,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
   const triggerRef = useRef<HTMLSpanElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
 
   const definition: PhysicsTermDefinition | undefined =
     typeof term === 'string' ? getPhysicsTerm(term) : term;
 
-  const updatePosition = () => {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      const tooltipWidth = 320;
-      let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current || typeof window === 'undefined') return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const tooltipWidth = Math.min(320, Math.max(240, window.innerWidth - 24));
+    const measuredHeight = tooltipRef.current?.offsetHeight || 210;
 
-      // Keep within viewport boundaries
-      if (left < 12) left = 12;
-      if (left + tooltipWidth > window.innerWidth - 12) {
-        left = window.innerWidth - tooltipWidth - 12;
-      }
-
-      let top = rect.bottom + 8;
-      // If close to bottom, show above
-      if (rect.bottom + 220 > window.innerHeight && rect.top > 220) {
-        top = rect.top - 210;
-      }
-
-      setCoords({ top, left });
+    let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+    if (left < 12) left = 12;
+    if (left + tooltipWidth > window.innerWidth - 12) {
+      left = window.innerWidth - tooltipWidth - 12;
     }
-  };
+
+    let top = rect.bottom + 8;
+    if (rect.bottom + measuredHeight + 16 > window.innerHeight && rect.top > measuredHeight + 16) {
+      top = Math.max(12, rect.top - measuredHeight - 8);
+    } else if (top + measuredHeight > window.innerHeight - 12) {
+      top = Math.max(12, window.innerHeight - measuredHeight - 12);
+    }
+
+    setCoords({ top, left, width: tooltipWidth });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (isOpen) {
+      updatePosition();
+    }
+  }, [isOpen, updatePosition]);
 
   const handleMouseEnter = () => {
     updatePosition();
@@ -60,7 +68,18 @@ export const TerminologyTooltip: React.FC<TerminologyTooltipProps> = ({
     setIsOpen((prev) => !prev);
   };
 
-  // Close on outside click
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      updatePosition();
+      setIsOpen((prev) => !prev);
+    } else if (e.key === 'Escape') {
+      setIsOpen(false);
+    }
+  };
+
+  // Close on outside click or Escape, keep bounded on resize/scroll
   useEffect(() => {
     if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
@@ -75,11 +94,13 @@ export const TerminologyTooltip: React.FC<TerminologyTooltipProps> = ({
     };
     window.addEventListener('click', handleClickOutside);
     window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
     return () => {
       window.removeEventListener('click', handleClickOutside);
       window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [isOpen]);
+  }, [isOpen, updatePosition]);
 
   if (!definition) {
     return <span>{children || (typeof term === 'string' ? term : '')}</span>;
@@ -103,16 +124,18 @@ export const TerminologyTooltip: React.FC<TerminologyTooltipProps> = ({
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         onClick={handleToggleClick}
+        onKeyDown={handleKeyDown}
         className="cursor-help inline-flex items-center gap-0.5 border-b border-dotted border-cyan-400/70 text-cyan-200 hover:text-cyan-100 hover:border-cyan-300 transition px-0.5 rounded-sm bg-cyan-950/20"
         title="Hover or tap to view technical Physics definition"
         role="button"
         tabIndex={0}
+        aria-expanded={isOpen}
       >
-        <span>{children || definition.term}</span>
-        <Info className="w-2.5 h-2.5 text-cyan-400/80 inline" />
+        <span>{children || <Latex>{definition.term}</Latex>}</span>
+        <Info className="w-2.5 h-2.5 text-cyan-400/80 inline shrink-0" />
       </span>
 
-      {/* Floating Tooltip Portal / Overlay */}
+      {/* Floating Tooltip Overlay */}
       <AnimatePresence>
         {isOpen && coords && (
           <motion.div
@@ -125,7 +148,8 @@ export const TerminologyTooltip: React.FC<TerminologyTooltipProps> = ({
               position: 'fixed',
               top: `${coords.top}px`,
               left: `${coords.left}px`,
-              width: '320px',
+              width: `${coords.width}px`,
+              maxWidth: 'calc(100vw - 24px)',
               zIndex: 9999,
             }}
             className="bg-[#0C0D14] border border-cyan-500/40 rounded-xl p-3.5 shadow-2xl shadow-cyan-950/80 text-zinc-200 backdrop-blur-xl pointer-events-auto"
@@ -133,12 +157,12 @@ export const TerminologyTooltip: React.FC<TerminologyTooltipProps> = ({
           >
             {/* Header */}
             <div className="flex items-start justify-between gap-2 pb-2 border-b border-white/[0.08]">
-              <div className="flex items-center gap-1.5">
-                <div className={`p-1 rounded-md border ${colorStyle}`}>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <div className={`p-1 rounded-md border shrink-0 ${colorStyle}`}>
                   <Atom className="w-3.5 h-3.5" />
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white leading-snug">
+                <div className="min-w-0">
+                  <h4 className="text-xs font-bold text-white leading-snug break-words">
                     <Latex>{definition.term}</Latex>
                   </h4>
                   <span className="text-[10px] uppercase font-mono tracking-wider text-cyan-400/90 font-bold">
@@ -147,8 +171,10 @@ export const TerminologyTooltip: React.FC<TerminologyTooltipProps> = ({
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsOpen(false)}
-                className="p-1 rounded-md hover:bg-white/[0.1] text-zinc-400 hover:text-white transition"
+                className="p-1 rounded-md hover:bg-white/[0.1] text-zinc-400 hover:text-white transition shrink-0"
+                aria-label="Close definition"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -163,18 +189,18 @@ export const TerminologyTooltip: React.FC<TerminologyTooltipProps> = ({
             {(definition.formula || definition.unit) && (
               <div className="bg-[#12131F] rounded-lg p-2 my-1 border border-white/[0.06] flex flex-col gap-1 text-[11px]">
                 {definition.formula && (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold text-zinc-400 uppercase">Formula:</span>
-                    <span className="text-cyan-300 font-mono">
-                      <Latex>{`$${definition.formula}$`}</Latex>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[10px] font-semibold text-zinc-400 uppercase shrink-0">Formula:</span>
+                    <span className="text-cyan-300 overflow-x-auto max-w-full">
+                      <Latex math={definition.formula} />
                     </span>
                   </div>
                 )}
                 {definition.unit && (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold text-zinc-400 uppercase">SI Unit:</span>
-                    <span className="text-amber-300 font-mono">
-                      <Latex>{`$${definition.unit}$`}</Latex>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[10px] font-semibold text-zinc-400 uppercase shrink-0">SI Unit:</span>
+                    <span className="text-amber-300 overflow-x-auto max-w-full">
+                      <Latex>{definition.unit}</Latex>
                     </span>
                   </div>
                 )}
@@ -197,28 +223,51 @@ export const TerminologyTooltip: React.FC<TerminologyTooltipProps> = ({
 };
 
 /**
- * Helper component that scans text and highlights all known physics terms with interactive tooltips
+ * Helper component that scans prose OUTSIDE existing math delimiters
+ * and highlights known physics terms with interactive tooltips, without ever splitting LaTeX equations.
  */
 export const HighlightedPhysicsText: React.FC<{ text: string }> = ({ text }) => {
-  const termsList = Object.keys(PHYSICS_TERMINOLOGY).sort((a, b) => b.length - a.length);
+  const termRegex = useMemo(() => {
+    const termsList = Object.keys(PHYSICS_TERMINOLOGY).sort((a, b) => b.length - a.length);
+    const escaped = termsList.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    return new RegExp(`\\b(${escaped})\\b`, 'gi');
+  }, []);
 
-  // Split text by recognized terms
-  const regex = new RegExp(`\\b(${termsList.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'gi');
+  if (!text) return null;
 
-  const parts = text.split(regex);
+  const segments = text.split(MATH_SPAN_REGEX);
 
   return (
     <span>
-      {parts.map((part, idx) => {
-        const matchingDef = getPhysicsTerm(part);
-        if (matchingDef) {
-          return (
-            <TerminologyTooltip key={idx} term={matchingDef}>
-              {part}
-            </TerminologyTooltip>
-          );
+      {segments.map((seg, sIdx) => {
+        if (!seg) return null;
+        const isMathSpan =
+          (seg.startsWith('$$') && seg.endsWith('$$')) ||
+          (seg.startsWith('$') && seg.endsWith('$')) ||
+          (seg.startsWith('\\[') && seg.endsWith('\\]')) ||
+          (seg.startsWith('\\(') && seg.endsWith('\\)'));
+
+        if (isMathSpan) {
+          return <Latex key={`m-${sIdx}`}>{seg}</Latex>;
         }
-        return <Latex key={idx}>{part}</Latex>;
+
+        const parts = seg.split(termRegex);
+        return (
+          <React.Fragment key={`p-${sIdx}`}>
+            {parts.map((part, pIdx) => {
+              if (!part) return null;
+              const matchingDef = getPhysicsTerm(part);
+              if (matchingDef) {
+                return (
+                  <TerminologyTooltip key={`${sIdx}-${pIdx}`} term={matchingDef}>
+                    {part}
+                  </TerminologyTooltip>
+                );
+              }
+              return <Latex key={`${sIdx}-${pIdx}`}>{part}</Latex>;
+            })}
+          </React.Fragment>
+        );
       })}
     </span>
   );

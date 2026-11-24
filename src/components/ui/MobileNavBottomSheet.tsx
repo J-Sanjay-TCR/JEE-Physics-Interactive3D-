@@ -190,7 +190,7 @@ export const MobileNavBottomSheet: React.FC<MobileNavBottomSheetProps> = ({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             onClick={() => setIsOpen(false)}
-            className="fixed inset-0 bg-black/70 backdrop-blur-xs z-40 transition-opacity"
+            className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[65] transition-opacity"
             aria-hidden="true"
           />
         )}
@@ -204,8 +204,8 @@ export const MobileNavBottomSheet: React.FC<MobileNavBottomSheetProps> = ({
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className={`fixed inset-x-0 bottom-0 z-50 rounded-t-3xl border-t shadow-2xl flex flex-col transition-colors overflow-hidden ${
-              sheetSnapHeight === 'full' ? 'h-[92vh]' : 'h-[75vh] max-h-[85vh]'
+            className={`fixed inset-x-0 bottom-0 z-[68] rounded-t-3xl border-t shadow-2xl flex flex-col transition-colors overflow-hidden ${
+              sheetSnapHeight === 'full' ? 'h-[92dvh]' : 'h-[75dvh] max-h-[85dvh]'
             } ${
               isCyberpunk
                 ? 'bg-[#040816]/98 backdrop-blur-2xl border-cyan-500/40 text-zinc-100 shadow-[0_-10px_40px_rgba(0,240,255,0.2)]'
@@ -786,6 +786,83 @@ export const MobileNavBottomSheet: React.FC<MobileNavBottomSheetProps> = ({
               <span className="text-[10px] mt-0.5">Analytics</span>
             </button>
 
+          </div>
+        ) : currentView === 'arena' ? (
+          /* ARENA MODE BOTTOM NAVIGATION BAR */
+          <div className="flex items-center justify-around gap-1 max-w-md mx-auto">
+            <button
+              onClick={() => onSetView('home')}
+              className={`flex flex-col items-center justify-center p-1.5 rounded-xl transition min-h-[48px] min-w-[56px] ${
+                isDark ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <div className="p-1 rounded-lg bg-white/5 text-zinc-400">
+                <Home className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] mt-0.5">Home</span>
+            </button>
+
+            <button
+              onClick={() => onSetView('lab')}
+              className={`flex flex-col items-center justify-center p-1.5 rounded-xl transition min-h-[48px] min-w-[56px] ${
+                isDark ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <div className={`p-1 rounded-lg ${isCyberpunk ? 'bg-emerald-500/15 text-emerald-300' : 'bg-indigo-500/15 text-indigo-400'}`}>
+                <Play className="w-4 h-4 fill-current" />
+              </div>
+              <span className="text-[10px] mt-0.5">3D Lab</span>
+            </button>
+
+            <button
+              onClick={() => onSetView('arena')}
+              className={`flex flex-col items-center justify-center p-1.5 rounded-xl transition min-h-[48px] min-w-[56px] ${
+                isCyberpunk ? 'text-cyan-300 font-bold' : isDark ? 'text-cyan-400 font-bold' : 'text-cyan-700 font-bold'
+              }`}
+            >
+              <div className={`p-1 rounded-lg ${isCyberpunk ? 'bg-cyan-500/20 text-cyan-300 shadow-[0_0_10px_rgba(0,240,255,0.4)]' : 'bg-cyan-500/15 text-amber-400'}`}>
+                <Award className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] mt-0.5">Arena</span>
+            </button>
+
+            <button
+              onClick={() => handleOpenTab('syllabus')}
+              className={`flex flex-col items-center justify-center p-1.5 rounded-xl transition min-h-[48px] min-w-[56px] ${
+                isOpen && activeTab === 'syllabus'
+                  ? 'text-cyan-400 font-bold'
+                  : isDark ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <div className="p-1 rounded-lg bg-cyan-500/10 text-cyan-400">
+                <Compass className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] mt-0.5">Syllabus</span>
+            </button>
+
+            <button
+              onClick={onOpenAiTutor}
+              className={`flex flex-col items-center justify-center p-1.5 rounded-xl transition min-h-[48px] min-w-[56px] ${
+                isDark ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <div className="p-1 rounded-lg bg-purple-500/20 text-purple-400">
+                <Bot className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] mt-0.5">Nemo AI</span>
+            </button>
+
+            <button
+              onClick={onOpenAnalytics}
+              className={`flex flex-col items-center justify-center p-1.5 rounded-xl transition min-h-[48px] min-w-[56px] ${
+                isDark ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <div className="p-1 rounded-lg bg-emerald-500/20 text-emerald-400">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] mt-0.5">Analytics</span>
+            </button>
           </div>
         ) : (
           /* LAB MODE BOTTOM HUD ACTION BAR */

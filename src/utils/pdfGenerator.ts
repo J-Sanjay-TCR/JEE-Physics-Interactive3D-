@@ -286,7 +286,8 @@ export function sanitizeUnicodeForPdf(text: string, options?: { preserveMathSymb
   if (!text) return '';
 
   let str = String(text);
-  const preserveMath = options?.preserveMathSymbols !== false;
+  // Default to WinAnsi-safe ASCII for jsPDF standard Type1 helvetica/courier unless explicitly requested
+  const preserveMath = options?.preserveMathSymbols === true;
 
   if (!preserveMath) {
     // Legacy ASCII fallback only
@@ -621,15 +622,15 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
 
     jeeSheet.basicDefinitions.forEach((def) => {
       const termClean = sanitizeUnicodeForPdf(def.term);
-      const defClean = cleanLatexForPdf(def.definition);
-      const symClean = cleanLatexForPdf(def.symbol);
-      const unitClean = cleanLatexForPdf(def.siUnit);
+      const defClean = sanitizeUnicodeForPdf(cleanLatexForPdf(def.definition));
+      const symClean = sanitizeUnicodeForPdf(cleanLatexForPdf(def.symbol));
+      const unitClean = sanitizeUnicodeForPdf(cleanLatexForPdf(def.siUnit));
 
-      // Measure definition text
+      // Measure definition text cleanly on its own line below the bold term header
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
-      const lines = doc.splitTextToSize(`${defClean}  [Symbol: ${symClean}  |  SI Unit: ${unitClean}]`, contentWidth - 10);
-      const rowHeight = Math.max(7, lines.length * 3.5 + 4);
+      const lines = doc.splitTextToSize(defClean, contentWidth - 10);
+      const rowHeight = Math.max(9.5, 6.2 + lines.length * 3.4 + 2);
 
       checkPageBreak(rowHeight + 1);
 
@@ -644,13 +645,19 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(darkIndigo[0], darkIndigo[1], darkIndigo[2]);
-      doc.text(`* ${termClean}:`, margin + 3.5, y + 4);
+      doc.text(`* ${termClean}`, margin + 3.5, y + 4.1);
+
+      // Right-aligned Symbol & SI badge on header row so it never overlaps definition text
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.text(`[${symClean}  |  ${unitClean}]`, pageWidth - margin - 3, y + 4.1, { align: 'right' });
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
       doc.setTextColor(textDark[0], textDark[1], textDark[2]);
       lines.forEach((l: string, lIdx: number) => {
-        doc.text(l, margin + 4, y + 4 + (lIdx === 0 ? 0 : lIdx * 3.5) + (lIdx === 0 ? 0 : 0));
+        doc.text(l, margin + 4, y + 8.0 + lIdx * 3.4);
       });
 
       y += rowHeight + 1.5;
@@ -1006,31 +1013,49 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
     y += 5;
 
     constants.forEach((item, idx) => {
-      checkPageBreak(5);
+      const qStr = sanitizeUnicodeForPdf(item.quantityOrConstant);
+      const sStr = sanitizeUnicodeForPdf(cleanLatexForPdf(item.symbol));
+      const vStr = sanitizeUnicodeForPdf(cleanLatexForPdf(item.valueOrFormula));
+      const uStr = sanitizeUnicodeForPdf(cleanLatexForPdf(item.siUnit));
+
+      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'bold');
+      const qLines = doc.splitTextToSize(qStr, 59);
+      doc.setFont('courier', 'bold');
+      const sLines = doc.splitTextToSize(sStr, 27);
+      doc.setFont('helvetica', 'normal');
+      const vLines = doc.splitTextToSize(vStr, 57);
+      doc.setFont('helvetica', 'bold');
+      const uLines = doc.splitTextToSize(uStr, 29);
+
+      const maxLines = Math.max(qLines.length, sLines.length, vLines.length, uLines.length, 1);
+      const rowH = Math.max(5.2, maxLines * 3.2 + 2.2);
+
+      checkPageBreak(rowH);
+
       doc.setFillColor(idx % 2 === 0 ? 255 : 248, idx % 2 === 0 ? 255 : 250, idx % 2 === 0 ? 255 : 252);
-      doc.rect(margin, y, contentWidth, 4.8, 'F');
+      doc.rect(margin, y, contentWidth, rowH, 'F');
 
       doc.setDrawColor(226, 232, 240);
       doc.setLineWidth(0.15);
-      doc.line(margin, y + 4.8, margin + contentWidth, y + 4.8);
+      doc.line(margin, y + rowH, margin + contentWidth, y + rowH);
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.6);
       doc.setTextColor(textDark[0], textDark[1], textDark[2]);
-      doc.text(sanitizeUnicodeForPdf(item.quantityOrConstant), margin + 3, y + 3.3);
+      qLines.forEach((ln: string, li: number) => doc.text(ln, margin + 3, y + 3.4 + li * 3.2));
 
       doc.setFont('courier', 'bold');
-      doc.text(cleanLatexForPdf(item.symbol), margin + 65, y + 3.3);
+      sLines.forEach((ln: string, li: number) => doc.text(ln, margin + 65, y + 3.4 + li * 3.2));
 
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(textBody[0], textBody[1], textBody[2]);
-      doc.text(cleanLatexForPdf(item.valueOrFormula), margin + 95, y + 3.3);
+      vLines.forEach((ln: string, li: number) => doc.text(ln, margin + 95, y + 3.4 + li * 3.2));
 
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(darkIndigo[0], darkIndigo[1], darkIndigo[2]);
-      doc.text(cleanLatexForPdf(item.siUnit), margin + 155, y + 3.3);
+      uLines.forEach((ln: string, li: number) => doc.text(ln, margin + 155, y + 3.4 + li * 3.2));
 
-      y += 4.8;
+      y += rowH;
     });
   }
 
@@ -1092,7 +1117,17 @@ export function buildChapterPdfDoc(chapterId: string): PdfDocumentResult {
  */
 export function generateChapterPdf(chapterId: string): { fileName: string; chapterName: string } {
   const result = buildChapterPdfDoc(chapterId);
-  result.doc.save(result.fileName);
+  try {
+    result.doc.save(result.fileName);
+  } finally {
+    if (result.blobUrl) {
+      try {
+        URL.revokeObjectURL(result.blobUrl);
+      } catch {
+        // ignore
+      }
+    }
+  }
   return { fileName: result.fileName, chapterName: result.chapterName };
 }
 
@@ -1303,33 +1338,42 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
         });
       });
 
-      // Quick shortcuts & traps in master
+      // Quick shortcuts & traps in master (dynamically sized to prevent overflow)
       if (jeeSheet.jeeQuickRevision?.shortcuts && jeeSheet.jeeQuickRevision.shortcuts.length > 0) {
-        checkPageBreak(12, chapter.name);
+        const scStr = sanitizeUnicodeForPdf(cleanLatexForPdf(jeeSheet.jeeQuickRevision.shortcuts[0]));
+        const trStr = jeeSheet.jeeQuickRevision.trapsAndPitfalls?.[0]
+          ? sanitizeUnicodeForPdf(cleanLatexForPdf(jeeSheet.jeeQuickRevision.trapsAndPitfalls[0]))
+          : '';
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.6);
+        const scLines = doc.splitTextToSize(scStr, contentWidth - 24);
+        const trLines = trStr ? doc.splitTextToSize(trStr, contentWidth - 24) : [];
+        const boxH = Math.max(9, scLines.length * 3.1 + (trLines.length > 0 ? trLines.length * 3.1 + 2.5 : 0) + 4);
+
+        checkPageBreak(boxH + 2, chapter.name);
         doc.setFillColor(236, 253, 245);
         doc.setDrawColor(167, 243, 208);
-        doc.roundedRect(margin, y, contentWidth, 8, 0.8, 0.8, 'FD');
+        doc.roundedRect(margin, y, contentWidth, boxH, 0.8, 0.8, 'FD');
+
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.8);
+        doc.setFontSize(6.6);
         doc.setTextColor(6, 95, 70);
-        doc.text(`[SHORTCUT]`, margin + 2, y + 3.5);
+        doc.text('[SHORTCUT]', margin + 2, y + 3.8);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(6, 78, 59);
-        doc.text(sanitizeUnicodeForPdf(formatLatexToMathText(jeeSheet.jeeQuickRevision.shortcuts[0])), margin + 20, y + 3.5, {
-          maxWidth: contentWidth - 23,
-        });
+        scLines.forEach((ln: string, li: number) => doc.text(ln, margin + 21, y + 3.8 + li * 3.1));
 
-        if (jeeSheet.jeeQuickRevision.trapsAndPitfalls && jeeSheet.jeeQuickRevision.trapsAndPitfalls.length > 0) {
+        if (trLines.length > 0) {
+          const trY = y + 3.8 + scLines.length * 3.1 + 1.8;
           doc.setFont('helvetica', 'bold');
           doc.setTextColor(159, 18, 57);
-          doc.text(`[TRAP]`, margin + 2, y + 6.8);
+          doc.text('[TRAP]', margin + 2, trY);
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(136, 19, 55);
-          doc.text(sanitizeUnicodeForPdf(formatLatexToMathText(jeeSheet.jeeQuickRevision.trapsAndPitfalls[0])), margin + 20, y + 6.8, {
-            maxWidth: contentWidth - 23,
-          });
+          trLines.forEach((ln: string, li: number) => doc.text(ln, margin + 21, trY + li * 3.1));
         }
-        y += 10;
+        y += boxH + 2;
       }
     } else {
       // Fallback using ALL_CONCEPTS
@@ -1392,6 +1436,16 @@ export function buildMasterPdfDoc(): PdfDocumentResult {
  */
 export function generateMasterCompendiumPdf(): { fileName: string; totalChapters: number } {
   const result = buildMasterPdfDoc();
-  result.doc.save(result.fileName);
+  try {
+    result.doc.save(result.fileName);
+  } finally {
+    if (result.blobUrl) {
+      try {
+        URL.revokeObjectURL(result.blobUrl);
+      } catch {
+        // ignore
+      }
+    }
+  }
   return { fileName: result.fileName, totalChapters: CHAPTERS.length };
 }

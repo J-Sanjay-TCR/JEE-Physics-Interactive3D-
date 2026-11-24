@@ -70,9 +70,63 @@ export function findJeeSheetOnServer(chapterId: string, chapterName: string): Je
 }
 
 /**
+ * Helper to format math expressions cleanly for the available server PDF font:
+ * full Unicode Greek/math when FreeSerif TTF is loaded, or WinAnsi-clean notation when using Type1 Times/Helvetica.
+ */
+function formatForServerFont(rawOrLatex: string, hasSerif: boolean): string {
+  const mathText = formatLatexToMathText(rawOrLatex);
+  return hasSerif ? mathText : sanitizeUnicodeForPdf(mathText, { preserveMathSymbols: false });
+}
+
+/**
+ * Balanced brace extraction for \frac{...}{...} in server stacked fraction layout.
+ */
+function extractBalancedServerFraction(innerMath: string): { lhs: string; num: string; den: string; tail: string } | null {
+  const fracIdx = innerMath.indexOf('\\frac');
+  if (fracIdx === -1) return null;
+
+  let p = fracIdx + 5;
+  while (p < innerMath.length && /\s/.test(innerMath[p])) p++;
+  if (innerMath[p] !== '{') return null;
+
+  let d1 = 0;
+  let numEnd = -1;
+  for (let i = p; i < innerMath.length; i++) {
+    if (innerMath[i] === '{') d1++;
+    else if (innerMath[i] === '}') {
+      d1--;
+      if (d1 === 0) { numEnd = i; break; }
+    }
+  }
+  if (numEnd === -1) return null;
+
+  let q = numEnd + 1;
+  while (q < innerMath.length && /\s/.test(innerMath[q])) q++;
+  if (innerMath[q] !== '{') return null;
+
+  let d2 = 0;
+  let denEnd = -1;
+  for (let i = q; i < innerMath.length; i++) {
+    if (innerMath[i] === '{') d2++;
+    else if (innerMath[i] === '}') {
+      d2--;
+      if (d2 === 0) { denEnd = i; break; }
+    }
+  }
+  if (denEnd === -1) return null;
+
+  const lhs = innerMath.slice(0, fracIdx).trim();
+  const num = innerMath.slice(p + 1, numEnd).trim();
+  const den = innerMath.slice(q + 1, denEnd).trim();
+  const tail = innerMath.slice(denEnd + 1).trim();
+
+  // Skip stacked layout if numerator/denominator itself still has nested \frac to avoid ugly single-line stacking
+  if (num.includes('\\frac') || den.includes('\\frac')) return null;
+  return { lhs, num, den, tail };
+}
+
+/**
  * Pre-processes and draws an authentic mathematical equation inside a jsPDF document on the server.
- * Wraps formula in proper \begin{equation} ... \end{equation} delimiters and formats fractions,
- * square roots, subscripts, superscripts, and Greek letters with publication-grade serif typography.
  */
 export function drawServerLatexFormulaBox(
   doc: jsPDF,
@@ -93,132 +147,105 @@ export function drawServerLatexFormulaBox(
 
   const hasSerif = (doc as any)._hasFreeSerif ?? false;
   const mathFont = hasSerif ? 'FreeSerif' : 'times';
+  const badgeReserve = options?.eqNumber ? 22 : 6;
+  const maxContentX = x + width - badgeReserve;
 
-  // 1. Pre-process and wrap in \begin{equation} delimiters, then unwrap to obtain canonical LaTeX
   const wrappedEquation = preprocessAndWrapFormula(rawFormula, 'equation');
   const innerMath = unwrapFormula(wrappedEquation);
+  const mathText = formatForServerFont(innerMath, hasSerif);
 
-  // 2. Format to clean mathematical notation (retaining authentic Greek, superscripts, subscripts, operators)
-  const mathText = formatLatexToMathText(innerMath);
+  const fracParts = extractBalancedServerFraction(innerMath);
+  let fittedStacked = false;
 
-  // 3. Check if formula contains a fraction to draw stacked vector fraction layout
-  let fracMatch = innerMath.match(/^(.*?)=\s*\\frac\{([^{}]+)\}\{([^{}]+)\}(.*)$/);
-  if (!fracMatch) {
-    const slashMatch = rawFormula.match(/^(.*?)=\s*(?:\(([^()]+)\)|([a-zA-Z0-9_\^·θ]+))\s*\/\s*(?:\(([^()]+)\)|([a-zA-Z0-9_\^·g]+))(.*)$/);
-    if (slashMatch) {
-      const lhsRaw = slashMatch[1];
-      const numRaw = slashMatch[2] || slashMatch[3];
-      const denRaw = slashMatch[4] || slashMatch[5];
-      const tailRaw = slashMatch[6];
-      fracMatch = [rawFormula, lhsRaw, numRaw, denRaw, tailRaw];
+  if (fracParts && width > 65) {
+    const lhs = fracParts.lhs ? formatForServerFont(fracParts.lhs, hasSerif) + ' ' : '';
+    const num = formatForServerFont(fracParts.num, hasSerif);
+    const den = formatForServerFont(fracParts.den, hasSerif);
+    const tail = fracParts.tail ? formatForServerFont(fracParts.tail, hasSerif) : '';
+
+    doc.setFont(mathFont, 'italic');
+    doc.setFontSize(8.6);
+    const lhsWidth = lhs ? doc.getTextWidth(lhs) : 0;
+    doc.setFontSize(7.6);
+    const numW = doc.getTextWidth(num);
+    const denW = doc.getTextWidth(den);
+    const fracW = Math.max(numW, denW) + 3;
+    doc.setFontSize(8.4);
+    const tailW = tail ? doc.getTextWidth(' ' + tail) : 0;
+
+    // Only use stacked layout if it fits cleanly inside box width without colliding with (eqNumber)
+    if (x + 4 + lhsWidth + 1.5 + fracW + tailW < maxContentX) {
+      fittedStacked = true;
+      const boxH = 10.2;
+      doc.setFillColor(bg[0], bg[1], bg[2]);
+      doc.setDrawColor(border[0], border[1], border[2]);
+      doc.setLineWidth(0.25);
+      doc.roundedRect(x, y, width, boxH, 0.8, 0.8, 'FD');
+
+      if (options?.eqNumber) {
+        doc.setFont(mathFont, 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`(${options.eqNumber})`, x + width - 4, y + boxH / 2 + 1.2, { align: 'right' });
+      }
+
+      doc.setFont(mathFont, 'italic');
+      doc.setFontSize(8.6);
+      doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+      if (lhs) {
+        doc.text(lhs, x + 4, y + boxH / 2 + 1.1);
+      }
+
+      const fracX = x + 4 + lhsWidth + (lhs ? 1.5 : 0);
+      doc.setFontSize(7.6);
+      doc.text(num, fracX + (fracW - numW) / 2, y + 3.5);
+
+      doc.setDrawColor(textColor[0], textColor[1], textColor[2]);
+      doc.setLineWidth(0.25);
+      doc.line(fracX, y + 5.1, fracX + fracW, y + 5.1);
+
+      doc.text(den, fracX + (fracW - denW) / 2, y + 8.4);
+
+      if (tail) {
+        doc.setFont(mathFont, 'italic');
+        doc.setFontSize(8.4);
+        doc.text(` ${tail}`, fracX + fracW + 1.5, y + boxH / 2 + 1.1);
+      }
+
+      return boxH;
     }
   }
 
-  if (fracMatch && width > 55) {
-    const lhs = formatLatexToMathText(fracMatch[1].trim() + ' = ');
-    const num = formatLatexToMathText(fracMatch[2].trim());
-    const den = formatLatexToMathText(fracMatch[3].trim());
-    const tail = fracMatch[4] ? formatLatexToMathText(fracMatch[4].trim()) : '';
+  if (!fittedStacked) {
+    doc.setFont(mathFont, 'italic');
+    doc.setFontSize(8.5);
+    const maxTextW = Math.max(40, width - badgeReserve - 6);
+    const fLines = doc.splitTextToSize(mathText, maxTextW);
+    const fBoxH = Math.max(6.8, fLines.length * 4.0 + 3.0);
 
-    const boxH = 9.8;
     doc.setFillColor(bg[0], bg[1], bg[2]);
     doc.setDrawColor(border[0], border[1], border[2]);
-    doc.setLineWidth(0.25);
-    doc.roundedRect(x, y, width, boxH, 0.8, 0.8, 'FD');
+    doc.setLineWidth(0.2);
+    doc.roundedRect(x, y, width, fBoxH, 0.8, 0.8, 'FD');
 
-    // Equation number badge right-aligned (standard LaTeX style)
     if (options?.eqNumber) {
       doc.setFont(mathFont, 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
-      doc.text(`(${options.eqNumber})`, x + width - 4, y + boxH / 2 + 1.2, { align: 'right' });
+      doc.text(`(${options.eqNumber})`, x + width - 4, y + fBoxH / 2 + 1.2, { align: 'right' });
     }
 
-    // Left hand side
     doc.setFont(mathFont, 'italic');
-    doc.setFontSize(8.8);
+    doc.setFontSize(8.5);
     doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-    doc.text(lhs, x + 4, y + boxH / 2 + 1.1);
+    fLines.forEach((fl: string, flIdx: number) => {
+      doc.text(fl, x + 4, y + 3.9 + flIdx * 4.0);
+    });
 
-    const lhsWidth = doc.getTextWidth(lhs);
-    const fracX = x + 4 + lhsWidth + 1.5;
-
-    // Measure Numerator & Denominator
-    doc.setFontSize(7.8);
-    const numW = doc.getTextWidth(num);
-    const denW = doc.getTextWidth(den);
-    const fracW = Math.max(numW, denW) + 3;
-
-    // Stacked Numerator
-    doc.text(num, fracX + (fracW - numW) / 2, y + 3.4);
-
-    // Vector horizontal fraction bar
-    doc.setDrawColor(textColor[0], textColor[1], textColor[2]);
-    doc.setLineWidth(0.25);
-    doc.line(fracX, y + 4.9, fracX + fracW, y + 4.9);
-
-    // Stacked Denominator
-    doc.text(den, fracX + (fracW - denW) / 2, y + 8.1);
-
-    // Optional Tail (e.g. " = 2·uᵧ / g")
-    if (tail) {
-      let tailX = fracX + fracW + 2;
-      const tailFrac = tail.match(/^(?:=\s*)?(?:\\frac\{([^{}]+)\}\{([^{}]+)\}|\(?([^()]+)\)?\s*\/\s*\(?([^()]+)\)?)$/);
-      if (tailFrac) {
-        doc.setFont(mathFont, 'italic');
-        doc.setFontSize(8.8);
-        doc.text('= ', tailX, y + boxH / 2 + 1.1);
-        tailX += doc.getTextWidth('= ') + 1;
-
-        const tNum = formatLatexToMathText((tailFrac[1] || tailFrac[3]).trim());
-        const tDen = formatLatexToMathText((tailFrac[2] || tailFrac[4]).trim());
-        doc.setFontSize(7.8);
-        const tNumW = doc.getTextWidth(tNum);
-        const tDenW = doc.getTextWidth(tDen);
-        const tFracW = Math.max(tNumW, tDenW) + 3;
-
-        doc.text(tNum, tailX + (tFracW - tNumW) / 2, y + 3.4);
-        doc.setLineWidth(0.25);
-        doc.line(tailX, y + 4.9, tailX + tFracW, y + 4.9);
-        doc.text(tDen, tailX + (tFracW - tDenW) / 2, y + 8.1);
-      } else {
-        doc.setFont(mathFont, 'italic');
-        doc.setFontSize(8.8);
-        doc.text(tail, tailX, y + boxH / 2 + 1.1);
-      }
-    }
-
-    return boxH;
+    return fBoxH;
   }
 
-  // Standard multi-line or single-line math box
-  doc.setFont(mathFont, 'italic');
-  doc.setFontSize(8.5);
-  const maxTextW = options?.eqNumber ? width - 22 : width - 8;
-  const fLines = doc.splitTextToSize(mathText, maxTextW);
-  const fBoxH = Math.max(6.5, fLines.length * 4.0 + 2.8);
-
-  doc.setFillColor(bg[0], bg[1], bg[2]);
-  doc.setDrawColor(border[0], border[1], border[2]);
-  doc.setLineWidth(0.2);
-  doc.roundedRect(x, y, width, fBoxH, 0.8, 0.8, 'FD');
-
-  // Equation number badge right-aligned
-  if (options?.eqNumber) {
-    doc.setFont(mathFont, 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`(${options.eqNumber})`, x + width - 4, y + fBoxH / 2 + 1.2, { align: 'right' });
-  }
-
-  doc.setFont(mathFont, 'italic');
-  doc.setFontSize(8.5);
-  doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-  fLines.forEach((fl: string, flIdx: number) => {
-    doc.text(fl, x + 4, y + 3.8 + flIdx * 4.0);
-  });
-
-  return fBoxH;
+  return 8.0;
 }
 
 /**
@@ -238,6 +265,10 @@ export function generateServerChapterPdf(chapterId: string): ServerPdfResult {
   });
   loadFreeSerifFonts(doc);
   const hasSerif = (doc as any)._hasFreeSerif ?? false;
+
+  // Single reusable scratch document for measuring stacked formula heights without per-card jsPDF+font allocations
+  const measureDoc = new jsPDF({ unit: 'mm', format: 'a4' });
+  if (hasSerif) loadFreeSerifFonts(measureDoc);
 
   const pageWidth = 210;
   const pageHeight = 297;
@@ -315,46 +346,61 @@ export function generateServerChapterPdf(chapterId: string): ServerPdfResult {
 
   y += bannerH + 3.5;
 
-  // 2. High-Yield Revision Shortcuts & Traps (if available in JEE sheet)
+  // 2. High-Yield Revision Shortcuts & Traps (if available in JEE sheet) - dynamically measured
   if (jeeSheet?.jeeQuickRevision) {
     const rev = jeeSheet.jeeQuickRevision;
     const hasShortcuts = rev.shortcuts && rev.shortcuts.length > 0;
     const hasTraps = rev.trapsAndPitfalls && rev.trapsAndPitfalls.length > 0;
 
     if (hasShortcuts || hasTraps) {
-      checkPageBreak(18);
+      doc.setFont(hasSerif ? 'FreeSerif' : 'helvetica', 'normal');
+      doc.setFontSize(7.4);
 
-      const revBoxH = (hasShortcuts && hasTraps) ? 17 : 10;
-      doc.setFillColor(240, 253, 250); // Emerald tint
+      const scText = hasShortcuts ? formatForServerFont(preprocessAndWrapFormula(rev.shortcuts[0], 'inline'), hasSerif) : '';
+      const trapText = hasTraps ? formatForServerFont(preprocessAndWrapFormula(rev.trapsAndPitfalls[0], 'inline'), hasSerif) : '';
+
+      const scLines = scText ? doc.splitTextToSize(scText, contentWidth - 37) : [];
+      const trapLines = trapText ? doc.splitTextToSize(trapText, contentWidth - 37) : [];
+
+      const revBoxH = Math.max(
+        10,
+        3.5 +
+          (scLines.length > 0 ? scLines.length * 3.4 + 2 : 0) +
+          (trapLines.length > 0 ? trapLines.length * 3.4 + 2 : 0) +
+          2
+      );
+
+      checkPageBreak(revBoxH + 2);
+
+      doc.setFillColor(240, 253, 250);
       doc.setDrawColor(153, 246, 228);
       doc.setLineWidth(0.3);
       doc.roundedRect(margin, y, contentWidth, revBoxH, 1, 1, 'FD');
 
-      let revY = y + 4.0;
-      if (hasShortcuts) {
+      let revY = y + 4.2;
+      if (scLines.length > 0) {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.2);
+        doc.setFontSize(7.0);
         doc.setTextColor(6, 95, 70);
         doc.text('[EXAM SHORTCUT]', margin + 3.5, revY);
 
         doc.setFont(hasSerif ? 'FreeSerif' : 'helvetica', 'normal');
-        doc.setFontSize(7.5);
-        // Preprocess inline formula in shortcut
-        const scText = formatLatexToMathText(preprocessAndWrapFormula(rev.shortcuts[0], 'inline'));
-        doc.text(scText, margin + 32, revY, { maxWidth: contentWidth - 36 });
-        revY += 6.5;
+        doc.setFontSize(7.4);
+        doc.setTextColor(15, 23, 42);
+        scLines.forEach((ln: string, li: number) => doc.text(ln, margin + 32, revY + li * 3.4));
+        revY += scLines.length * 3.4 + 2.2;
       }
 
-      if (hasTraps) {
+      if (trapLines.length > 0) {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.2);
+        doc.setFontSize(7.0);
         doc.setTextColor(159, 18, 57);
         doc.text('[COMMON PITFALL]', margin + 3.5, revY);
 
         doc.setFont(hasSerif ? 'FreeSerif' : 'helvetica', 'normal');
-        doc.setFontSize(7.5);
-        const trapText = formatLatexToMathText(preprocessAndWrapFormula(rev.trapsAndPitfalls[0], 'inline'));
-        doc.text(trapText, margin + 32, revY, { maxWidth: contentWidth - 36 });
+        doc.setFontSize(7.4);
+        doc.setTextColor(136, 19, 55);
+        trapLines.forEach((ln: string, li: number) => doc.text(ln, margin + 32, revY + li * 3.4));
       }
 
       y += revBoxH + 3;
@@ -385,13 +431,11 @@ export function generateServerChapterPdf(chapterId: string): ServerPdfResult {
 
       (sec.items || []).forEach((item: any, iIdx: number) => {
         const nameClean = sanitizeUnicodeForPdf(item.name);
-        const condClean = formatLatexToMathText(preprocessAndWrapFormula(item.conditionOrMeaning, 'inline'));
+        const condClean = formatForServerFont(preprocessAndWrapFormula(item.conditionOrMeaning, 'inline'), hasSerif);
         const unitClean = item.siUnit ? ` [SI: ${sanitizeUnicodeForPdf(item.siUnit)}]` : '';
 
-        // Measure formula height using the server-side equation box
-        const testDoc = new jsPDF({ unit: 'mm' });
-        loadFreeSerifFonts(testDoc);
-        const formulaBlockH = drawServerLatexFormulaBox(testDoc, item.formula, 0, 0, contentWidth - 5, { eqNumber: `${sIdx + 1}.${iIdx + 1}` });
+        // Measure formula height using reusable scratch doc
+        const formulaBlockH = drawServerLatexFormulaBox(measureDoc, item.formula, 0, 0, contentWidth - 5, { eqNumber: `${sIdx + 1}.${iIdx + 1}` });
 
         // Measure note lines
         doc.setFont(hasSerif ? 'FreeSerif' : 'helvetica', 'italic');
@@ -459,12 +503,10 @@ export function generateServerChapterPdf(chapterId: string): ServerPdfResult {
 
     jeeSheet.specialCases.forEach((sc, scIdx) => {
       const titleClean = sanitizeUnicodeForPdf(sc.title);
-      const condClean = formatLatexToMathText(preprocessAndWrapFormula(sc.condition, 'inline'));
-      const noteClean = formatLatexToMathText(preprocessAndWrapFormula(sc.notes, 'inline'));
+      const condClean = formatForServerFont(preprocessAndWrapFormula(sc.condition, 'inline'), hasSerif);
+      const noteClean = formatForServerFont(preprocessAndWrapFormula(sc.notes, 'inline'), hasSerif);
 
-      const testDoc = new jsPDF({ unit: 'mm' });
-      loadFreeSerifFonts(testDoc);
-      const resHeight = drawServerLatexFormulaBox(testDoc, sc.resultFormula, 0, 0, contentWidth - 5, {
+      const resHeight = drawServerLatexFormulaBox(measureDoc, sc.resultFormula, 0, 0, contentWidth - 5, {
         eqNumber: `Case ${scIdx + 1}`,
         bgColor: [254, 243, 199],
         borderColor: [252, 211, 77],
@@ -539,11 +581,9 @@ export function generateServerChapterPdf(chapterId: string): ServerPdfResult {
 
       concept.formulas.forEach((f, fIdx) => {
         const nameClean = sanitizeUnicodeForPdf(f.name);
-        const explClean = formatLatexToMathText(preprocessAndWrapFormula(f.explanation, 'inline'));
+        const explClean = formatForServerFont(preprocessAndWrapFormula(f.explanation, 'inline'), hasSerif);
 
-        const testDoc = new jsPDF({ unit: 'mm' });
-        loadFreeSerifFonts(testDoc);
-        const formulaBlockH = drawServerLatexFormulaBox(testDoc, f.latex, 0, 0, contentWidth - 5, { eqNumber: `${cIdx + 1}.${fIdx + 1}` });
+        const formulaBlockH = drawServerLatexFormulaBox(measureDoc, f.latex, 0, 0, contentWidth - 5, { eqNumber: `${cIdx + 1}.${fIdx + 1}` });
 
         doc.setFont(hasSerif ? 'FreeSerif' : 'helvetica', 'italic');
         doc.setFontSize(7.2);
@@ -609,6 +649,9 @@ export function generateServerMasterPdf(): ServerPdfResult {
   });
   loadFreeSerifFonts(doc);
   const hasSerif = (doc as any)._hasFreeSerif ?? false;
+
+  const measureDoc = new jsPDF({ unit: 'mm', format: 'a4' });
+  if (hasSerif) loadFreeSerifFonts(measureDoc);
 
   const pageWidth = 210;
   const pageHeight = 297;
@@ -709,11 +752,9 @@ export function generateServerMasterPdf(): ServerPdfResult {
 
         (sec.items || []).forEach((item: any, iIdx: number) => {
           const nameClean = sanitizeUnicodeForPdf(item.name);
-          const condClean = formatLatexToMathText(preprocessAndWrapFormula(item.conditionOrMeaning, 'inline'));
+          const condClean = formatForServerFont(preprocessAndWrapFormula(item.conditionOrMeaning, 'inline'), hasSerif);
 
-          const testDoc = new jsPDF({ unit: 'mm' });
-          loadFreeSerifFonts(testDoc);
-          const fBoxH = drawServerLatexFormulaBox(testDoc, item.formula, 0, 0, contentWidth - 4, { eqNumber: `${chIdx + 1}.${sIdx + 1}.${iIdx + 1}` });
+          const fBoxH = drawServerLatexFormulaBox(measureDoc, item.formula, 0, 0, contentWidth - 4, { eqNumber: `${chIdx + 1}.${sIdx + 1}.${iIdx + 1}` });
 
           doc.setFont(hasSerif ? 'FreeSerif' : 'helvetica', 'italic');
           doc.setFontSize(7.0);
