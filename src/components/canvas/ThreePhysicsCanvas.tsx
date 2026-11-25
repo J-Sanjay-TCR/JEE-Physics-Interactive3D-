@@ -65,6 +65,288 @@ import {
 import { ComparePreset, getComparisonPresets } from '../../data/comparisonPresets';
 import { calculateAdaptiveFov, detectScreenMetrics, ScreenMetrics } from '../../utils/screenDetection';
 
+export interface LabelDistanceMetrics {
+  visible: boolean;
+  scaleMult: number;
+  opacity: number;
+}
+
+export function getCanvasLabelPriority(labelName: string): number {
+  if (labelName.includes('vel') || labelName.includes('net') || labelName.includes('resultant')) return 3;
+  if (
+    labelName.includes('apex') ||
+    labelName.includes('landing') ||
+    labelName.includes('com') ||
+    labelName.includes('tracker')
+  ) {
+    return 2.5;
+  }
+  if (labelName.startsWith('label-wp-')) return 0.5;
+  return 1.5;
+}
+
+export function computeLabelDistanceMetrics(
+  dist: number,
+  refDist: number,
+  priority: number
+): LabelDistanceMetrics {
+  if (!Number.isFinite(dist) || dist < 1.0) {
+    return { visible: false, scaleMult: 0.42, opacity: 0 };
+  }
+
+  const safeRef = Math.max(8, Math.min(40, refDist || 20));
+  const isSecondary = priority <= 0.75;
+  const scaleDecayStart = safeRef * 1.05;
+  const fadeStart = isSecondary ? safeRef * 0.90 : safeRef * 1.15;
+  const fadeEnd = isSecondary ? safeRef * 1.28 : safeRef * 1.65;
+
+  if (dist >= fadeEnd) {
+    return { visible: false, scaleMult: 0.42, opacity: 0 };
+  }
+
+  // Distance-based scale curve:
+  // - Close range (< 0.72 * refDist): compact (0.68 -> 1.0) so labels never overpower details
+  // - Nominal range: balanced 1.0
+  // - Long range (> 1.05 * refDist): attenuates down (1.0 -> 0.42) so labels shrink and recede cleanly
+  let scaleMult = 1.0;
+  const nearEnd = Math.max(2.5, safeRef * 0.72);
+  if (dist < nearEnd) {
+    const tNear = THREE.MathUtils.clamp((dist - 1.0) / Math.max(0.5, nearEnd - 1.0), 0, 1);
+    scaleMult = THREE.MathUtils.lerp(0.68, 1.0, tNear * tNear * (3 - 2 * tNear));
+  } else if (dist > scaleDecayStart) {
+    const tFar = THREE.MathUtils.clamp((dist - scaleDecayStart) / Math.max(1, fadeEnd - scaleDecayStart), 0, 1);
+    scaleMult = THREE.MathUtils.lerp(1.0, 0.42, tFar * tFar * (3 - 2 * tFar));
+  }
+
+  // Smooth cubic-Hermite opacity attenuation (near clip fade-in + long-distance fade-out)
+  let opacity = 1.0;
+  if (dist > fadeStart) {
+    const tFade = THREE.MathUtils.clamp((dist - fadeStart) / Math.max(0.5, fadeEnd - fadeStart), 0, 1);
+    opacity = 1.0 - tFade * tFade * (3 - 2 * tFade);
+  } else if (dist < 2.2) {
+    opacity = THREE.MathUtils.clamp((dist - 1.0) / 1.2, 0, 1);
+  }
+
+  if (opacity <= 0.04) {
+    return { visible: false, scaleMult, opacity: 0 };
+  }
+
+  return { visible: true, scaleMult, opacity };
+}
+
+// Pre-allocated scratch buffers for zero-GC per-frame label projection & decluttering
+const _labelProjVec = new THREE.Vector3();
+const _labelCamForward = new THREE.Vector3();
+const _labelCamUp = new THREE.Vector3();
+const _labelDeltaVec = new THREE.Vector3();
+
+interface LabelCandidate {
+  sprite: THREE.Sprite;
+  dist: number;
+  distZ: number;
+  basePriority: number;
+  sortScore: number;
+  ndcX: number;
+  ndcY: number;
+  halfW: number;
+  halfH: number;
+  opacity: number;
+  scaleMult: number;
+}
+
+const _labelCandidates: LabelCandidate[] = [];
+const _labelPlacedBoxes: { minX: number; maxX: number; minY: number; maxY: number }[] = [];
+
+export function updateDistanceScaledLabels(
+  labelsGroup: THREE.Group | null | undefined,
+  camera: THREE.PerspectiveCamera | null | undefined,
+  options: { refDist: number; orbitRadius: number; isSplit?: boolean }
+) {
+  if (!labelsGroup || !camera || !labelsGroup.visible || labelsGroup.children.length === 0) return;
+
+  camera.updateMatrixWorld();
+  _labelCamForward.set(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+  _labelCamUp.set(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+
+  const safeRef = Math.max(8, Math.min(40, options.refDist || 20));
+  const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+  const aspect = Math.max(0.4, camera.aspect || 1);
+  const safeMaxX = options.isSplit ? 0.94 : 0.88;
+  const safeMaxY = 0.82;
+
+  _labelCandidates.length = 0;
+  _labelPlacedBoxes.length = 0;
+
+  let nearestDist = Infinity;
+
+  for (let i = 0; i < labelsGroup.children.length; i++) {
+    const child = labelsGroup.children[i] as THREE.Sprite;
+    if (!child || !(child as any).isSprite) continue;
+
+    const ud = child.userData;
+    if (!ud?.desiredVisible || ud.hiddenByFilter) {
+      child.visible = false;
+      continue;
+    }
+
+    const anchor = (ud.anchorPos as THREE.Vector3) || child.position;
+    const dist = camera.position.distanceTo(anchor);
+    const basePriority = getCanvasLabelPriority(child.name || '');
+
+    const metrics = computeLabelDistanceMetrics(dist, safeRef, basePriority);
+    if (!metrics.visible) {
+      child.visible = false;
+      continue;
+    }
+
+    _labelDeltaVec.subVectors(anchor, camera.position);
+    const distZ = _labelDeltaVec.dot(_labelCamForward);
+    if (distZ <= 0.8) {
+      child.visible = false;
+      continue;
+    }
+
+    _labelProjVec.copy(anchor).project(camera);
+    if (
+      !Number.isFinite(_labelProjVec.x) ||
+      !Number.isFinite(_labelProjVec.y) ||
+      _labelProjVec.z < -1 ||
+      _labelProjVec.z > 1 ||
+      Math.abs(_labelProjVec.x) > safeMaxX ||
+      Math.abs(_labelProjVec.y) > safeMaxY
+    ) {
+      child.visible = false;
+      continue;
+    }
+
+    if (dist < nearestDist) {
+      nearestDist = dist;
+    }
+
+    const baseScaleX = (ud.baseScaleX as number) || child.scale.x;
+    const baseScaleY = (ud.baseScaleY as number) || child.scale.y;
+    const pillFrac = (ud.pillFraction as number) || 0.7;
+
+    const halfH = (baseScaleY * metrics.scaleMult * 0.5) / (distZ * tanHalfFov);
+    const halfW = (baseScaleX * pillFrac * metrics.scaleMult * 0.5) / (distZ * tanHalfFov * aspect);
+
+    _labelCandidates.push({
+      sprite: child,
+      dist,
+      distZ,
+      basePriority,
+      sortScore: basePriority - dist * 0.025,
+      ndcX: _labelProjVec.x,
+      ndcY: _labelProjVec.y,
+      halfW: halfW * 1.08,
+      halfH: halfH * 1.15,
+      opacity: metrics.opacity,
+      scaleMult: metrics.scaleMult,
+    });
+  }
+
+  if (_labelCandidates.length === 0) return;
+
+  // Attenuate distant background labels relative to the closest foreground anchor
+  if (Number.isFinite(nearestDist)) {
+    for (let i = 0; i < _labelCandidates.length; i++) {
+      const c = _labelCandidates[i];
+      if (c.dist > nearestDist + safeRef * 0.65) {
+        c.opacity *= 0.72;
+      }
+    }
+  }
+
+  _labelCandidates.sort((a, b) => b.sortScore - a.sortScore);
+
+  const isZoomedOut = options.orbitRadius > safeRef * 1.08;
+  const maxNdcArea = isZoomedOut ? 0.09 : 0.18;
+  let usedNdcArea = 0;
+
+  const collidesWithPlaced = (minX: number, maxX: number, minY: number, maxY: number) => {
+    for (let i = 0; i < _labelPlacedBoxes.length; i++) {
+      const b = _labelPlacedBoxes[i];
+      if (minX < b.maxX && maxX > b.minX && minY < b.maxY && maxY > b.minY) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (let i = 0; i < _labelCandidates.length; i++) {
+    const c = _labelCandidates[i];
+    if (c.opacity <= 0.04) {
+      c.sprite.visible = false;
+      continue;
+    }
+
+    // Screen-coverage budget: when zoomed out or densely clustered, keep high-priority labels and hide excess
+    const approxArea = (c.halfW * 2) * (c.halfH * 2) * 0.25;
+    if (usedNdcArea + approxArea > maxNdcArea && c.basePriority < 2.2) {
+      c.sprite.visible = false;
+      continue;
+    }
+
+    const ud = c.sprite.userData;
+    const anchor = (ud.anchorPos as THREE.Vector3) || c.sprite.position;
+
+    let chosenNdcY = c.ndcY;
+    let worldYOffset = 0;
+    let placed = !collidesWithPlaced(c.ndcX - c.halfW, c.ndcX + c.halfW, chosenNdcY - c.halfH, chosenNdcY + c.halfH);
+
+    if (!placed) {
+      const ndcStep = c.halfH * 2.15;
+      const upY = c.ndcY + ndcStep;
+      if (
+        upY + c.halfH <= safeMaxY &&
+        !collidesWithPlaced(c.ndcX - c.halfW, c.ndcX + c.halfW, upY - c.halfH, upY + c.halfH)
+      ) {
+        chosenNdcY = upY;
+        worldYOffset = ndcStep * c.distZ * tanHalfFov;
+        placed = true;
+      } else {
+        const downY = c.ndcY - ndcStep;
+        if (
+          downY - c.halfH >= -safeMaxY &&
+          !collidesWithPlaced(c.ndcX - c.halfW, c.ndcX + c.halfW, downY - c.halfH, downY + c.halfH)
+        ) {
+          chosenNdcY = downY;
+          worldYOffset = -ndcStep * c.distZ * tanHalfFov;
+          placed = true;
+        }
+      }
+    }
+
+    if (!placed) {
+      c.sprite.visible = false;
+      continue;
+    }
+
+    _labelPlacedBoxes.push({
+      minX: c.ndcX - c.halfW,
+      maxX: c.ndcX + c.halfW,
+      minY: chosenNdcY - c.halfH,
+      maxY: chosenNdcY + c.halfH,
+    });
+    usedNdcArea += approxArea;
+
+    c.sprite.position.copy(anchor);
+    if (worldYOffset !== 0) {
+      c.sprite.position.addScaledVector(_labelCamUp, worldYOffset);
+    }
+
+    const baseScaleX = (ud.baseScaleX as number) || c.sprite.scale.x;
+    const baseScaleY = (ud.baseScaleY as number) || c.sprite.scale.y;
+    c.sprite.scale.set(baseScaleX * c.scaleMult, baseScaleY * c.scaleMult, 1);
+
+    const mat = c.sprite.material as THREE.SpriteMaterial;
+    if (mat) {
+      mat.opacity = c.opacity;
+    }
+    c.sprite.visible = true;
+  }
+}
+
 interface ThreePhysicsCanvasProps {
   simulationType: SimulationType;
   params: Record<string, number>;
@@ -1378,7 +1660,11 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
 
             cameraRef.current.aspect = halfW / Math.max(1, fullH);
             cameraRef.current.updateProjectionMatrix();
-            simRendererRef.current?.updateLabelLOD(cameraRef.current, defaultRadius.current);
+            updateDistanceScaledLabels(simRendererRef.current?.getLabelsGroup(), cameraRef.current, {
+              refDist: defaultRadius.current,
+              orbitRadius: cameraSpherical.current.radius,
+              isSplit: true,
+            });
             rendererRef.current.setViewport(0, 0, halfW, fullH);
             rendererRef.current.setScissor(0, 0, halfW, fullH);
             rendererRef.current.render(sceneRef.current, cameraRef.current);
@@ -1386,7 +1672,11 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
             const rightW = fullW - halfW;
             cameraRef.current.aspect = rightW / Math.max(1, fullH);
             cameraRef.current.updateProjectionMatrix();
-            simRendererBRef.current?.updateLabelLOD(cameraRef.current, defaultRadius.current);
+            updateDistanceScaledLabels(simRendererBRef.current?.getLabelsGroup(), cameraRef.current, {
+              refDist: defaultRadius.current,
+              orbitRadius: cameraSpherical.current.radius,
+              isSplit: true,
+            });
             rendererRef.current.setViewport(halfW, 0, rightW, fullH);
             rendererRef.current.setScissor(halfW, 0, rightW, fullH);
             rendererRef.current.render(sceneBRef.current, cameraRef.current);
@@ -1395,7 +1685,11 @@ export const ThreePhysicsCanvas: React.FC<ThreePhysicsCanvasProps> = ({
           } else {
             cameraRef.current.aspect = fullW / Math.max(1, fullH);
             cameraRef.current.updateProjectionMatrix();
-            simRendererRef.current?.updateLabelLOD(cameraRef.current, defaultRadius.current);
+            updateDistanceScaledLabels(simRendererRef.current?.getLabelsGroup(), cameraRef.current, {
+              refDist: defaultRadius.current,
+              orbitRadius: cameraSpherical.current.radius,
+              isSplit: false,
+            });
             rendererRef.current.setViewport(0, 0, fullW, fullH);
 
             if (!isARModeRef.current && composerRef.current && bloomIntensityRef.current !== 'off') {
